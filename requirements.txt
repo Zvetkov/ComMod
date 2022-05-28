@@ -1,0 +1,4 @@
+lxml==4.8.0
+Nuitka==0.7.6
+PyYAML==6.0
+zstandard==0.17.0
