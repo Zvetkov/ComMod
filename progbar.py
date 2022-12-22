@@ -14,7 +14,7 @@ def progress_percentage(perc, width=None):
     if width is None:
         width = os.get_terminal_size().columns
     # progress bar is block_widget separator perc_widget : ####### 30%
-    max_perc_widget = '[100.00%]' # 100% is max
+    max_perc_widget = '[100.00%]'  # 100% is max
     separator = ' '
     blocks_widget_width = width - len(separator) - len(max_perc_widget)
     assert(blocks_widget_width >= 10) # not very meaningful if not

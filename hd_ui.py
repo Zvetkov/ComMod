@@ -5,33 +5,38 @@ from ctypes import windll
 import logging
 
 import data
-import utils
+import file_ops
 from get_system_fonts import get_fonts
+
+logger = logging.getLogger('dem')
+
 
 def get_monitor_resolution():
     res_x = windll.user32.GetSystemMetrics(0)
     res_y = windll.user32.GetSystemMetrics(1)
     screen_size = int(res_x), int(res_y)
-    logging.debug(f"reported res x: {res_x}")
-    logging.debug(f"reported res y: {res_y}")
-    logging.debug(f"os scale factor: {data.OS_SCALE_FACTOR}")
-    logging.debug(f"screen size {screen_size[0]}:{screen_size[1]}")
+    logger.debug(f"reported res x: {res_x}")
+    logger.debug(f"reported res y: {res_y}")
+    logger.debug(f"os scale factor: {data.OS_SCALE_FACTOR}")
+    logger.debug(f"screen size {screen_size[0]}:{screen_size[1]}")
     return screen_size
 
 
 def scale_fonts(root_dir: str, scale_factor):
-    config = utils.get_config(root_dir)
+    config = file_ops.get_config(root_dir)
     ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
-    ui_schema = utils.xml_to_objfy(ui_schema_path)
+    ui_schema = file_ops.xml_to_objfy(ui_schema_path)
 
     system_fonts = [font.lower() for font in os.listdir(r'C:\Windows\fonts')]
 
     tahoma_available = False
     arial_available = False
+
+    # hardcode
     force_arial = True
 
     if "tahoma.ttf" in system_fonts:
-        tahoma_alias = "Tahoma"
+        font_alias = "Tahoma"
         tahoma_available = True
 
     arial_available = "arial.ttf" in system_fonts
@@ -39,55 +44,57 @@ def scale_fonts(root_dir: str, scale_factor):
     if (not tahoma_available and not force_arial) or not arial_available:
         system_fonts = get_fonts()
         if "Tahoma" in system_fonts:
-            tahoma_alias = "Tahoma"
+            font_alias = "Tahoma"
             tahoma_available = True
         elif "SM_Tahoma" in system_fonts:
-            tahoma_alias = "SM_Tahoma"
+            font_alias = "SM_Tahoma"
             tahoma_available = True
         else:
             tahoma_available = False
-        
+
         arial_available = "Arial" in system_fonts
-    
+
     if ((not tahoma_available) and arial_available) or force_arial:
-        tahoma_alias = "Arial"
+        font_alias = "Arial"
         tahoma_available = True
 
+    large_font_size = str(round(12 / data.OS_SCALE_FACTOR * data.ENLARGE_UI_COEF, 1))
+    sml_font_size = str(round(10 / data.OS_SCALE_FACTOR * data.ENLARGE_UI_COEF, 1))
     if arial_available:
         if ui_schema["schema"].attrib.get("titleFontSize") is not None and tahoma_available:
-            ui_schema["schema"].attrib["titleFontFace"] = tahoma_alias
-            ui_schema["schema"].attrib["titleFontSize"] = f"{round(12 / data.OS_SCALE_FACTOR * data.ENLARGE_UI_COEF, 1)}"
+            ui_schema["schema"].attrib["titleFontFace"] = font_alias
+            ui_schema["schema"].attrib["titleFontSize"] = large_font_size
             ui_schema["schema"].attrib["titleFontType"] = "0"
         if ui_schema["schema"].attrib.get("wndFontSize") is not None and tahoma_available:
-            ui_schema["schema"].attrib["wndFontFace"] = tahoma_alias
-            ui_schema["schema"].attrib["wndFontSize"] = f"{round(10 / data.OS_SCALE_FACTOR * data.ENLARGE_UI_COEF, 1)}"
+            ui_schema["schema"].attrib["wndFontFace"] = font_alias
+            ui_schema["schema"].attrib["wndFontSize"] = sml_font_size
             ui_schema["schema"].attrib["wndFontType"] = "0"
         if ui_schema["schema"].attrib.get("tooltipFontSize") is not None and tahoma_available:
-            ui_schema["schema"].attrib["tooltipFontFace"] = tahoma_alias
-            ui_schema["schema"].attrib["tooltipFontSize"] = f"{round(12 / data.OS_SCALE_FACTOR * data.ENLARGE_UI_COEF, 1)}"
+            ui_schema["schema"].attrib["tooltipFontFace"] = font_alias
+            ui_schema["schema"].attrib["tooltipFontSize"] = large_font_size
             ui_schema["schema"].attrib["tooltipFontType"] = "0"
         if ui_schema["schema"].attrib.get("miscFontSize") is not None and arial_available:
             ui_schema["schema"].attrib["miscFontFace"] = "Arial"
-            ui_schema["schema"].attrib["miscFontSize"] = f"{round(10 / data.OS_SCALE_FACTOR * data.ENLARGE_UI_COEF, 1)}"
+            ui_schema["schema"].attrib["miscFontSize"] = sml_font_size
             ui_schema["schema"].attrib["miscFontType"] = "0"
-        utils.save_to_file(ui_schema, ui_schema_path)
-        logging.debug(utils.loc_string("fonts_corrected"))
+        file_ops.save_to_file(ui_schema, ui_schema_path)
+        logger.debug("fonts_corrected")
     else:
-        print(utils.loc_string("cant_correct_fonts"))
+        logger.debug("cant_correct_fonts")
 
-def make_dpi_aware(path_to_exe):
-    compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
-    hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
-    compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_WRITE)
-    winreg.SetValueEx(compat_settings_reg_value, os.path.normpath(path_to_exe), 0, winreg.REG_SZ, "~ HIGHDPIAWARE")
-    winreg.SetValueEx(compat_settings_reg_value, os.path.normpath(path_to_exe), 0, winreg.REG_SZ, "~ HIGHDPIAWARE")
-
-    hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
-
+# def make_dpi_aware(path_to_exe):
+#     compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+#     hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+#     compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_WRITE)
+#     winreg.SetValueEx(compat_settings_reg_value,
+#                       os.path.normpath(path_to_exe), 0, winreg.REG_SZ, "~ HIGHDPIAWARE")
+#     winreg.SetValueEx(compat_settings_reg_value,
+#                       os.path.normpath(path_to_exe), 0, winreg.REG_SZ, "~ HIGHDPIAWARE")
+    # hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
 
 
 def toggle_16_9_UI_xmls(root_dir: str, screen_width, screen_height, enable=True):
-    config = utils.get_config(root_dir)
+    config = file_ops.get_config(root_dir)
     if config.attrib.get("pathToUiWindows") is not None:
         if enable:
             new_value = r"data\if\dialogs_16_9\UiWindows.xml"
@@ -155,13 +162,14 @@ def toggle_16_9_UI_xmls(root_dir: str, screen_width, screen_height, enable=True)
             config.attrib["r_width"] = new_width
             config.attrib["r_height"] = new_height
 
-    utils.save_to_file(config, os.path.join(root_dir, "data", "config.cfg"))
+    file_ops.save_to_file(config, os.path.join(root_dir, "data", "config.cfg"))
+
 
 def toggle_16_9_glob_prop(root_dir: str, enable=True):
-    glob_props_full_path = os.path.join(root_dir, utils.get_glob_props_path(root_dir))
-    glob_props = utils.xml_to_objfy(glob_props_full_path)
-    ground_repository = utils.child_from_xml_node(glob_props, "GroundRepository")
-    smart_cursor = utils.child_from_xml_node(glob_props, "SmartCursor")
+    glob_props_full_path = os.path.join(root_dir, file_ops.get_glob_props_path(root_dir))
+    glob_props = file_ops.xml_to_objfy(glob_props_full_path)
+    ground_repository = file_ops.child_from_xml_node(glob_props, "GroundRepository")
+    smart_cursor = file_ops.child_from_xml_node(glob_props, "SmartCursor")
     if ground_repository is not None:
         if enable:
             ground_repository.attrib["Size"] = "18 300"
@@ -176,6 +184,6 @@ def toggle_16_9_glob_prop(root_dir: str, enable=True):
             smart_cursor.attrib["InfoAreaRadius"] = "50"
             smart_cursor.attrib["UnlockRegion"] = "300 300"
             smart_cursor.attrib["InfoObjUpdateTimeout"] = "0.5"
-    utils.save_to_file(glob_props, glob_props_full_path)
+    file_ops.save_to_file(glob_props, glob_props_full_path)
 
 

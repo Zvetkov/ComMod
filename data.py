@@ -1,12 +1,15 @@
+import logging
 import math
 import locale
 
 from os import system
 from ctypes import windll
 
+logger = logging.getLogger('dem')
+
 VERSION_BYTES_102_NOCD = 0x005906A3
-DATE = "(Mar 26 2022)"
-VERSION = "1.11"
+DATE = "(Dec 19 2022)"
+VERSION = "1.12"
 COMPATCH_VER = f"ExMachina - Community Patch build v{VERSION} {DATE}"
 COMPATCH_VER_SHRT = f"ExMachina - ComPatch v{VERSION} {DATE}"
 COMREM_VER = f"ExMachina - Community Remaster build v{VERSION} {DATE}"
@@ -73,6 +76,8 @@ else:
 # 0x5E5AAC # target capturing texCapturingSizeY
 # 0x5E5B0C # target capturing texCapturingSizeX
 # 0x5E5BDC # target capturing texCaptureSzBig
+
+
 
 PREFERED_RESOLUTIONS = {1920: [960, 1280, 1366, 1600, 1920],
                         2560: [960, 1280, 1600, 1920, 2560],
@@ -399,12 +404,14 @@ hidden_values = {"low_fuel_threshold": [0.25, 0x124CCD, "pointer", "used_elsewhe
                  "max_resistance_for_damage": [25.0, 0x2D72A5, "pointer", "used_elsewhere"],
                  "blast_damage_friendly_fire": [0x01, 0x3DFADC, "direct", "single_use"]}  # bool
 
-strings_loc = {"installation_title": {"rus": f"Установка Community Remaster & Community Patch - версия {VERSION}.",
-                                      "eng": f"Community Remaster & Community Patch installation - version {VERSION}."},
-               "patch_title": {"rus": f"Установка Community Patch - версия {VERSION}.",
-                                      "eng": f"Community Patch installation - version {VERSION}."},
-               "mod_manager_title": {"rus": "Mod Manager - установка модов для ComPatch/ComRem.",
-                                     "eng": "Mod Manager - installation of mods for ComPatch/ComRem."},
+strings_loc = {"installation_title": {"rus": f"Установка Community Remaster & Community Patch - версия {VERSION}",
+                                      "eng": f"Community Remaster & Community Patch installation - version {VERSION}"},
+               "patch_title": {"rus": f"Установка Community Patch - версия {VERSION}",
+                                      "eng": f"Community Patch installation - version {VERSION}"},
+               "remaster_title": {"rus": f"Установка Community Remaster - версия {VERSION}",
+                                  "eng": f"Community Remaster installation - version {VERSION}"},
+               "mod_manager_title": {"rus": "Mod Manager - установка модов для ComPatch/ComRem",
+                                     "eng": "Mod Manager - installation of mods for ComPatch/ComRem"},
                "advanced": {"rus": "Расширенная",
                             "eng": "Advanced"},
                "installation": {"rus": "Установка",
@@ -422,20 +429,20 @@ strings_loc = {"installation_title": {"rus": f"Установка Community Rema
                                         "... find full list of changes in readme.\n\n")},
                "install_mods": {"rus": "Найдены доступные для установки моды. Хотите запустить установку модов?",
                                 "eng": "Mods available for installation found. Do you want to start installation for mods?"},
-               "just_enter": {"rus": "Чтобы установить всё - просто нажмите 'Enter'\n",
-                              "eng": "To install everything - just press 'Enter'\n"},
+               "just_enter": {"rus": "\nЧтобы установить всё - просто нажмите 'Enter'\n",
+                              "eng": "\nTo install everything - just press 'Enter'\n"},
                "or_options": {"rus": "Для выбора опций - наберите 'options' и нажмите 'Enter'\n",
                               "eng": "To choose install options - input 'options' and press 'Enter'\n"},
                "first_choose_base_option": {"rus": "Сперва выберите основную версию:\n\n",
                                             "eng": "First choose base installation version.\n\n"},
-               "intro_version_choice": {"rus": ("Community Remaster - расширенная версия, HD интерфейс, "
+               "intro_version_choice": {"rus": ("\033[95mCommunity Remaster\033[0m - расширенная версия, 16:9 HD интерфейс, "
                                                 "возможность установить новые HD модели, ремастер саундтрека. "
                                                 "Включает все исправления Community Patch."
-                                                "\n\nCommunity Patch - базовая версия, исправления ошибок, квестов, кат-сцен, "
+                                                "\n\n\033[95mCommunity Patch\033[0m - базовая версия, исправления ошибок, квестов, кат-сцен, "
                                                 "улучшения игровых механик, интерфейс для старых 4:3 мониторов.\n"),
-                                        "eng": ("Community Remaster - extended version, HD interface, "
+                                        "eng": ("\033[95mCommunity Remaster\033[0m - extended version, 16:9 HD interface, "
                                                 "optional choice of new HD models, remastered soundtrack. "
-                                                "Includes all fixes from Community Patch.\n\nCommunity Patch - base version, "
+                                                "Includes all fixes from Community Patch.\n\n\033[95mCommunity Patch\033[0m - base version, "
                                                 "fixes bugs and quest issues, interface for old 4:3 monitors.\n")},
                "exe_not_supported": {"rus": "Найдена неподдерживаемая версия игры, установка будет прервана.\nПоддерживается установка только на распакованную игру версии 1.02.\nИгру можно приобрести в Steam: https://store.steampowered.com/app/285500\nДля установки поместите патчер и его папки 'patch', 'remaster', 'libs' в корневую папку игры.",
                                      "eng": "Unsupported game version is found, will not be able to apply patch.\nOnly unpacked version 1.02 is supported.\nGame can be purchased on Steam: https://store.steampowered.com/app/285500\nTo install put patcher and its folders 'patch', 'remaster', 'libs' inside the root folder of the game."},
@@ -469,14 +476,16 @@ strings_loc = {"installation_title": {"rus": f"Установка Community Rema
                            "eng": "for mod"},
                "of_version": {"rus": "версии",
                               "eng": "of version"},
+               "mod_url": {"rus": "Домашняя страница:",
+                           "eng": "Home page:"},
                "version_needed": {"rus": "Совместимые версии",
                                   "eng": "Compatible versions"},
                "version_available": {"rus": "установленная версия",
                                      "eng": "installed version"},
                "check_for_a_new_version": {"rus": "Проверьте доступны ли новые версии для устанавливаемых модов и все ли зависимости установлены.",
                                            "eng": "Check if newer versions are available for these mods and if all required dependencies are installed."},
-               "usupported_patcher_version": {"rus": "Скачайте новую версию патчера на - https://deuswiki.com/w/Community_Patch.\nУстановка контента запрашивает более свежую версию патчера",
-                                              "eng": "Download new version from - https://deuswiki.com/w/Community_Patch.\nContent installation required newer patcher version"},
+               "usupported_patcher_version": {"rus": "Скачайте новую версию патчера на - https://deuswiki.com/w/Community_Patch.\nУстановка контента запрашивает более свежую версию патчера: {new_version}, сейчас используется: {current_version}",
+                                              "eng": "Download new version from - https://deuswiki.com/w/Community_Patch.\nContent installation required newer patcher version: {new_version}, now used: {current_version}"},
                "including_options": {"rus": "Включая опции",
                                      "eng": "Including options"},
                "base_prompt": {"rus": "Введите доступный вариант и нажмите ENTER",
@@ -497,14 +506,22 @@ strings_loc = {"installation_title": {"rus": f"Установка Community Rema
                         "eng": "'skip' - skip option"},
                "description": {"rus": "Описание:",
                                "eng": "Description:"},
+               "author": {"rus": "Автор:",
+                          "eng": "Author:"},
+               "authors": {"rus": "Авторы:",
+                           "eng": "Authors:"},
                "install_setting_title": {"rus": "Способ установки",
                                          "eng": "Installation setting"},
                "compatch_mod_incompatible_with_comrem": {"rus": "Мод сделанный специально под Community Patch нельзя устанавливать поверх Community Remaster",
                                                          "eng": "Mod created specifically for Community Patch can't be install over Community Remaster"},
-               "required_mod_not_found": {"rus": "требуемый базовый мод не установлен",
-                                          "eng": "required base mod is not installed"},
+               "required_mod_not_found": {"rus": "Требуемый базовый мод не установлен",
+                                          "eng": "Required base mod is not installed"},
                "install_settings": {"rus": "Доступные варианты установки:",
                                     "eng": "Available install variants:"},
+               "optional_content": {"rus": "опциональный контент",
+                                    "eng": "optional content"},       
+               "install_leftovers": {"rus": "Предупреждение: установка поверх грязной копии игры.\nНа эту копию игры ранее уже происходила установка модов или Компатча, не завершившаяся успешно.\nМы можем попробовать повторно установить Компатч\Комремастер, установка модов будет отключена.\nВ случае ошибок, попробуйте установку на чистую копию игры.\n",
+                                     "eng": "Warning: installation in the dirty environment.\nThis game copy previously experienced unsuccessfull installation of some mod or ComPatch.\nWe can try to reinstall ComPatch\ComRemaster, but mod installation will be unavailable.\nIn case of errors, try again with a clean game copy.\n"},
                "cant_install_patch_over_remaster": {"rus": "Community Patch не поддерживает установку поверх Community Remaster, опция отключена\n",
                                                     "eng": "Community Patch doesn't support installation over Community Remaster, options is disabled\n"},
                "reinstalling_intro_no_mods": {"rus": ("Установщик обнаружил, что Community Patch или Community Remaster уже установлены на эту копию игры.\n"
@@ -555,18 +572,22 @@ strings_loc = {"installation_title": {"rus": f"Установка Community Rema
                                       "eng": "Can't correct fonts as Arial is not installed in the system"},
                "damage_coeff_patched": {"rus": "* Урон от столкновений скорректирован в соответствии с новой физикой",
                                         "eng": "* Vehicle crash damage is corrected to match new physics"},
-               "failed_and_cleaned": {"rus": "\nПри работе возникла ошибка, обратитесь к разработчику с информацией о проблеме.\n",
-                                      "eng": "\nPatching failed, contact developer with information about the issue.\n"},
+               "failed_and_cleaned": {"rus": "При работе возникла ошибка, обратитесь к разработчику с информацией о проблеме.\n",
+                                      "eng": "Patching failed, contact developer with information about the issue.\n"},
                "installation_finished": {"rus": "Установка завершена!\n",
                                          "eng": "Installation is complete!\n"},
-               "press_enter_to_exit": {"rus": "Сайт разработчиков патчера: https://deuswiki.com/w/Community_Patch\nНажмите Enter чтобы закрыть окно.\n",
-                                       "eng": "Patcher's developers site: https://deuswiki.com/w/Community_Patch\nPress Enter to close patcher.\n"},
+               "press_enter_to_exit": {"rus": "Discord команды Комьюнити Патча: https://discord.gg/jZHxYdF\nБольше информации про проект: https://deuswiki.com/w/Community_Patch (может быть нужен VPN)\nСвежие релизы патча на GitHub: https://github.com/DeusExMachinaTeam/EM-CommunityPatch\n\nНажмите Enter чтобы закрыть окно.\n",
+                                       "eng": "Discord of Community Patch team: https://discord.gg/jZHxYdF\nMore info about the project: https://deuswiki.com/w/Community_Patch\nLatest releases on GitHub: https://github.com/DeusExMachinaTeam/EM-CommunityPatch\n\nPress Enter to close patcher.\n"},
                "press_enter_to_continue": {"rus": "Нажмите Enter чтобы продолжить.\n",
                                            "eng": "Press Enter to continue.\n"},
+               "manifest_exists_game_unpatched": {"rus": "В указанную папку игры уже ранее пытались установить Компатч/Комремастер, но установка не была полностью успешной. Удалите игру и установите её заново перед установкой Компатча.",
+                                                  "eng": "Targeted game directory previously was a target on unsuccessful ComPatch installation. Delete game and reinstall it from scratch before the new attempt to install ComPatch."},
+               "invalid_existing_manifest": {"rus": "Манифест предыдущей установки модов\КомПатча для выбранной папки с игрой повреждён или имеет неподдерживаемый формат. Удалите игру и установите её заново перед установкой Компатча.",
+                                             "eng": "Installation manifest of mods or ComPatch for the target game installation is corrupted or has an unknown format. Delete game and reinstall it from scratch before the new attempt to install ComPatch."},
                "stopping_patching": {"rus": "\nПатчинг остановлен, нажмите Enter, чтобы закрыть патчер.",
                                      "eng": "\nStopping patching, press Enter to close patcher."},
-               "target_game_dir_doesnt_exist": {"rus": "\nУказанная папка игры не существует.",
-                                                "eng": "\nTargeted game directory doens't exist."},
+               "target_game_dir_doesnt_exist": {"rus": "Указанная папка игры не существует.",
+                                                "eng": "Targeted game directory doesn't exist."},
                "not_validated_mod_manifest": {"rus": "Не удалось начать установку для мода, возможно файлы повреждены или манифест установки имеет некорректный формат",
                                               "eng": "Couldn't start installation for mod, files might be corrupted or mod install manifest is of incorrect format"},
                "empty_mod_manifest": {"rus": "Не удалось начать установку для мода, возможно файлы повреждены - манифест установки пуст или сломан",
@@ -579,13 +600,15 @@ strings_loc = {"installation_title": {"rus": f"Установка Community Rema
                                                 "eng": "Community Patch / Remaster files were not found near a patcher.\nPut the patcher in the same folder where other Compatch distribution files are located"},
                "error_logging_setup": {"rus": "Ошибка во время настройки логирования",
                                        "eng": "Error occured when trying to setup logging"},
+               "installation_aborted": {"rus": "Установка прервана по желанию пользователя.",
+                                        "eng": "Installation aborted by the user."},
                "remaster_version": {"rus": f"Комьюнити Ремастер {VERSION}",
                                     "eng": f"Community Remaster {VERSION}"}
                }
 
 
 def set_title():
-    system("title " + f"DEM Community Patcher - v{VERSION} {DATE}")
+    system("title " + f"DEM CommunityModManager - v{VERSION} {DATE}")
 
 
 def get_text_offsets(version):
@@ -609,3 +632,12 @@ def get_text_offsets(version):
                     0x5BDCE8: [version_text, 70],
                     0x598DCC: ["169", 3]}
     return offsets_text
+
+
+def loc_string(str_name: str) -> str:
+    loc_str = strings_loc.get(str_name)
+    if loc_str is not None:
+        return loc_str[LANG]
+    else:
+        logger.debug(f"Localized string '{str_name}' not found!")
+        return f"Unlocalised string '{str_name}'"

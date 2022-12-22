@@ -3,17 +3,24 @@ from math import isclose
 import os
 from pathlib import Path
 
-from utils import bcolors, format_text, prompt_for, loc_string, copy_from_to
+from console_ui import bcolors, format_text
+from data import loc_string
+from file_ops import copy_from_to
+
+logger = logging.getLogger('dem')
 
 
 class Mod:
     def __init__(self, yaml_config, distribution_dir) -> None:
+        self.logger = logging.getLogger('dem')
         try:
             self.name = str(yaml_config.get("name"))
             self.display_name = yaml_config.get("display_name")
             self.description = yaml_config.get("description")
+            self.authors = yaml_config.get("authors")
             self.version = str(yaml_config.get("version"))
             self.build = str(yaml_config.get("build"))
+            self.url = str(yaml_config.get("link"))
             if self.build is not None:
                 self.build = self.build[:7]
             self.prerequisites = yaml_config.get("prerequisites")
@@ -57,103 +64,14 @@ class Mod:
 
         except Exception as ex:
             er_message = f"Broken manifest for content '{self.name}'!"
-            logging.error(ex)
-            logging.error(er_message)
+            self.logger.error(ex)
+            self.logger.error(er_message)
             raise ValueError(er_message)
 
-    def configure_install(self, options, full_install=False, skip_to_options=False, auto_clear=True) -> list:
-        install_settings = {}
-        requres_custom_install = False
-        configuration_in_progress = True
-
-        if full_install:
-            return self.get_full_install_settings()
-
-        title_header = format_text(f"{loc_string('installation')} {self.display_name} - "
-                                   f"{loc_string('version')} {self.version}.\n",
-                                   bcolors.WARNING)
-        if self.optional_content is not None:
-            for option in self.optional_content:
-                if option.install_settings is not None and option.default_option is None:
-                    # if any option doesn't have a default, we will ask user to make a choice
-                    requres_custom_install = True
-                    break
-
-        if skip_to_options:
-            install_settings["base"] = "yes"
-        else:
-            description = (f"{format_text(loc_string('description'), bcolors.OKBLUE)}\n{self.description} \n"
-                           f"{loc_string('install_mod_ask')} ({loc_string('yes_no')}) ")
-            base_install = prompt_for(["yes", "no"],
-                                      accept_enter=False,
-                                      auto_clear=auto_clear,
-                                      header=title_header,
-                                      description=description)
-            install_settings["base"] = base_install
-
-        optional_content_install = None
-        default_installation = None
-
-        if self.optional_content is not None:
-            if not requres_custom_install:
-                default_options = []
-                for option in self.optional_content:
-                    description = format_text(f"* {option.display_name}\n", bcolors.OKBLUE) + option.description
-                    if option.install_settings is not None:
-                        for setting in option.install_settings:
-                            if setting.get("name") == option.default_option:
-                                description += (f"\t** {loc_string('install_setting_title')}: "
-                                                f"{setting.get('description')}")
-
-                    default_options.append(description)
-                default_options = '\n'.join(default_options)
-
-                description = (f"{format_text(loc_string('description'), bcolors.OKBLUE)}\n{self.description} \n"
-                               f"{loc_string('default_options')}\n\n"
-                               f"{default_options}\n{format_text(loc_string('just_enter'), bcolors.HEADER)}"
-                               f"{loc_string('or_options')}")
-
-                default_installation = prompt_for(["options"], accept_enter=True,
-                                                  header=title_header, auto_clear=auto_clear,
-                                                  description=description)
-                if default_installation is None:
-                    install_settings = self.get_full_install_settings()
-
-            if requres_custom_install or default_installation == "options":
-                for option in self.optional_content:
-                    custom_install_setting = None
-                    if option.install_settings is not None:
-                        available_settins = [f"* {setting.get('name')} - {setting.get('description')}"
-                                             for setting in option.install_settings]
-                        available_settins = '\n'.join(available_settins)
-                        description = (f"{format_text(loc_string('description'), bcolors.OKBLUE)}\n{option.description}"
-                                       f"\n{loc_string('install_settings')}\n\n{available_settins}\n"
-                                       f"{loc_string('install_setting_ask')} ({loc_string('skip')}) ")
-                        available_options = [setting.get("name") for setting in option.install_settings]
-                        available_options.append("skip")
-                        custom_install_setting = prompt_for(available_options,
-                                                            accept_enter=False,
-                                                            header=f"{title_header}{option.display_name}\n",
-                                                            auto_clear=auto_clear,
-                                                            description=description)
-                    else:
-                        option_description = option.description
-                        description = (f"{format_text(loc_string('description'), bcolors.OKBLUE)}\n{option_description}"
-                                       f"\n{loc_string('install_setting_ask')} ({loc_string('yes_no')}) ")
-                        custom_install_setting = prompt_for(["yes", "no"], accept_enter=False,
-                                                            header=f"{title_header}{option.display_name}\n",
-                                                            auto_clear=auto_clear,
-                                                            description=description)
-                        if custom_install_setting == "no":
-                            custom_install_setting = "skip"
-                    install_settings[option.name] = custom_install_setting
-
-        return install_settings
-
-    def install(self, options, install_settings):
+    def install(self, game_data_path, install_settings, existing_content):
         try:
             mod_files = []
-            requirements_met, error_msgs = self.check_requirements(options)
+            requirements_met, error_msgs = self.check_requirements(existing_content)
             if requirements_met:
                 for install_setting in install_settings:
                     if install_setting == "base":
@@ -186,63 +104,67 @@ class Mod:
 
                             mod_files.append(base_work_path)
                             mod_files.append(custom_install_work_path)
-                copy_from_to(mod_files, options.data_path)
+                copy_from_to(mod_files, game_data_path)
                 return True, []
             else:
                 return False, error_msgs
         except Exception as ex:
-            logging.error(ex)
+            self.logger.error(ex)
             return False, []
 
-    def check_requirements(self, options):
+    def check_requirements(self, existing_content):
         error_msg = []
         content_validated = True
         version_validated = True
+
         for prereq in self.prerequisites:
-            if options.installed_content.get(prereq["name"]) is not None:
+            if existing_content.get(prereq["name"]) is not None:
                 if (prereq["name"] == "community_patch"
-                   and options.installed_content.get("community_remaster") is not None
+                   and existing_content.get("community_remaster") is not None
                    and self.name != "community_remaster"):
-                    version_validated = False and version_validated
-                    error_msg.append(f"{loc_string('compatch_mod_incompatible_with_comrem')}: {self.display_name}")
+                    version_validated = False
+                    error_msg.append(f"{loc_string('compatch_mod_incompatible_with_comrem')}:"
+                                     f" {self.display_name}")
                 versions = prereq.get("versions")
                 if versions is not None:
-                    installed_version = options.installed_content.get(prereq["name"]).get("version")
-                    version_validated = (installed_version in versions) and version_validated
-                    logging.debug(f"{loc_string('version_needed')}: {str(versions)} - "
-                                  f"{loc_string('version_available')}: {installed_version}")
-                    if not version_validated:
+                    installed_version = existing_content.get(prereq["name"]).get("version")
+                    supported_version = installed_version in versions
+                    if not supported_version:
+                        self.logger.debug(f"{loc_string('version_needed')}: {str(versions)} - "
+                                          f"{loc_string('version_available')}: {installed_version}")
                         error_msg.extend([f"{loc_string('version_requirement_not_met')}: {prereq['name']}",
                                           (f"{loc_string('version_needed')}: {str(versions)} - "
                                            f"{loc_string('version_available')}: {installed_version}\n")])
+                    version_validated = (installed_version in versions) and version_validated
                 else:
                     version_validated = True and version_validated
 
                 optional_content = prereq.get("optional_content")
                 if optional_content is not None:
-                    installed_content = options.installed_content.get(prereq["name"]).get("optional_content")
-                    content_validated = True and content_validated
+                    # content_validated = True and content_validated
                     for content_req in optional_content:
-                        if options.installed_content.get(prereq["name"]).get(content_req) is None:
-                            content_validated = False and content_validated
+                        if existing_content.get(prereq["name"]).get(content_req) is None:
+                            content_validated = False
                             error_msg.append(f"{loc_string('content_requirement_not_met')}: '{content_req}' "
                                              f"{loc_string('for_mod')}: '{prereq['name']}'")
                         else:
-                            logging.debug(f"content validated: {content_req} - "
-                                          f"{loc_string('for_mod')}: {prereq['name']}")
-                else:
-                    content_validated = True and content_validated
+                            self.logger.debug(f"content validated: {content_req} - "
+                                              f"{loc_string('for_mod')}: {prereq['name']}")
+                # else:
+                    # content_validated = True and content_validated
             else:
-                content_validated = False and content_validated
+                content_validated = False
                 error_msg.append(f"{loc_string('required_mod_not_found')}: {prereq['name']} - "
                                  f"{loc_string('for_mod')}: {self.display_name}")
         validated = all([version_validated, content_validated])
         if error_msg:
             error_msg.append(loc_string("check_for_a_new_version"))
+            if self.url is not None:
+                error_msg.append(f"\n{loc_string('mod_url')} {self.url}")
         return validated, error_msg
 
     def validate_install_config(install_config, mod_config_path, skip_data_validation=False):
-        mods_path = Path(mod_config_path).parent
+        mod_path = Path(mod_config_path).parent.parent
         is_dict = isinstance(install_config, dict)
         if is_dict:
             schema_fieds_top = {
@@ -283,60 +205,66 @@ class Mod:
             validated = Mod.validate_dict(install_config, schema_fieds_top)
             if validated:
                 display_name = install_config.get("display_name")
-                logging.debug(f"Initial mod '{display_name}' validation result: True")
+                logger.debug(f"Initial mod '{display_name}' validation result: True")
                 patcher_options = install_config.get("patcher_options")
                 optional_content = install_config.get("optional_content")
                 if patcher_options is not None:
                     validated = Mod.validate_dict_constrained(patcher_options, schema_patcher_options) and validated
-                    logging.debug(f"Patcher options for mod '{display_name}' validation result: {validated}")
+                    logger.debug(f"Patcher options for mod '{display_name}' validation result: {validated}")
                 if optional_content is not None:
                     validated = Mod.validate_list(optional_content, schema_optional_content) and validated
-                    logging.debug(f"Optional content for mod '{display_name}' validation result: {validated}")
+                    logger.debug(f"Optional content for mod '{display_name}' validation result: {validated}")
                     if validated:
                         for option in optional_content:
                             install_settings = option.get("install_settings")
                             if install_settings is not None:
                                 validated = (len(install_settings) > 1) or validated
-                                logging.debug(f"More than one install setting if they exist check for content '"
+                                logger.debug(f"More than one install setting if they exist check for content '"
                                               f"{option.get('name')}' of mod '{display_name}' "
                                               f"validation result: {validated}")
                                 validated = Mod.validate_list(install_settings, schema_install_settins) and validated
-                                logging.debug(f"Install settings for content '{option.get('name')}' "
+                                logger.debug(f"Install settings for content '{option.get('name')}' "
                                               f"of mod '{display_name}' validation result: {validated}")
                             patcher_options_additional = option.get('patcher_options')
                             if patcher_options_additional is not None:
                                 validated = Mod.validate_dict_constrained(patcher_options_additional,
                                                                           schema_patcher_options) and validated
-                                logging.debug(f"Patcher options for additional content of the mod '{display_name}' "
+                                logger.debug(f"Patcher options for additional content of the mod '{display_name}' "
                                               f"validation result: {validated}")
 
                 if not skip_data_validation:
+                    # community remaster is a mod, but it has a special folder name, we handle it here
+                    if install_config.get("name") == "community_remaster":
+                        mod_identifier = "remaster"
+                    else:
+                        mod_identifier = install_config.get("name")
+
                     if not install_config.get("no_base_content"):
-                        validated = (os.path.isdir(os.path.join(mods_path, install_config.get("name"), "data"))
+                        validated = (os.path.isdir(os.path.join(mod_path, mod_identifier, "data"))
                                      and validated)
-                        logging.debug(f"Mod '{display_name}' data folder validation result: {validated}")
+                        logger.debug(f"Mod '{display_name}' data folder validation result: {validated}")
                     if optional_content is not None:
                         for option in optional_content:
-                            validated = (os.path.isdir(os.path.join(mods_path,
-                                                                    install_config.get("name"),
+                            validated = (os.path.isdir(os.path.join(mod_path,
+                                                                    mod_identifier,
                                                                     option.get("name")))
                                          and validated)
                             if option.get("install_settings") is not None:
                                 for setting in option.get("install_settings"):
-                                    validated = (os.path.isdir(os.path.join(mods_path,
-                                                                            install_config.get("name"),
+                                    validated = (os.path.isdir(os.path.join(mod_path,
+                                                                            mod_identifier,
                                                                             option.get("name"),
                                                                             setting.get("name")))
                                                  and validated)
-                                    logging.debug(f"Mod '{display_name}' optional content '{option.get('name')}' "
-                                                  f"setting '{setting.get('name')}' "
-                                                  f"folder validation result: {validated}")
-                            logging.debug(f"Mod '{display_name}' optional content '{option.get('name')}' "
-                                          f"data folder validation result: {validated}")
+                                    logger.debug(f"Mod '{display_name}' optional content '{option.get('name')}' "
+                                                 f"setting '{setting.get('name')}' "
+                                                 f"folder validation result: {validated}")
+                            logger.debug(f"Mod '{display_name}' optional content '{option.get('name')}' "
+                                         f"data folder validation result: {validated}")
 
             return validated
         else:
-            logging.debug("Broken config encountered, couldn't be read as dictionary")
+            logger.debug("Broken config encountered, couldn't be read as dictionary")
             return False
 
     def compatible_with_patcher(self, patcher_version):
@@ -346,24 +274,26 @@ class Mod:
         else:
             return False
 
+    @staticmethod
     def validate_dict(validating_dict, scheme):
-        logging.debug(f"Validating dict with scheme {scheme.keys()}")
+        logger.debug(f"Validating dict with scheme {scheme.keys()}")
         for field in scheme:
             types = scheme[field][0]
             required = scheme[field][1]
             value = validating_dict.get(field)
             if required and value is None:
-                logging.debug(f"key '{field} is required but couldn't be found in manifest'")
+                logger.debug(f"key '{field}' is required but couldn't be found in manifest")
                 return False
             elif required or (not required and value is not None):
                 valid_type = any([isinstance(value, type_entry) for type_entry in types])
                 if not valid_type:
-                    logging.debug(f"key '{field}' is of invalid type '{type(field)}', expected '{types}'")
+                    logger.debug(f"key '{field}' is of invalid type '{type(field)}', expected '{types}'")
                     return False
         return True
 
+    @staticmethod
     def validate_dict_constrained(validating_dict, scheme):
-        logging.debug(f"Validating constrained dict with scheme {scheme.keys()}")
+        logger.debug(f"Validating constrained dict with scheme {scheme.keys()}")
         for field in scheme:
             types = scheme[field][0]
             required = scheme[field][1]
@@ -373,35 +303,36 @@ class Mod:
                 max_req = scheme[field][2][1]
 
             if required and value is None:
-                logging.debug(f"key '{field} is required but couldn't be found in manifest'")
+                logger.debug(f"key '{field}' is required but couldn't be found in manifest")
                 return False
             elif required or (not required and value is not None):
                 valid_type = any([isinstance(value, type_entry) for type_entry in types])
                 if not valid_type:
-                    logging.debug(f"key '{field}' is of invalid type '{type(field)}', expected '{types}'")
+                    logger.debug(f"key '{field}' is of invalid type '{type(field)}', expected '{types}'")
                     return False
                 if float in types:
                     try:
                         value = float(value)
                     except ValueError:
-                        logging.debug(f"key '{field}' can't be converted to float as supported - found value '{value}'")
+                        logger.debug(f"key '{field}' can't be converted to float as supported - found value '{value}'")
                         return False
                 if int in types:
                     try:
                         value = int(value)
                     except ValueError:
-                        logging.debug(f"key '{field}' can't be converted to int as supported - found value '{value}'")
+                        logger.debug(f"key '{field}' can't be converted to int as supported - found value '{value}'")
                         return False
                 if ((float in types) or (int in types)) and (not(min_req <= value <= max_req)):
-                    logging.debug(f"key '{field}' is not in supported range '{min_req}-{max_req}'")
+                    logger.debug(f"key '{field}' is not in supported range '{min_req}-{max_req}'")
                     return False
         return True
 
+    @staticmethod
     def validate_list(validating_list, scheme):
-        logging.debug(f"Validating list of length: '{len(validating_list)}'")
+        logger.debug(f"Validating list of length: '{len(validating_list)}'")
         to_validate = [element for element in validating_list if isinstance(element, dict)]
         result = all([Mod.validate_dict(element, scheme) for element in to_validate])
-        logging.debug(f"Result: {result}")
+        logger.debug(f"Result: {result}")
         return result
 
     def get_full_install_settings(self):
@@ -445,6 +376,8 @@ class Mod:
 
     class OptionalContent:
         def __init__(self, description, parent) -> None:
+            self.logger = logging.getLogger('dem')
+
             self.name = str(description.get("name"))
             self.display_name = description.get("display_name")
             self.description = description.get("description")
@@ -457,7 +390,7 @@ class Mod:
                     self.default_option = default_option
                 else:
                     er_message = f"Incorrect default option '{default_option}' for '{self.name}' in content manifest!"
-                    logging.error(er_message)
+                    self.logger.error(er_message)
                     raise KeyError(er_message)
 
             no_base_content = description.get("no_base_content")
@@ -477,5 +410,5 @@ class Mod:
                         pass
                     else:
                         er_message = f"Broken manifest for content '{self.name}'!"
-                        logging.error(er_message)
+                        self.logger.error(er_message)
                         raise ValueError(er_message)

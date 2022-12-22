@@ -1,13 +1,16 @@
-import datetime
 import logging
 import os
 import sys
 
 from pathlib import Path
+from datetime import datetime
 from mod import Mod
-from utils import ExeIsRunning, ExeNotFound, ExeNotSupported, InvalidGameDirectory, WrongGameDirectoryPath,\
+from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory, PatchedButDoesntHaveManifest, WrongGameDirectoryPath,\
                   DistributionNotFound, FileLoggingSetupError, InvalidExistingManifest, ModsDirMissing,\
-                  NoModsFound, loc_string, running_in_venv, read_yaml
+                  NoModsFound, CorruptedRemasterFiles
+from data import loc_string
+from file_ops import running_in_venv, read_yaml
+
 from data import VERSION_BYTES_102_NOCD
 
 
@@ -27,7 +30,7 @@ class InstallationContext:
             except EnvironmentError:
                 logging.error(f"Couldn't add '{distribution_dir = }'")
         else:
-            self.distribution_dir = None
+            self.add_default_distribution_dir()
 
         self.current_session = self.Session()
 
@@ -50,19 +53,27 @@ class InstallationContext:
                 return False
         return True
 
-    @classmethod
     def add_distribution_dir(self, distribution_dir: str) -> None:
         '''
         Distribution dir is a location of files available for installation
         By default it's ComPatch and ComRemaster files, but can also contain mods
         '''
-
         if self.validate_distribution_dir(distribution_dir):
             self.distribution_dir = os.path.normpath(distribution_dir)
         else:
-            raise DistributionNotFound(distribution_dir, "Couldn't validate given distribuion dir")
+            raise DistributionNotFound(distribution_dir, "Couldn't find all files in given distribuion dir")
 
-    @classmethod
+    def validate_remaster(self):
+        yaml_path = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
+        yaml_config = read_yaml(yaml_path)
+        if yaml_config is None:
+            raise CorruptedRemasterFiles(yaml_path, "Couldn't read ComRemaster manifest")
+        if not Mod.validate_install_config(yaml_config, yaml_path):
+            raise CorruptedRemasterFiles(yaml_path, "Couldn't validate ComRemaster manifes or files")
+        else:
+            self.remaster_config = yaml_config
+            self.remaster_path = os.path.join(self.distribution_dir, "remaster")
+
     def add_default_distribution_dir(self) -> None:
         '''Looks for distribution files arround exe and sets as distribution dir if its validated'''
         sys_exe = str(Path(sys.executable).resolve())
@@ -83,11 +94,6 @@ class InstallationContext:
         else:
             raise DistributionNotFound(exe_path, "Distribution not found around patcher exe")
 
-    @staticmethod
-    def exe_is_compatible(version: str) -> bool:
-        return ("Clean" in version) or ("ComRemaster" in version) or ("ComPatch" in version)
-
-    @classmethod
     def load_mods(self):
         mod_loading_errors = self.current_session.mod_loading_errors
         mods_path = os.path.join(self.distribution_dir, "mods")
@@ -122,20 +128,15 @@ class InstallationContext:
                 manifest_path = os.path.join(entry, "manifest.yaml")
                 if os.path.exists(manifest_path):
                     mod_list.append(manifest_path)
+                else:
+                    for internal_entry in os.scandir(entry):
+                        if internal_entry.is_dir():
+                            internal_manifest_path = os.path.join(internal_entry, "manifest.yaml")
+                            if os.path.exists(internal_manifest_path):
+                                mod_list.append(internal_manifest_path)
         return mod_list
 
-    @classmethod
-    def setup_logging_folder(self):
-        if self.distribution_dir is not None:
-            log_path = os.path.join(self.distribution_dir, 'patcher_logs')
-            if not os.path.exists(log_path):
-                os.mkdir(log_path)
-            self.log_path = log_path
-        else:
-            raise FileLoggingSetupError("", "Distribution not found when setting up file logging")
-
-    @classmethod
-    def setup_console_loggers(self):
+    def setup_loggers(self):
         self.logger = logging.getLogger('dem')
         if self.logger.handlers:
             self.logger.debug("Logger already exists, will use it with existing settings")
@@ -163,20 +164,31 @@ class InstallationContext:
             self.logger.addHandler(stream_handler)
             self.logger.debug("Loggers initialised")
 
+    def setup_logging_folder(self):
+        if self.distribution_dir is not None:
+            log_path = os.path.join(self.distribution_dir, 'patcher_logs')
+            if not os.path.exists(log_path):
+                os.mkdir(log_path)
+            self.log_path = log_path
+        else:
+            raise FileLoggingSetupError("", "Distribution not found when setting up file logging")
+
     class Session:
         '''Session stores information about the course of install and errors encountered'''
         def __init__(self) -> None:
-            self.installed_mods = []
             self.mod_loading_errors = []
             self.mod_installation_errors = []
             self.error_messages = []
+            self.content_in_processing = {}
+            self.installed_content_description = []
+            self.notified_on_errors = False
 
 
 class GameCopy:
     def __init__(self) -> None:
         self.installed_content = {}
         self.patched_version = False
-        self.existing_install_manifest = None
+        self.leftovers = False
 
     @staticmethod
     def validate_game_dir(game_root_path: str) -> tuple[bool, str]:
@@ -221,7 +233,6 @@ class GameCopy:
                 return False
         return True
 
-    @classmethod
     def process_game_install(self, target_dir: str) -> None:
         '''Parse game install to know the version and current state of it'''
         if not os.path.exists(target_dir):
@@ -232,10 +243,12 @@ class GameCopy:
                 raise InvalidGameDirectory(missing_path)
         possible_exe_paths = [os.path.join(target_dir, "hta.exe"),
                               os.path.join(target_dir, "game.exe"),
+                              os.path.join(target_dir, "start.exe"),
                               os.path.join(target_dir, "ExMachina.exe")]
         for exe_path in possible_exe_paths:
             if os.path.exists(exe_path):
-                self.target_exe = exe_path
+                self.target_exe = os.path.normpath(exe_path)
+                break
 
         if self.target_exe is None:
             raise ExeNotFound
@@ -244,21 +257,35 @@ class GameCopy:
         if self.exe_version is None:
             raise ExeIsRunning
 
-        if not self.exe_is_compatible(self.exe_version):
+        if not self.is_compatch_compatible_exe(self.exe_version):
             raise ExeNotSupported(self.exe_version)
 
         self.game_root_path = target_dir
         self.data_path = os.path.join(self.game_root_path, "data")
         self.installed_manifest_path = os.path.join(self.data_path, "mod_manifest.yaml")
+
+        patched_version = ("ComRemaster" in self.exe_version) or ("ComPatch" in self.exe_version)
+
         if os.path.exists(self.installed_manifest_path):
             install_manifest = read_yaml(self.installed_manifest_path)
-            patched_version = ("ComRemaster" in self.exe_version) or ("ComPatch" in self.exe_version)
-            valid_manifest = self.validate_install_manifest(install_manifest) and patched_version
-            if valid_manifest:
-                self.existing_install_manifest = install_manifest
+            valid_manifest = self.validate_install_manifest(install_manifest)
+            if valid_manifest and patched_version:
+                self.installed_content = install_manifest
                 self.patched_version = True
-            else:
+                return
+            elif patched_version and not valid_manifest:
                 raise InvalidExistingManifest(self.installed_manifest_path)
+            else:
+                raise HasManifestButUnpatched(self.exe_version, install_manifest)
+
+        if patched_version:
+            self.patched_version = True
+            self.installed_content = None
+            raise PatchedButDoesntHaveManifest(self.exe_version)
+
+    @staticmethod
+    def is_compatch_compatible_exe(version: str) -> bool:
+        return ("Clean" in version) or ("ComRemaster" in version) or ("ComPatch" in version)
 
     @staticmethod
     def get_exe_version(target_exe: str) -> str:
@@ -276,7 +303,11 @@ class GameCopy:
                 return "ComRemaster 1.11"
             elif version_identifier[:4] == b'1.11':
                 return "ComPatch 1.11"
+            elif version_identifier[3:7] == b'1.12':
+                return "ComRemaster 1.12"
+            elif version_identifier[:4] == b'1.12':
+                return "ComPatch 1.12"
             else:
-                return "Unknown"
+                return "Unsupported"
         except PermissionError:
             return None
