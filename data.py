@@ -642,7 +642,7 @@ strings_loc = {"installation_title": {"rus": f"Установка Community Rema
                "installation_finished": {"rus": "Установка завершена!\n",
                                          "eng": "Installation is complete!\n"},
                "demteam_links": {"rus": "Discord команды Комьюнити Патча: {discord_url}\n"
-                                        "Больше информации про проект: {github_url} (может быть нужен VPN)\n"
+                                        "Больше информации про проект: {deuswiki_url} (может быть нужен VPN)\n"
                                         "Свежие релизы патча на GitHub: {github_url}\n",
                                  "eng": "Discord of Community Patch team: {discord_url}\n"
                                         "More info about the project: {deuswiki_url}\n"

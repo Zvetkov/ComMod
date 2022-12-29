@@ -259,7 +259,7 @@ def main_console(options: argparse.Namespace) -> None:
         # if remaster is compatible with the local compatch verison
         status_ok, error_messages = remaster_mod.install(game.data_path,
                                                          installed_remaster_settings,
-                                                         game.installed_content,
+                                                         session.content_in_processing,
                                                          game.installed_descriptions,
                                                          console=True)
 
@@ -278,6 +278,8 @@ def main_console(options: argparse.Namespace) -> None:
         console.final_screen_print(patch_description)
 
         if not status_ok:
+            if error_messages:
+                logger.error(error_messages)
             logger.error("Status of mod installation is not ok")
             print(format_text(f"\n{loc_string('installation_error')}: Community Remaster!", bcolors.RED))
         else:
