@@ -76,8 +76,14 @@ class InvalidGameDirectory(Exception):
         self.missing_path = missing_path
         super().__init__(self.missing_path)
 
+    def __str__(self) -> str:
+        return f"Path is missing: '{self.missing_path}'"
+
 
 class InvalidExistingManifest(Exception):
     def __init__(self, manifest_path: str) -> None:
         self.manifest_path = manifest_path
         super().__init__(self.manifest_path)
+
+    def __str__(self) -> str:
+        return f"Manifest is invalid: '{self.manifest_path}'"

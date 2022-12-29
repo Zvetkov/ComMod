@@ -1,5 +1,5 @@
 import os
-import winreg
+# import winreg
 
 from ctypes import windll
 import logging
@@ -11,18 +11,17 @@ from get_system_fonts import get_fonts
 logger = logging.getLogger('dem')
 
 
-def get_monitor_resolution():
+def get_monitor_resolution() -> tuple[int, int]:
     res_x = windll.user32.GetSystemMetrics(0)
     res_y = windll.user32.GetSystemMetrics(1)
     screen_size = int(res_x), int(res_y)
-    logger.debug(f"reported res x: {res_x}")
-    logger.debug(f"reported res y: {res_y}")
-    logger.debug(f"os scale factor: {data.OS_SCALE_FACTOR}")
-    logger.debug(f"screen size {screen_size[0]}:{screen_size[1]}")
+    logger.info(f"reported res X:Y: {res_x}:{res_y}")
+    logger.info(f"os scale factor: {data.OS_SCALE_FACTOR}")
+    logger.info(f"screen size {screen_size[0]}:{screen_size[1]}")
     return screen_size
 
 
-def scale_fonts(root_dir: str, scale_factor):
+def scale_fonts(root_dir: str, scale_factor: float) -> None:
     config = file_ops.get_config(root_dir)
     ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
     ui_schema = file_ops.xml_to_objfy(ui_schema_path)
@@ -58,8 +57,8 @@ def scale_fonts(root_dir: str, scale_factor):
         font_alias = "Arial"
         tahoma_available = True
 
-    large_font_size = str(round(12 / data.OS_SCALE_FACTOR * data.ENLARGE_UI_COEF, 1))
-    sml_font_size = str(round(10 / data.OS_SCALE_FACTOR * data.ENLARGE_UI_COEF, 1))
+    large_font_size = str(round(12 / scale_factor * data.ENLARGE_UI_COEF, 1))
+    sml_font_size = str(round(10 / scale_factor * data.ENLARGE_UI_COEF, 1))
     if arial_available:
         if ui_schema["schema"].attrib.get("titleFontSize") is not None and tahoma_available:
             ui_schema["schema"].attrib["titleFontFace"] = font_alias
@@ -78,9 +77,9 @@ def scale_fonts(root_dir: str, scale_factor):
             ui_schema["schema"].attrib["miscFontSize"] = sml_font_size
             ui_schema["schema"].attrib["miscFontType"] = "0"
         file_ops.save_to_file(ui_schema, ui_schema_path)
-        logger.debug("fonts_corrected")
+        logger.info("fonts corrected")
     else:
-        logger.debug("cant_correct_fonts")
+        logger.info("cant correct fonts")
 
 # def make_dpi_aware(path_to_exe):
 #     compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
@@ -93,7 +92,7 @@ def scale_fonts(root_dir: str, scale_factor):
     # hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
 
 
-def toggle_16_9_UI_xmls(root_dir: str, screen_width, screen_height, enable=True):
+def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, enable: bool = True) -> None:
     config = file_ops.get_config(root_dir)
     if config.attrib.get("pathToUiWindows") is not None:
         if enable:
@@ -165,7 +164,7 @@ def toggle_16_9_UI_xmls(root_dir: str, screen_width, screen_height, enable=True)
     file_ops.save_to_file(config, os.path.join(root_dir, "data", "config.cfg"))
 
 
-def toggle_16_9_glob_prop(root_dir: str, enable=True):
+def toggle_16_9_glob_prop(root_dir: str, enable: bool = True) -> None:
     glob_props_full_path = os.path.join(root_dir, file_ops.get_glob_props_path(root_dir))
     glob_props = file_ops.xml_to_objfy(glob_props_full_path)
     ground_repository = file_ops.child_from_xml_node(glob_props, "GroundRepository")
@@ -185,5 +184,3 @@ def toggle_16_9_glob_prop(root_dir: str, enable=True):
             smart_cursor.attrib["UnlockRegion"] = "300 300"
             smart_cursor.attrib["InfoObjUpdateTimeout"] = "0.5"
     file_ops.save_to_file(glob_props, glob_props_full_path)
-
-

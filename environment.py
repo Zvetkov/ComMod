@@ -4,12 +4,13 @@ import sys
 
 from pathlib import Path
 from datetime import datetime
+from console_color import bcolors, format_text
 from mod import Mod
-from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory, PatchedButDoesntHaveManifest, WrongGameDirectoryPath,\
+from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory,\
                   DistributionNotFound, FileLoggingSetupError, InvalidExistingManifest, ModsDirMissing,\
-                  NoModsFound, CorruptedRemasterFiles
-from data import loc_string
-from file_ops import running_in_venv, read_yaml
+                  NoModsFound, CorruptedRemasterFiles, PatchedButDoesntHaveManifest, WrongGameDirectoryPath
+from data import VERSION_BYTES_102_STAR, VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, loc_string
+from file_ops import running_in_venv, read_yaml, makedirs
 
 from data import VERSION_BYTES_102_NOCD
 
@@ -20,9 +21,10 @@ class InstallationContext:
     (dir where installation files are located)
     '''
     def __init__(self, distribution_dir: str | None = None,
-                 developer_mode: bool = False) -> None:
-        self.developer_mode = developer_mode
+                 dev_mode: bool = False) -> None:
+        self.developer_mode = dev_mode
         self.target_game_copy = None
+        self.validated_mod_configs = {}
 
         if distribution_dir is not None:
             try:
@@ -89,24 +91,27 @@ class InstallationContext:
         else:
             raise EnvironmentError
 
+        exe_path = str(exe_path)
+
         if self.validate_distribution_dir(exe_path):
             self.distribution_dir = exe_path
         else:
-            raise DistributionNotFound(exe_path, "Distribution not found around patcher exe")
+            raise DistributionNotFound(exe_path, "Distribution not found around mod manager exe")
 
-    def load_mods(self):
+    def load_mods(self) -> None:
         mod_loading_errors = self.current_session.mod_loading_errors
         mods_path = os.path.join(self.distribution_dir, "mods")
         if not os.path.isdir(mods_path):
+            makedirs(mods_path)
             raise ModsDirMissing
         mod_configs_paths = self.get_existing_mods(mods_path)
         if not mod_configs_paths:
             raise NoModsFound
-        self.validated_mod_configs = {}
+
         for mod_config_path in mod_configs_paths:
             yaml_config = read_yaml(mod_config_path)
             if yaml_config is None:
-                self.logger.debug(f"Couldn't read mod manifest: {mod_config_path}")
+                self.logger.warning(f"Couldn't read mod manifest: {mod_config_path}")
                 mod_loading_errors.append(f"\n{loc_string('empty_mod_manifest')}: "
                                           f"{Path(mod_config_path).parent.name} - "
                                           f"{Path(mod_config_path).name}")
@@ -115,10 +120,16 @@ class InstallationContext:
             if config_validated:
                 self.validated_mod_configs[mod_config_path] = yaml_config
             else:
-                self.logger.debug(f"Couldn't validate Mod manifest: {mod_config_path}")
-                mod_loading_errors.append(f"\n{loc_string('not_validated_mod_manifest')}: "
-                                          f"{Path(mod_config_path).parent.name} - "
-                                          f"{Path(mod_config_path).name}")
+                self.logger.warning(f"Couldn't validate Mod manifest: {mod_config_path}")
+                mod_loading_errors.append(f"\n{loc_string('not_validated_mod_manifest')}.\n"
+                                          f"{loc_string('folder').capitalize()}: "
+                                          f"/{Path(mod_config_path).parent.parent.name}"
+                                          f"/{Path(mod_config_path).parent.name}"
+                                          f"/{Path(mod_config_path).name}")
+
+        if mod_loading_errors:
+            self.logger.info("***")
+            self.logger.debug(f"Mod loading errors: {mod_loading_errors}")
 
     @staticmethod
     def get_existing_mods(mods_dir: str) -> list[str]:
@@ -136,37 +147,41 @@ class InstallationContext:
                                 mod_list.append(internal_manifest_path)
         return mod_list
 
-    def setup_loggers(self):
+    def setup_loggers(self) -> None:
         self.logger = logging.getLogger('dem')
         if self.logger.handlers:
             self.logger.debug("Logger already exists, will use it with existing settings")
         else:
             self.logger.setLevel(logging.DEBUG)
-            formatter = logging.Formatter('%(asctime)s: %(levelname)s - '
-                                          '%(module)s - line %(lineno)d - %(message)s')
+            formatter = logging.Formatter('%(asctime)s: %(levelname)-7s - '
+                                          '%(module)-11s - line %(lineno)-3d: %(message)s')
+            stream_formatter = logging.Formatter('%(levelname)-7s - %(module)-11s'
+                                                 ' - line %(lineno)-3d: %(message)s')
 
             file_handler = logging.FileHandler(
                                 os.path.join(self.log_path,
                                              f'debug_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.log'),
                                 encoding='utf-8')
-            file_handler.setLevel(logging.DEBUG)
+
+            if self.developer_mode:
+                stream_handler = logging.StreamHandler()
+                stream_handler.setLevel(logging.DEBUG)
+                stream_handler.setFormatter(stream_formatter)
+                self.logger.addHandler(stream_handler)
+
+                file_handler.setLevel(logging.DEBUG)
+            else:
+                # stream_handler.setLevel(logging.WARNING)
+                file_handler.setLevel(logging.INFO)
+
             file_handler.setFormatter(formatter)
 
-            stream_handler = logging.StreamHandler()
-            if self.developer_mode:
-                stream_handler.setLevel(logging.DEBUG)
-            else:
-                stream_handler.setLevel(logging.INFO)
-
-            stream_handler.setFormatter(formatter)
-
             self.logger.addHandler(file_handler)
-            self.logger.addHandler(stream_handler)
-            self.logger.debug("Loggers initialised")
+            self.logger.info("Loggers initialised")
 
-    def setup_logging_folder(self):
+    def setup_logging_folder(self) -> None:
         if self.distribution_dir is not None:
-            log_path = os.path.join(self.distribution_dir, 'patcher_logs')
+            log_path = os.path.join(self.distribution_dir, 'logs_commod')
             if not os.path.exists(log_path):
                 os.mkdir(log_path)
             self.log_path = log_path
@@ -178,17 +193,18 @@ class InstallationContext:
         def __init__(self) -> None:
             self.mod_loading_errors = []
             self.mod_installation_errors = []
-            self.error_messages = []
             self.content_in_processing = {}
             self.installed_content_description = []
-            self.notified_on_errors = False
 
 
 class GameCopy:
+    '''Stores info about a processed HTA/EM game copy'''
     def __init__(self) -> None:
         self.installed_content = {}
+        self.installed_descriptions = {}
         self.patched_version = False
         self.leftovers = False
+        self.target_exe = None
 
     @staticmethod
     def validate_game_dir(game_root_path: str) -> tuple[bool, str]:
@@ -216,7 +232,7 @@ class GameCopy:
         return True, ''
 
     @staticmethod
-    def validate_install_manifest(install_config):
+    def validate_install_manifest(install_config: dict) -> bool:
         compatch = install_config.get("community_patch")
         if compatch is not None:
             base = compatch.get("base")
@@ -231,6 +247,15 @@ class GameCopy:
             version = compatch.get("version")
             if base is None or version is None:
                 return False
+
+        for config_name in install_config:
+            if install_config[config_name] in ["community_patch", "community_remaster"]:
+                continue
+            else:
+                base = install_config[config_name].get("base")
+                version = install_config[config_name].get("version")
+                if base is None or version is None:
+                    return False
         return True
 
     def process_game_install(self, target_dir: str) -> None:
@@ -283,6 +308,71 @@ class GameCopy:
             self.installed_content = None
             raise PatchedButDoesntHaveManifest(self.exe_version)
 
+    def is_modded(self) -> bool:
+        if "community_remaster" in self.installed_content.keys():
+            if len(self.installed_content) > 2:
+                return True
+        elif "community_patch" in self.installed_content.keys():
+            if len(self.installed_content) > 1:
+                return True
+
+        return False
+
+    def load_installed_descriptions(self, additional_manifests: list = [], colourise=False) -> list[str]:
+        '''Constructs dict of pretty description strings for list of installed content
+           based on existing manifest inside the game and optionall list of full mod manifests'''
+        available_external_manifests = []
+
+        if additional_manifests:
+            available_external_manifests = [manifest['name'] for manifest in additional_manifests.values()]
+
+        for content_piece in self.installed_content:
+            install_manifest = self.installed_content[content_piece]
+            name = content_piece
+
+            if name == "community_patch":
+                if "community_remaster" in self.installed_content.keys():
+                    continue
+                name = "Community Patch"
+            elif name == "community_remaster":
+                name = "Community Remaster"
+            elif install_manifest.get("display_name") is not None:
+                name = install_manifest["display_name"]
+            elif content_piece in available_external_manifests:
+                external_manifest = [manifest for manifest in additional_manifests.values()
+                                     if (manifest["name"] == content_piece and
+                                         str(manifest["version"]) == install_manifest["version"])]
+                if external_manifest:
+                    name = external_manifest[0]["display_name"]
+
+            optional_content_keys = (install_manifest.keys()
+                                     - set(["base", "version", "display_name", "build"]))
+            unskipped_content = {key: value for key, value in install_manifest.items() if value != "skip"}
+            installed_optional_content = (unskipped_content.keys()
+                                          - set(["base", "version", "display_name", "build"]))
+
+            build = ''
+            if install_manifest.get("build") is not None:
+                build = f" [{install_manifest['build']}]"
+
+            if colourise:
+                description = format_text(f'{name} ({loc_string("version")} '
+                                          f'{install_manifest["version"]}){build}\n',
+                                          bcolors.OKBLUE)
+            else:
+                description = f'{name} ({loc_string("version")} {install_manifest["version"]})\n'
+
+            if installed_optional_content:
+                if colourise:
+                    description += format_text("*", bcolors.OKCYAN)
+                description += (f' {loc_string("optional_content").capitalize()}: '
+                                f'{", ".join(sorted(list(installed_optional_content)))}\n')
+            elif optional_content_keys:
+                description += f'{format_text("*", bcolors.OKCYAN)} {loc_string("base_version")}\n'
+
+            # description += "\n"
+            self.installed_descriptions[content_piece] = description
+
     @staticmethod
     def is_compatch_compatible_exe(version: str) -> bool:
         return ("Clean" in version) or ("ComRemaster" in version) or ("ComPatch" in version)
@@ -293,6 +383,13 @@ class GameCopy:
             with open(target_exe, 'rb+') as f:
                 f.seek(VERSION_BYTES_102_NOCD)
                 version_identifier = f.read(15)
+                f.seek(VERSION_BYTES_103_NOCD)
+                version_identifier_103_nocd = f.read(15)
+                f.seek(VERSION_BYTES_103_STAR)
+                version_identifier_103_star = f.read(15)
+                f.seek(VERSION_BYTES_102_STAR)
+                version_identifier_102_star = f.read(15)
+
             if version_identifier[8:12] == b'1.02':
                 return "Clean 1.02"
             elif version_identifier[3:7] == b'1.10':
@@ -307,7 +404,19 @@ class GameCopy:
                 return "ComRemaster 1.12"
             elif version_identifier[:4] == b'1.12':
                 return "ComPatch 1.12"
+            elif version_identifier[3:7] == b'1.13':
+                return "ComRemaster 1.13"
+            elif version_identifier[:4] == b'1.13':
+                return "ComPatch 1.13"
+            elif version_identifier[8:12] == b'1.04':
+                return "KRBDZSKL 1.04"
+            elif version_identifier_103_nocd[1:5]:
+                return "DRM Free 1.03"
+            elif version_identifier_103_star[:7]:
+                return "1.03 Starforce"
+            elif version_identifier_102_star[:7]:
+                return "1.02 Starforce"
             else:
-                return "Unsupported"
+                return "Unknown"
         except PermissionError:
             return None

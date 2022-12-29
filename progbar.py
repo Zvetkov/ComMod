@@ -1,9 +1,7 @@
 import os
 
-def progress_percentage(perc, width=None):
-    # This will only work for python 3.3+ due to use of
-    # os.get_terminal_size the print function etc.
 
+def progress_percentage(perc, width=None):
     FULL_BLOCK = '█'
     # this is a gradient of incompleteness
     INCOMPLETE_BLOCK_GRAD = ['░', '▒', '▓']
@@ -17,7 +15,7 @@ def progress_percentage(perc, width=None):
     max_perc_widget = '[100.00%]'  # 100% is max
     separator = ' '
     blocks_widget_width = width - len(separator) - len(max_perc_widget)
-    assert(blocks_widget_width >= 10) # not very meaningful if not
+    assert(blocks_widget_width >= 10)  # not very meaningful if not
     perc_per_block = 100.0/blocks_widget_width
     # epsilon is the sensitivity of rendering a gradient block
     epsilon = 1e-6

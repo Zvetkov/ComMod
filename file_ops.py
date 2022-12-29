@@ -1,3 +1,4 @@
+from typing import Any
 import data
 import os
 import sys
@@ -81,7 +82,7 @@ def _split_tag_on_attributes(xml_line: str, line_indent: int):
                                            line_indent))
 
 
-def xml_to_objfy(full_path: str):
+def xml_to_objfy(full_path: str) -> objectify.ObjectifiedElement:
     with open(full_path, 'r', encoding=data.ENCODING) as f:
         parser_recovery = objectify.makeparser(recover=True, encoding=data.ENCODING, collect_ids=False)
         objectify.enable_recursive_str()
@@ -90,19 +91,19 @@ def xml_to_objfy(full_path: str):
     return objectify_tree
 
 
-def is_xml_node_contains(xml_node: objectify.ObjectifiedElement, attrib_name: str):
-    attribs = xml_node.attrib
-    if attribs:
-        return attribs.get(attrib_name) is not None
-    else:
-        logger.warning(f"Asking for attributes of node without attributes: {xml_node.base}")
+# def is_xml_node_contains(xml_node: objectify.ObjectifiedElement, attrib_name: str) -> None | bool:
+#     attribs = xml_node.attrib
+#     if attribs:
+#         return attribs.get(attrib_name) is not None
+#     else:
+#         logger.warning(f"Asking for attributes of node without attributes: {xml_node.base}")
 
 
 def save_to_file(objectify_tree: objectify.ObjectifiedElement, path,
-                 machina_beautify: bool = True):
+                 machina_beautify: bool = True) -> None:
     ''' Saves ObjectifiedElement tree to file at path, will format and
-    beautify file in the style very similar to original Ex Machina
-    dynamicscene.xml files by default. Can skip beautifier and save raw
+    beautify file in the style very similar to original EM dynamicscene.xml
+    files by default. Can skip beautifier and save raw
     lxml formated file.
     '''
     xml_string = etree.tostring(objectify_tree,
@@ -116,12 +117,12 @@ def save_to_file(objectify_tree: objectify.ObjectifiedElement, path,
             writer.write(xml_string)
 
 
-def makedirs(dest):
+def makedirs(dest: str) -> None:
     if not os.path.exists(dest):
         os.makedirs(dest)
 
 
-def countFiles(directory):
+def count_files(directory: str) -> int:
     files = []
 
     if os.path.isdir(directory):
@@ -131,11 +132,11 @@ def countFiles(directory):
     return len(files)
 
 
-def copy_from_to(from_path_list: list[str], to_path: str, console: bool = False):
+def copy_from_to(from_path_list: list[str], to_path: str, console: bool = False) -> None:
     files_count = 0
     for from_path in from_path_list:
         logger.debug(f"Copying files from '{from_path}' to '{to_path}'")
-        files_count += countFiles(from_path)
+        files_count += count_files(from_path)
     file_num = 1
     for from_path in from_path_list:
         for path, dirs, filenames in os.walk(from_path):
@@ -144,37 +145,37 @@ def copy_from_to(from_path_list: list[str], to_path: str, console: bool = False)
                 makedirs(os.path.join(destDir, directory))
         for path, dirs, filenames in os.walk(from_path):
             for sfile in filenames:
-                destFile = os.path.join(path.replace(from_path, to_path), sfile)
+                dest_file = os.path.join(path.replace(from_path, to_path), sfile)
                 description = (f" - [{file_num} of {files_count}] - name {sfile} - "
                                f"size {round(Path(os.path.join(path, sfile)).stat().st_size / 1024, 2)} KB")
                 logger.debug(description)
-                shutil.copy2(os.path.join(path, sfile), destFile)
+                shutil.copy2(os.path.join(path, sfile), dest_file)
                 if console:
                     progbar.copy_progress(file_num, files_count)
                 file_num += 1
 
 
-def read_yaml(yaml_path):
+def read_yaml(yaml_path: str) -> Any:
     yaml_config = None
     with open(yaml_path, 'r', encoding="utf-8") as stream:
         try:
             yaml_config = yaml.safe_load(stream)
         except yaml.YAMLError as exc:
-            logger.debug(exc)
+            logger.error(exc)
     return yaml_config
 
 
-def dump_yaml(data, path):
+def dump_yaml(data, path) -> bool:
     with open(path, 'w', encoding="utf-8") as stream:
         try:
             yaml.dump(data, stream)
         except yaml.YAMLError as exc:
-            logger.debug(exc)
+            logger.error(exc)
             return False
     return True
 
 
-def patch_offsets(f, offsets_dict):
+def patch_offsets(f, offsets_dict: dict) -> None:
     for offset in offsets_dict.keys():
         f.seek(offset)
         if type(offsets_dict[offset]) == int:
@@ -189,23 +190,26 @@ def patch_offsets(f, offsets_dict):
             f.write(struct.pack("b", offsets_dict[offset][0]))
 
 
-def get_config(root_dir: str):
+def get_config(root_dir: str) -> objectify.ObjectifiedElement:
     return xml_to_objfy(os.path.join(root_dir, "data", "config.cfg"))
 
 
-def running_in_venv():
+def running_in_venv() -> bool:
     return (hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and
             sys.base_prefix != sys.prefix))
 
 
-def get_glob_props_path(root_dir: str):
+def get_glob_props_path(root_dir: str) -> str:
     config = get_config(root_dir)
     if config.attrib.get("pathToGlobProps") is not None:
         glob_props_path = config.attrib.get("pathToGlobProps")
     return glob_props_path
 
 
-def patch_game_exe(target_exe, version_choice: str, build_id: str, exe_options: dict = {}):
+def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
+                   exe_options: dict = {}) -> list[str]:
+    '''Applies binary exe fixes, makes related changes to config and global properties
+       and returns list with a localised description of applied changes'''
     changes_description = []
     with open(target_exe, 'rb+') as f:
         game_root_path = Path(target_exe).parent
@@ -249,7 +253,7 @@ def patch_game_exe(target_exe, version_choice: str, build_id: str, exe_options: 
         changes_description.append("numeric_fixes_patched")
         changes_description.append("general_compatch_fixes")
         if version_choice == "remaster":
-            logger.debug("ui_fixes_patched")
+            logger.info("ui fixes patched")
             hd_ui.scale_fonts(game_root_path, data.OS_SCALE_FACTOR)
 
             width_list = []
@@ -288,14 +292,16 @@ def patch_game_exe(target_exe, version_choice: str, build_id: str, exe_options: 
             f.write(struct.pack(f'{allowed_len}s', text_str))
 
         correct_damage_coeffs(game_root_path, data.GRAVITY)
+        # increase_phys_step might not have an intended effect, need to verify
         increase_phys_step(game_root_path)
-        logger.debug("damage_coeff_patched")
+        logger.info("damage coeff patched")
 
     patch_configurables(target_exe, exe_options)
     return changes_description
 
 
-def patch_configurables(target_exe, exe_options={}):
+def patch_configurables(target_exe: str, exe_options: dict = {}) -> None:
+    '''Applies binary exe fixes which support configuration'''
     with open(target_exe, 'rb+') as f:
         configurable_values = {"gravity": data.GRAVITY,
                                "skins_in_shop_0": (8,),
@@ -329,7 +335,7 @@ def patch_configurables(target_exe, exe_options={}):
         patch_offsets(f, configured_offesets)
 
 
-def patch_render_dll(target_dll):
+def patch_render_dll(target_dll: str) -> None:
     with open(target_dll, 'rb+') as f:
         for offset in data.offsets_dll.keys():
             f.seek(offset)
@@ -339,18 +345,19 @@ def patch_render_dll(target_dll):
                 f.write(struct.pack("f", data.offsets_dll[offset]))
 
 
-def rename_effects_bps(game_root_path):
+def rename_effects_bps(game_root_path: str) -> None:
+    '''Without packed bps file game will use individual effects, which allows making edits to them'''
     bps_path = os.path.join(game_root_path, "data", "models", "effects.bps")
     new_bps_path = os.path.join(game_root_path, "data", "models", "stock_effects.bps")
     if os.path.exists(bps_path):
         os.rename(bps_path, new_bps_path)
-        logger.debug(f"Renamed effects.bps in path '{bps_path}'")
+        logger.info(f"Renamed effects.bps in path '{bps_path}'")
     elif not os.path.exists(new_bps_path):
         logger.warning(f"Can't find effects.bps not in normal path '{bps_path}', "
                        "nor in renamed form, probably was deleted by user")
 
 
-def correct_damage_coeffs(root_dir: str, gravity):
+def correct_damage_coeffs(root_dir: str, gravity: float | int) -> None:
     config = get_config(root_dir)
     if config.attrib.get("ai_clash_coeff") is not None:
         ai_clash_coeff = 0.001 / ((gravity / -9.8))
@@ -358,7 +365,7 @@ def correct_damage_coeffs(root_dir: str, gravity):
         save_to_file(config, os.path.join(root_dir, "data", "config.cfg"))
 
 
-def increase_phys_step(root_dir: str, enable=True):
+def increase_phys_step(root_dir: str, enable: bool = True) -> None:
     glob_props_full_path = os.path.join(root_dir, get_glob_props_path(root_dir))
     glob_props = xml_to_objfy(glob_props_full_path)
     physics = child_from_xml_node(glob_props, "Physics")
