@@ -35,6 +35,8 @@ def remove_colors_from_list(text: list):
 
 
 def remove_colors(text: str):
+    if not isinstance(text, str):
+        return ''
     for color in bcolors:
         text = text.replace(color.value, '')
     return text

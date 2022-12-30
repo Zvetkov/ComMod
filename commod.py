@@ -115,6 +115,16 @@ def main_console(options: argparse.Namespace) -> None:
 
     game.load_installed_descriptions(context.validated_mod_configs, colourise=True)
 
+    remaster_mod = Mod(context.remaster_config, context.remaster_path,)
+
+    commod_compatible, commod_compat_err = remaster_mod.compatible_with_mod_manager(context.commod_version)
+
+    if not commod_compatible:
+        console.prompt_for(accept_enter=True,
+                           description=commod_compat_err,
+                           stopping=True)
+        return
+
     if (game.patched_version or game.leftovers) and not (options.comremaster or options.compatch):
         # we only offer to launch mod manager on startup if the game is already patched
         # otherwise mod manager will start work after ComPatch/ComRem installation
@@ -124,7 +134,7 @@ def main_console(options: argparse.Namespace) -> None:
                 description = f'{format_text(loc_string("already_installed"), bcolors.OKGREEN)}:\n'
                 for content_piece in game.installed_descriptions.values():
                     description += content_piece
-                description += loc_string("intro_modded_game")
+                description += '\n' + loc_string("intro_modded_game")
                 reinstall_prompt = console.prompt_for(["mods", "exit"], accept_enter=False,
                                                       description=description)
             else:
@@ -217,8 +227,6 @@ def main_console(options: argparse.Namespace) -> None:
 
     console.switch_header(version_choice)
 
-    remaster_mod = Mod(context.remaster_config, context.remaster_path)
-
     session.content_in_processing["community_patch"] = {"base": "yes",
                                                         "version": remaster_mod.version,
                                                         "build": remaster_mod.build,
@@ -230,7 +238,7 @@ def main_console(options: argparse.Namespace) -> None:
         patch_description = [loc_string(line) for line in install_base(version_choice, game, context)]
         file_ops.rename_effects_bps(game.game_root_path)
         console.final_screen_print(patch_description)
-        session.installed_content_description.append("")  # separator
+        # session.installed_content_description.append("")  # separator
 
         print(format_text(loc_string("installation_finished"), bcolors.OKGREEN))
     elif version_choice == "remaster":
@@ -244,14 +252,6 @@ def main_console(options: argparse.Namespace) -> None:
         session.content_in_processing["community_remaster"]["build"] = remaster_mod.build
         session.content_in_processing["community_remaster"]["display_name"] = remaster_mod.display_name
         exe_options = remaster_mod.patcher_options
-
-        if not remaster_mod.compatible_with_mod_manager(data.VERSION):
-            logger.warning("ComRemaster manifest asks for a newer patch version. "
-                           f"Required: {remaster_mod.patcher_version_requirement}, available: {data.VERSION}")
-            console.simple_end("usupported_patcher_version",
-                               new_version=remaster_mod.patcher_version_requirement,
-                               current_version=data.VERSION)
-            return
 
         console.switch_header("remaster")
         console.copy_patch_files(context.distribution_dir, game.game_root_path)
@@ -290,6 +290,7 @@ def main_console(options: argparse.Namespace) -> None:
     else:
         raise NameError(f"Unsupported installation option '{version_choice}'!")
 
+    game.load_installed_descriptions(context.validated_mod_configs, colourise=True)
     console.finilize_manifest(game, session)
 
     if context.validated_mod_configs:
@@ -344,23 +345,26 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
     for mod_manifest in context.validated_mod_configs:
         mod_config = context.validated_mod_configs[mod_manifest]
         mod = Mod(mod_config, Path(mod_manifest).parent)
-        if not mod.compatible_with_mod_manager(data.VERSION):
-            logger.warning(f"Mod '{mod.name}' asks for a newer patcher version."
-                           f" Required: {mod.patcher_version_requirement}, available: {data.VERSION}")
-            session.mod_installation_errors.append(f"{loc_string('usupported_patcher_version')}: "
-                                                   f"{mod.display_name} - {mod.patcher_version_requirement}"
-                                                   f" > {data.VERSION}")
-            continue
+
+        compatible_with_commod, commod_compat_error = mod.compatible_with_mod_manager(context.commod_version)
 
         prevalidated, prevalidation_errors = mod.check_requirements(game.installed_content,
                                                                     game.installed_descriptions)
         compatible, incompatible_errors = mod.check_incompatibles(game.installed_content,
                                                                   game.installed_descriptions)
-        if not prevalidated or not compatible:
+        if not prevalidated or not compatible or not compatible_with_commod:
             errors_info = console.format_mod_title(mod.display_name, mod.version, incompatible=True)
             console.switch_header("mod_install_custom", additional_string=errors_info)
 
-            console.notify_on_mod_with_errors(mod, prevalidation_errors + incompatible_errors)
+            errors_to_notify = []
+            if commod_compat_error:
+                errors_to_notify.append(commod_compat_error)
+            if prevalidation_errors:
+                errors_to_notify.extend(prevalidation_errors)
+            if incompatible_errors:
+                errors_to_notify.extend(incompatible_errors)
+
+            console.notify_on_mod_with_errors(mod, errors_to_notify)
             continue
 
         mod_install_settings = console.configure_mod_install(mod, game=game)

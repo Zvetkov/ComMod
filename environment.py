@@ -9,22 +9,22 @@ from mod import Mod
 from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory,\
                   DistributionNotFound, FileLoggingSetupError, InvalidExistingManifest, ModsDirMissing,\
                   NoModsFound, CorruptedRemasterFiles, PatchedButDoesntHaveManifest, WrongGameDirectoryPath
-from data import VERSION_BYTES_102_STAR, VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, loc_string
+from data import VERSION, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
+                 VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, loc_string
 from file_ops import running_in_venv, read_yaml, makedirs
-
-from data import VERSION_BYTES_102_NOCD
 
 
 class InstallationContext:
     '''
     Contains all the data about the current distribution directory
-    (dir where installation files are located)
+    (dir where installation files are located) and some details about ComMod
     '''
     def __init__(self, distribution_dir: str | None = None,
                  dev_mode: bool = False) -> None:
         self.developer_mode = dev_mode
         self.target_game_copy = None
         self.validated_mod_configs = {}
+        self.commod_version = VERSION
 
         if distribution_dir is not None:
             try:
@@ -309,6 +309,9 @@ class GameCopy:
             raise PatchedButDoesntHaveManifest(self.exe_version)
 
     def is_modded(self) -> bool:
+        if self.installed_content is None:
+            return False
+
         if "community_remaster" in self.installed_content.keys():
             if len(self.installed_content) > 2:
                 return True
@@ -325,6 +328,9 @@ class GameCopy:
 
         if additional_manifests:
             available_external_manifests = [manifest['name'] for manifest in additional_manifests.values()]
+
+        if self.installed_content is None:
+            return
 
         for content_piece in self.installed_content:
             install_manifest = self.installed_content[content_piece]

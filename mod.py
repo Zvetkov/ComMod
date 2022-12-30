@@ -2,11 +2,12 @@ from __future__ import annotations
 from functools import total_ordering
 
 import logging
-from math import isclose
 import operator
 import os
 from pathlib import Path
 import typing
+
+import data
 
 from console_color import bcolors, format_text, remove_colors
 from data import loc_string
@@ -53,9 +54,12 @@ class Mod:
 
             patcher_version_requirement = yaml_config.get("patcher_version_requirement")
             if patcher_version_requirement is None:
-                self.patcher_version_requirement = "1.10"
+                self.patcher_version_requirement = [">=1.10"]
+            elif not isinstance(patcher_version_requirement, list):
+                self.patcher_version_requirement = [str(patcher_version_requirement)]
             else:
-                self.patcher_version_requirement = str(patcher_version_requirement)
+                self.patcher_version_requirement = [str(ver) for ver in patcher_version_requirement]
+
             self.patcher_options = yaml_config.get("patcher_options")
             self.distibution_dir = distribution_dir
             self.options_dict = {}
@@ -151,6 +155,9 @@ class Mod:
     def check_requirements(self, existing_content: dict, existing_content_descriptions: dict,
                            patcher_version: str | float = '') -> tuple[bool, list]:
         error_msg = []
+
+        notified_on_installed_content = False
+
         requirements_met = True
         compatch_env = ("community_remaster" not in existing_content.keys() and
                         "community_patch" in existing_content.keys())
@@ -179,23 +186,11 @@ class Mod:
             # if trying to install compatch-only mod on comrem
             if (required_mod_name == "community_patch"
                and existing_content.get("community_remaster") is not None
-               and self.name != "community_remaster"):
+               and self.name != "community_remaster"
+               and "community_remaster" not in prereq["name"]):
                 name_validated = False
                 error_msg.append(f"{loc_string('compatch_mod_incompatible_with_comrem')}: "
                                  f"{self.display_name}")
-
-            # if not name_validated:
-            #     name_label = or_word.join(prereq["name"])
-
-            #     if prereq.get("optional_content") is not None:
-            #         if prereq.get("optional_content"):
-            #             optional_content_label = (f', {loc_string("including_options").lower()}: '
-            #                                       f'{or_word.join(prereq.get("optional_content"))}')
-
-                # error_msg.append(f'\n{loc_string("for_mod").capitalize()} "{self.display_name}" '
-                #                  f'{loc_string("required_mod_not_found").lower()}:\n'
-                #                  f'{loc_string("technical_name").capitalize()}: {name_label}{version_label}'
-                #                  f'{optional_content_label}')
 
             or_word = f" {loc_string('or')} "
             and_word = f" {loc_string('and')} "
@@ -228,27 +223,12 @@ class Mod:
                         parsed_existing_ver = Mod.Version(installed_version)
                         parsed_required_ver = Mod.Version(version)
 
-                        version_validated = compare_operation(parsed_required_ver, parsed_existing_ver)
+                        version_validated = compare_operation(parsed_existing_ver, parsed_required_ver)
 
                         if compare_operation is operator.eq:
                             if parsed_required_ver.identifier:
                                 if parsed_existing_ver.identifier != parsed_required_ver.identifier:
                                     version_validated = False
-
-
-                    # supported_version = installed_version in versions
-
-                    # if not supported_version:
-                    #     self.logger.warning(f"{loc_string('version_needed')}: {str(versions)} - "
-                    #                         f"{loc_string('version_available')}: {installed_version}")
-                    #     error_msg.extend([f"{loc_string('version_requirement_not_met')}: {required_mod_name}",
-                    #                       (f"{loc_string('version_needed')}: {str(versions)} - "
-                    #                        f"{loc_string('version_available')}: {installed_version}\n")])
-                    #     error_msg.append(f'{loc_string("version_available").capitalize()}:\n'
-                    #                      f'{remove_colors(existing_content_descriptions[required_mod_name])}')
-                    # version_validated = (installed_version in versions) and version_validated
-
-            optional_content_label = ""
 
             optional_content = prereq.get("optional_content")
             if optional_content and optional_content is not None:
@@ -266,10 +246,6 @@ class Mod:
                                 error_msg.append(requirement_err)
 
                             error_msg.append(requirement_name)
-
-                            # existng_descript = remove_colors(existing_content_descriptions[required_mod_name])
-                            # error_msg.append(f'{loc_string("version_available").capitalize()}:\n'
-                                            #  f'{existng_descript}')
                         else:
                             self.logger.info(f"content validated: {option} - "
                                              f"for mod: {required_mod_name}")
@@ -278,32 +254,37 @@ class Mod:
 
             if not validated:
                 if not name_validated:
-                    warning = loc_string("required_mod_not_found")
+                    warning = f'\n{loc_string("required_mod_not_found")} {loc_string("for_mod")} {self.display_name}:'
                 else:
-                    warning = f'\n{loc_string("required_base")}'
+                    warning = f'\n{loc_string("required_base")} {loc_string("for_mod")} {self.display_name}:'
 
-                error_msg.append(f'{warning} {loc_string("for_mod")} '
-                                 f'"{self.display_name}":\n{loc_string("technical_name").capitalize()}: '
+                if warning not in error_msg:
+                    error_msg.append(warning)
+
+                error_msg.append(f'{loc_string("technical_name").capitalize()}: '
                                  f'{name_label}{version_label}{optional_content_label}')
                 installed_description = existing_content_descriptions.get(required_mod_name)
                 if installed_description is not None:
                     installed_description = installed_description.strip("\n\n")
-                    error_msg.append(f'\n{loc_string("version_available").capitalize()}:\n'
-                                     f'{remove_colors(installed_description)}')
+                    error_msg_entry = (f'\n{loc_string("version_available").capitalize()}:\n'
+                                       f'{remove_colors(installed_description)}')
+                    if error_msg_entry not in error_msg:
+                        error_msg.append(error_msg_entry)
+
                 else:
                     # in case when we working with compatched game but mod requires comrem
-                    # it would be nice to tip a user that this is incompatibility in itself 
+                    # it would be nice to tip a user that this is incompatibility in itself
                     if compatch_env and "community_remaster" in prereq["name"]:
                         installed_description = existing_content_descriptions.get("community_patch")
-                        error_msg.append(f'\n{loc_string("version_available").capitalize()}:\n'
-                                         f'{remove_colors(installed_description)}')
+                        error_msg_entry = (f'\n{loc_string("version_available").capitalize()}:\n'
+                                           f'{remove_colors(installed_description)}')
+                        if error_msg_entry not in error_msg:
+                            error_msg.append(error_msg_entry)
 
             requirements_met &= validated
 
         if error_msg:
             error_msg.append(f'\n{loc_string("check_for_a_new_version")}')
-            # if self.url is not None:
-            #     error_msg.append(f"\n{loc_string('mod_url')} {self.url}")
 
         return requirements_met, error_msg
 
@@ -356,7 +337,7 @@ class Mod:
                         parsed_existing_ver = Mod.Version(installed_version)
                         parsed_incompat_ver = Mod.Version(version)
 
-                        version_incomp = compare_operation(parsed_incompat_ver, parsed_existing_ver)
+                        version_incomp = compare_operation(parsed_existing_ver, parsed_incompat_ver)
 
                         # while we ignore postfix for less/greater ops, we want to have an ability
                         # to make a specifix version with postfix incompatible
@@ -419,7 +400,7 @@ class Mod:
                 "authors": [[str], True],
                 "prerequisites": [[list], True],
                 "incompatible": [[list], False],
-                "patcher_version_requirement": [[str], True],
+                "patcher_version_requirement": [[str, float, int, list[str | float | int]], True],
 
                 "release_date": [[str], False],
                 "language": [[str], False],
@@ -552,11 +533,57 @@ class Mod:
             return False
 
     def compatible_with_mod_manager(self, patcher_version: str | float) -> bool:
-        if (isclose(float(self.patcher_version_requirement), float(patcher_version)) or
-           (float(patcher_version) > float(self.patcher_version_requirement))):
-            return True
-        else:
-            return False
+        compatible = True
+
+        patcher_version_parsed = Mod.Version(patcher_version)
+        patcher_version_parsed.identifier = None
+        error_msg = ""
+        mod_manager_too_new = False
+
+        for version in self.patcher_version_requirement:
+            if ">=" == version[:2]:
+                compare_operation = operator.ge
+            elif "<=" == version[:2]:
+                compare_operation = operator.le
+            elif ">" == version[:1]:
+                compare_operation = operator.gt
+            elif "<" == version[:1]:
+                compare_operation = operator.lt
+            elif "=" == version[:1]:
+                compare_operation = operator.eq
+            else:  # default "version" treated the same as ">=version":
+                compare_operation = operator.ge
+
+            for sign in (">", "<", "="):
+                version = version.replace(sign, '')
+
+            parsed_required_ver = Mod.Version(version)
+            parsed_required_ver.identifier = None
+
+            if compare_operation is operator.eq and parsed_required_ver < patcher_version_parsed:
+                mod_manager_too_new = True
+
+            compatible &= compare_operation(patcher_version_parsed, parsed_required_ver)
+
+        if not compatible:
+            logger.warning(f"{self.display_name} manifest asks for an other mod manager version. "
+                           f"Required: {self.patcher_version_requirement}, available: {patcher_version}")
+            and_word = f" {loc_string('and')} "
+
+            error_msg = (loc_string("usupported_patcher_version",
+                                    content_name=format_text(self.display_name, bcolors.WARNING),
+                                    required_version=and_word.join(self.patcher_version_requirement),
+                                    current_version=patcher_version,
+                                    github_url=format_text(data.COMPATCH_GITHUB, bcolors.HEADER)))
+
+            if mod_manager_too_new and self.name == "community_remaster":
+                error_msg += f"\n\n{loc_string('check_for_a_new_version')}\n\n"
+                error_msg += loc_string("demteam_links",
+                                        discord_url=format_text(data.DEM_DISCORD, bcolors.HEADER),
+                                        deuswiki_url=format_text(data.WIKI_COMPATCH, bcolors.HEADER),
+                                        github_url=format_text(data.COMPATCH_GITHUB, bcolors.HEADER))
+
+        return compatible, error_msg
 
     @staticmethod
     def validate_dict(validating_dict: dict, scheme: dict) -> bool:
@@ -760,11 +787,11 @@ class Mod:
 
             if self.is_numeric and other.is_numeric:
                 return ((int(self.major), int(self.minor), int(self.patch))
-                        >
+                        <
                         (int(other.major), int(other.minor), int(other.patch)))
             else:
                 return ((self.major.lower(), self.minor.lower(), self.path.lower())
-                        >
+                        <
                         (self.major.lower(), self.minor.lower(), self.path.lower()))
 
     class OptionalContent:
