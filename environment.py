@@ -1,5 +1,8 @@
+from ctypes import windll
 import logging
 import os
+import platform
+import subprocess
 import sys
 
 from pathlib import Path
@@ -10,7 +13,8 @@ from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnp
                   DistributionNotFound, FileLoggingSetupError, InvalidExistingManifest, ModsDirMissing,\
                   NoModsFound, CorruptedRemasterFiles, PatchedButDoesntHaveManifest, WrongGameDirectoryPath
 from data import VERSION, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
-                 VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, loc_string
+                 VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR
+from localisation import loc_string
 from file_ops import running_in_venv, read_yaml, makedirs
 
 
@@ -25,6 +29,8 @@ class InstallationContext:
         self.target_game_copy = None
         self.validated_mod_configs = {}
         self.commod_version = VERSION
+        self.os = platform.system()
+        self.os_version = platform.release()
 
         if distribution_dir is not None:
             try:
@@ -64,6 +70,47 @@ class InstallationContext:
             self.distribution_dir = os.path.normpath(distribution_dir)
         else:
             raise DistributionNotFound(distribution_dir, "Couldn't find all files in given distribuion dir")
+
+    def load_system_info(self):
+        self.os = platform.system()
+        self.os_version = platform.release()
+
+        self.under_windows = "Windows" in self.os
+        self.monitor_res = self.get_monitor_resolution()
+
+        self.logger.info(f"Running on {self.os}: {self.os_version}")
+
+    def get_monitor_resolution(self) -> tuple[int, int]:
+        if "Windows" in platform.system():
+            success = False
+            retry_count = 10
+            for retry in range(retry_count):
+                res_x = windll.user32.GetSystemMetrics(0)
+                res_y = windll.user32.GetSystemMetrics(1)
+                if res_x != 0 and res_y != 0:
+                    success = True
+                    break
+            if not success:
+                res_x = 1920
+                res_y = 1080
+                self.logger.warning("GetSystemMetrics failed, can't determine resolution "
+                                    "using FullHD as a fallback")
+        else:
+            cmd = ['xrandr']
+            cmd2 = ['grep', '*']
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+            p2 = subprocess.Popen(cmd2, stdin=p.stdout, stdout=subprocess.PIPE)
+            p.stdout.close()
+            resolution_string, junk = p2.communicate()
+            resolution = resolution_string.split()[0]
+            res_x, res_y = resolution.split('x')
+
+        monitor_res = int(res_x), int(res_y)
+        self.logger.info(f"reported res X:Y: {res_x}:{res_y}")
+
+        if self.under_windows:
+            self.logger.info(f"os scale factor: {OS_SCALE_FACTOR}")
+        return monitor_res
 
     def validate_remaster(self):
         yaml_path = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")

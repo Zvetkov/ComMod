@@ -168,7 +168,7 @@ def read_yaml(yaml_path: str) -> Any:
 def dump_yaml(data, path) -> bool:
     with open(path, 'w', encoding="utf-8") as stream:
         try:
-            yaml.dump(data, stream)
+            yaml.dump(data, stream, allow_unicode=True, width=1000)
         except yaml.YAMLError as exc:
             logger.error(exc)
             return False
@@ -207,14 +207,15 @@ def get_glob_props_path(root_dir: str) -> str:
 
 
 def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
-                   exe_options: dict = {}) -> list[str]:
+                   monitor_res: tuple, exe_options: dict = {},
+                   under_windows: bool = True) -> list[str]:
     '''Applies binary exe fixes, makes related changes to config and global properties
        and returns list with a localised description of applied changes'''
     changes_description = []
     with open(target_exe, 'rb+') as f:
         game_root_path = Path(target_exe).parent
         offsets_exe = data.offsets_exe_fixes
-        width, height = hd_ui.get_monitor_resolution()
+        width, height = monitor_res
 
         if version_choice == "remaster":
             for offset in data.offsets_abs_sizes.keys():
@@ -252,9 +253,20 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
 
         changes_description.append("numeric_fixes_patched")
         changes_description.append("general_compatch_fixes")
+
         if version_choice == "remaster":
-            logger.info("ui fixes patched")
-            hd_ui.scale_fonts(game_root_path, data.OS_SCALE_FACTOR)
+            if under_windows:
+                if exe_options.get("game_font") is not None:
+                    font_alias = exe_options.get("game_font")
+                else:
+                    font_alias = ""
+                fonts_scaled = hd_ui.scale_fonts(game_root_path, data.OS_SCALE_FACTOR, font_alias)
+                if fonts_scaled:
+                    logger.info("fonts corrected")
+                else:
+                    logger.info("cant correct fonts")
+            else:
+                logger.warning("Font scaling is unsupported under OS other then Windows")
 
             width_list = []
             if width in data.PREFERED_RESOLUTIONS.keys():
@@ -280,6 +292,7 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
                 f.write(struct.pack("i", width_list[i]))
                 f.seek(height_to_change)
                 f.write(struct.pack("i", data.possible_resolutions[width_list[i]]))
+            logger.info("ui fixes patched")
 
         offsets_text = data.get_text_offsets(version_choice)
         for offset in offsets_text.keys():
@@ -331,6 +344,10 @@ def patch_configurables(target_exe: str, exe_options: dict = {}) -> None:
         configured_offesets = {}
         for key in data.configurable_offsets.keys():
             configured_offesets[data.configurable_offsets.get(key)] = configurable_values[key]
+
+        if exe_options.get("game_font") is not None:
+            font_alias = exe_options.get("game_font")
+            hd_ui.scale_fonts(Path(target_exe).parent, data.OS_SCALE_FACTOR, font_alias)
 
         patch_offsets(f, configured_offesets)
 

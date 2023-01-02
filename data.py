@@ -1,11 +1,15 @@
-import logging
 import math
-import locale
 
 from os import system
 from ctypes import windll
 
-logger = logging.getLogger('dem')
+DATE = "(Jan 01 2023)"
+VERSION = "1.13"
+
+COMPATCH_VER = f"ExMachina - Community Patch build v{VERSION} {DATE}"
+COMPATCH_VER_SHRT = f"ExMachina - ComPatch v{VERSION} {DATE}"
+COMREM_VER = f"ExMachina - Community Remaster build v{VERSION} {DATE}"
+COMREM_VER_SHRT = f"ExMachina - ComRem v{VERSION} {DATE}"
 
 VERSION_BYTES_102_NOCD = 0x005906A3
 VERSION_BYTES_102_STAR = 0x00000241
@@ -13,16 +17,6 @@ VERSION_BYTES_102_STAR = 0x00000241
 VERSION_BYTES_103_NOCD = 0x005917D2
 VERSION_BYTES_103_STAR = 0x00000309
 
-DATE = "(Dec 29 2022)"
-VERSION = "1.13"
-COMPATCH_VER = f"ExMachina - Community Patch build v{VERSION} {DATE}"
-COMPATCH_VER_SHRT = f"ExMachina - ComPatch v{VERSION} {DATE}"
-COMREM_VER = f"ExMachina - Community Remaster build v{VERSION} {DATE}"
-COMREM_VER_SHRT = f"ExMachina - ComRem v{VERSION} {DATE}"
-
-DEM_DISCORD = "https://discord.gg/jZHxYdF"
-COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
-WIKI_COMPATCH = "https://deuswiki.com/w/Community_Patch"
 
 ENCODING = 'windows-1251'
 
@@ -52,12 +46,6 @@ ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
 OFFSET_UI_X = round((TARGET_RES_X - ORIG_RES_X * ENLARGE_UI_COEF) / 2)
 OFFSET_UI_Y = round((TARGET_RES_Y - ORIG_RES_Y * ENLARGE_UI_COEF) / 2)
 
-def_locale = locale.getdefaultlocale()[0].replace("_", "-")
-
-if def_locale[-3:] == '-RU' or def_locale[:3] == "ru-":
-    LANG = "rus"
-else:
-    LANG = "eng"
 
 # 0x5E2BCB
 # 0x5E300C
@@ -158,7 +146,9 @@ mm_inserts = {
               # ConstantDLLName
               0x5FED63: "6C6962726172792E646C6C00",
               # 4GB patch
-              0x00015E: "2E"
+              0x00015E: "2E",
+              # stack size - 4 Mb
+              0x1A8: "00004000"
               }
 
 offsets_exe_fixes = {
@@ -412,274 +402,273 @@ hidden_values = {"low_fuel_threshold": [0.25, 0x124CCD, "pointer", "used_elsewhe
                  "max_resistance_for_damage": [25.0, 0x2D72A5, "pointer", "used_elsewhere"],
                  "blast_damage_friendly_fire": [0x01, 0x3DFADC, "direct", "single_use"]}  # bool
 
-strings_loc = {"installation_title": {"rus": f"Установка Community Remaster & Community Patch - версия установщика {VERSION}",
-                                      "eng": f"Community Remaster & Community Patch installation - installer version {VERSION}"},
-               "patch_title": {"rus": f"Установка Community Patch - версия установщика {VERSION}",
-                                      "eng": f"Community Patch installation - installer version {VERSION}"},
-               "remaster_title": {"rus": f"Установка Community Remaster - версия установщика {VERSION}",
-                                  "eng": f"Community Remaster installation - installer version {VERSION}"},
-               "mod_manager_title": {"rus": f"Mod Manager {VERSION} - установка модов для ComPatch/ComRem",
-                                     "eng": f"Mod Manager {VERSION} - installation of mods for ComPatch/ComRem"},
-               "advanced": {"rus": "Расширенная",
-                            "eng": "Advanced"},
-               "installation": {"rus": "Установка",
-                                "eng": "Installation"},
-               "cant_be_installed": {"rus": "Установка невозможна",
-                                     "eng": "Installation is not possible"},
-               "version": {"rus": "Версия",
-                           "eng": "Version"},
-               "or": {"rus": "или",
-                      "eng": "or"},
-               "and": {"rus": "и",
-                      "eng": "and"},
-               "simple_intro": {"rus": ("Установка по умолчанию включает в себя все возможные улучшения, такие как:\n"
-                                        "* HD 16:9 интерфейс\n* новые HD модели для некоторой техники и оружия\n* ремастер саундтрека\n"
-                                        "* все доступные фиксы движка\n* исправления ошибок квестов и кат-сцен\n"
-                                        "* улучшения игровых локаций\n* улучшения низкокачественных моделей\n"
-                                        "... и многое другое - полный список изменений в readme.\n\n"),
-                                "eng": ("Default installation includes all the available improvements, such as:\n"
-                                        "* HD 16:9 interface\n* new HD models for some trucks and guns\n"
-                                        "* sountrack remaster\n* many changes and fixes for quests, maps, models\n"
-                                        "... find full list of changes in readme.\n\n")},
-               "install_mods": {"rus": "Найдены доступные для установки моды. Хотите запустить установку модов?",
-                                "eng": "Mods available for installation found. Do you want to start installation for mods?"},
-               "just_enter": {"rus": "\nЧтобы установить всё - просто нажмите 'Enter'\n",
-                              "eng": "\nTo install everything - just press 'Enter'\n"},
-               "or_options": {"rus": "Для выбора опций - наберите 'options' и нажмите 'Enter'\n",
-                              "eng": "To choose install options - input 'options' and press 'Enter'\n"},
-               "first_choose_base_option": {"rus": "Сперва выберите основную версию:\n\n",
-                                            "eng": "First choose base installation version.\n\n"},
-               "intro_version_choice": {"rus": ("\033[95mCommunity Remaster\033[0m - расширенная версия, 16:9 HD интерфейс, "
-                                                "возможность установить новые HD модели, ремастер саундтрека. "
-                                                "Включает все исправления Community Patch."
-                                                "\n\n\033[95mCommunity Patch\033[0m - базовая версия, исправления ошибок, квестов, кат-сцен, "
-                                                "улучшения игровых механик, интерфейс для старых 4:3 мониторов.\n"),
-                                        "eng": ("\033[95mCommunity Remaster\033[0m - extended version, 16:9 HD interface, "
-                                                "optional choice of new HD models, remastered soundtrack. "
-                                                "Includes all fixes from Community Patch.\n\n\033[95mCommunity Patch\033[0m - base version, "
-                                                "fixes bugs and quest issues, interface for old 4:3 monitors.\n")},
-               "exe_not_supported": {"rus": "Найдена неподдерживаемая версия игры, установка будет прервана.\nПоддерживается установка только на распакованную игру версии 1.02.\nИгру можно приобрести в Steam: https://store.steampowered.com/app/285500\nДля установки поместите менеджер модов и папки 'patch', 'remaster', 'libs' в корневую папку игры.",
-                                     "eng": "Unsupported game version is found, will not be able to apply patch.\nOnly unpacked version 1.02 is supported.\nGame can be purchased on Steam: https://store.steampowered.com/app/285500\nTo install put mod manager and folders 'patch', 'remaster', 'libs' inside the root folder of the game."},
-               "exe_is_running": {"rus": "Отказано в доступе к игровому exe, возможно игра уже запущена. Если игра запущена - сперва закройте её полностью, а потом запустите менеджер модов.",
-                                  "eng": "Game exe access denied, game is probably already running. If game is running - first close the game, then start the mod manager."},
-               "dll_not_found": {"rus": "dxrender9.dll не найден, невозможно продолжить патчинг",
-                                 "eng": "dxrender9.dll is not found, will not be able to apply patch"},
-               "exe_not_found": {"rus": "Исполняемый файл игры(exe) не найден, невозможно продолжить патчинг.\nПоместите менеджер модов и папки 'patch', 'remaster', 'libs' в корневую папку игры.\nПоддерживается установка только на распакованную игру версии 1.02.\nИгру можно приобрести в Steam: https://store.steampowered.com/app/285500",
-                                 "eng": "Game`s executable is not found, will not be able to apply patch.\nPut mod manager and folders 'patch', 'remaster', 'libs' inside the root folder of the game.\nOnly unpacked version 1.02 is supported.\nGame can be purchased on Steam: https://store.steampowered.com/app/285500"},
-               "patching_exe": {"rus": "Работаем над exe",
-                                "eng": "Patching exe"},
-               "copying_patch_files_please_wait": {"rus": "Копируем базовые файлы патча, это может занять некоторое время, пожалуйста не закрывайте установщик\n",
-                                                   "eng": "Copying base patch files, this can take a bit, please don't close installer\n"},
-               "copying_base_files_please_wait": {"rus": "Копируем дополнительный контент, это может занять некоторое время, пожалуйста не закрывайте установщик\n",
-                                                  "eng": "Copying additional content, this can take a bit, please don't close installer\n"},
-               "copying_options_please_wait": {"rus": "Копируем выбранные опции, это может занять некоторое время, пожалуйста не закрывайте установщик\n",
-                                               "eng": "Copying optional content, this can take a bit, please don't close installer\n"},
-               "copy_done": {"rus": "Копирование завершено",
-                             "eng": "Finished copying"},
-               "cant_find_distribution_files": {"rus": "Не получается найти другие файлы патча.\nУстановщик и другие файлы патча должны находиться в одной папке",
-                                                "eng": "Can't find game files.\nInstaller and other patch files should be located in the same folder"},
-               "installation_error": {"rus": "При установке возникла ошибка, установка не была закончена",
-                                      "eng": "Installation error has occured, installation hasn't been finished"},
-               "requirements_not_met": {"rus": "Требования мода к игровой копии не удовлетворены, установка была прервана.",
-                                        "eng": "Mod requirements for installation are not met, installation is interrupted."},
-               "version_requirement_not_met": {"rus": "! Не выполнены требования к версии базового мода",
-                                               "eng": "! Version requirement is not met for base mod"},
-               "content_requirement_not_met": {"rus": "! Не все нужные аддоны базовых модов установлены.\nПеред тем как начинать установку, сперва поставьте базовый мод с следующими аддонами",
-                                               "eng": "! Not all required content of base mods were installed.\nYou need to install additional content for the base mods before installing this one"},
-               "technical_name": {"rus": "техническое имя",
-                                  "eng": "technical name"},
-               "for_mod": {"rus": "для мода",
-                           "eng": "for mod"},
-               "of_version": {"rus": "версии",
-                              "eng": "of version"},
-               "mod_url": {"rus": "Домашняя страница:",
-                           "eng": "Home page:"},
-               "version_needed": {"rus": "Совместимые версии",
-                                  "eng": "Compatible versions"},
-               "version_available": {"rus": "установленная версия",
-                                     "eng": "installed version"},
-               "check_for_a_new_version": {"rus": "Проверьте доступны ли новые версии для устанавливаемых модов и все ли зависимости соблюдены.",
-                                           "eng": "Check if newer versions are available for mods and if all the required dependencies are fulfilled."},
-               "usupported_patcher_version": {"rus": "Установка контента {content_name} запрашивает другую версию мод менеджера: {required_version}, сейчас используется: {current_version}\n"
-                                                     "Скачать новую версию мод менеджера можно на: {github_url}",
-                                              "eng": "Content {content_name} installation required other mod manager version: {required_version}, now used: {current_version}\n"
-                                                     "You can download a new mod manager version from: {github_url}"},
-               "including_options": {"rus": "Включая опции",
-                                     "eng": "Including options"},
-               "base_prompt": {"rus": "Введите доступный вариант и нажмите ENTER",
-                               "eng": "Input available option and press ENTER"},
-               "enter_accepted_prompt": {"rus": "Нажмите ENTER или сперва введите один из вариантов",
-                                         "eng": "Press ENTER or first input one of the options"},
-               "install_setting_ask": {"rus": "Установить опцию?",
-                                       "eng": "Install option?"},
-               "install_mod_ask": {"rus": "Установить мод?",
-                                   "eng": "Install mod?"},
-               "no_validated_mods": {"rus": ("\nМенеджер Модов не нашёл доступных для установки модов.\n\nМоды должны находиться в папке 'mods' на одном уровне с commod.exe\n\n"
-                                             "Поддерживается установка только специально подготовленных для ComPatch/ComRemaster модов.\nНайти информацию о поддерживаемых модах можно на https://deuswiki.com/w/Community_Patch\n"),
-                                     "eng": ("\nMod Manager couldn't find mods available for installation.\n\nMods should be extracted to folder 'mods', on the same level as commod.exe\n\n"
-                                             "Only mod package specially prepared for ComPatch/ComRemaster can be installed.\nPlease refer to https://deuswiki.com/w/Community_Patch to find info on supported mods\n")},
-               "yes_no": {"rus": "'yes' - да, 'no' - нет",
-                          "eng": "yes, no"},
-               "skip": {"rus": "'skip' - пропустить опцию",
-                        "eng": "'skip' - skip option"},
-               "description": {"rus": "Описание:",
-                               "eng": "Description:"},
-               "author": {"rus": "Автор:",
-                          "eng": "Author:"},
-               "authors": {"rus": "Авторы:",
-                           "eng": "Authors:"},
-               "install_setting_title": {"rus": "Способ установки",
-                                         "eng": "Installation setting"},
-               "compatch_mod_incompatible_with_comrem": {"rus": "Мод сделанный специально под Community Patch нельзя устанавливать поверх Community Remaster",
-                                                         "eng": "Mod created specifically for Community Patch can't be install over Community Remaster"},   
-               "required_mod_not_found": {"rus": "Не установлен требуемый базовый мод(ы)",
-                                          "eng": "Required base mod(s) is not installed"},
-               "required_base": {"rus": "Требуемая база",
-                                 "eng": "Required base"},
-               "found_incompatible": {"rus": "На игру установлен несовместимый мод",
-                                      "eng": "Game installation has an incompatible mod"},
-               "install_settings": {"rus": "Доступные варианты установки:",
-                                    "eng": "Available install variants:"},
-               "optional_content": {"rus": "опциональный контент",
-                                    "eng": "optional content"},
-               "install_leftovers": {"rus": "Предупреждение: установка поверх грязной копии игры.\nНа эту копию игры ранее уже происходила установка модов или ComPatch, не завершившаяся успешно.\nМы можем попробовать повторно установить ComPatch/ComRemaster, установка модов будет отключена.\nВ случае ошибок, попробуйте установку на чистую копию игры.\n",
-                                     "eng": "Warning: installation in the dirty environment.\nThis game copy previously experienced unsuccessfull installation of some mod or ComPatch.\nWe can try to reinstall ComPatch/ComRemaster, but mod installation will be unavailable.\nIn case of errors, try again with a clean game copy.\n"},
-               "cant_install_patch_over_remaster": {"rus": "Community Patch не поддерживает установку поверх Community Remaster, опция отключена\n",
-                                                    "eng": "Community Patch doesn't support installation over Community Remaster, options is disabled\n"},
-               "reinstalling_intro_no_mods": {"rus": ("Установщик обнаружил, что Community Patch или Remaster уже установлены на эту копию игры.\n"
-                                                      "Доступные для установки совместимые моды не найдены.\n"
-                                                      "Поддерживаются только моды совместимые c ComPatch/ComRem.\n"
-                                                      "Чтобы установить такой мод, поместите распакованный мод в папку 'mods' рядом с менеджером модов и запустите его снова.\n\n"
-                                                      "Чтобы закрыть инсталлятор - введите 'exit'\n"
-                                                      "Для повторной установки Patch/Remaster поверх существующей инсталляции - введите 'reinstall'\n"
-                                                      ),
-                                              "eng": ("Installer detected that Community Patch or Community Remaster is already installed on this game copy.\n"
-                                                      "No available for installation compatible mods found.\n"
-                                                      "Only specific mods compatible with ComPatch/ComRem are supported.\n"
-                                                      "To install such mod, place mod folder into folder 'mods' near mod manager executable and launch it again.\n\n"
-                                                      "If you want to exit installation - enter 'exit'\n"
-                                                      "If you want to overwrite existing installation of Community Patch/Remaster and install it again - enter 'reinstall'\n"
-                                                      )
-                                              },
-               "reinstalling_intro": {"rus": ("Установщик обнаружил, что Community Patch или Community Remaster уже установлены на эту копию игры.\n"
-                                              "Если вы хотите перейти к установке модов - введите 'mods'\n"
-                                              "Если хотите повторно установить Community Patch/Remaster поверх существующей инсталляции - введите 'reinstall'\n"),
-                                      "eng": ("Installer detected that Community Patch or Community Remaster is already installed on this game copy.\n"
-                                              "If you want to continue installation of mods - enter 'mods'\n"
-                                              "If you want to overwrite existing installation of Community Patch/Remaster and install it again - enter 'reinstall'\n")
-                                      },
-               "intro_modded_game": {"rus": ("Установщик обнаружил, что на эту копию игры с Community Patch или Community Remaster уже установлен мод.\n"
-                                             "Повторная установка ComPatch/Remaster на эту копию отключена.\n"
-                                             "Если вы хотите перейти к установке модов - введите 'mods'\n"
-                                             "Чтобы закрыть инсталлятор - введите 'exit'\n"
-                                             ),
-                                     "eng": ("Installer detected that mods was already installed on this game copy with Community Patch or Community Remaster.\n"
-                                             "Reinstallation of ComPatch/ComRem is disabled.'\n"
-                                             "If you want to continue installation of mods - enter 'mods'\n"
-                                             "If you want to exit installation - enter 'exit'\n"
-                                             )
-                                     },
-               "intro_modded_no_available_mods": {"rus": ("Установщик обнаружил, что на эту копию игры с Community Patch или Community Remaster уже установлен мод.\n"
-                                                          "Повторная установка ComPatch/Remaster на эту копию отключена.\n"
-                                                          "Доступные для установки моды не найдены.\n"
-                                                          "Чтобы установить мод, поместите распакованный мод в папку 'mods' рядом с менеджером модов и запустите его снова.\n"
-                                                          ),
-                                                  "eng": ("Installer detected that mods was already installed on this game copy with Community Patch or Community Remaster.\n"
-                                                          "Reinstallation of ComPatch/ComRem is disabled.'\n"
-                                                          "No available for installation mods found.\n"
-                                                          "To install mod, place unpacked mod into folder 'mods' near mod manager executable and launch it again.\n"
-                                                          )
-                                                  },
-               "reinstalling_intro_mods": {"rus": ("Установщик обнаружил, что данный мод уже установлен на эту копию игры.\n"
-                                                   "Если вы хотите пропустить установку  - введите 'skip'\n"
-                                                   "Если хотите повторно установить мод поверх существующей инсталляции - введите 'reinstall'\n"),
-                                           "eng": ("Installer detected that this mod is already installed on this game copy.\n"
-                                                   "If you want to skip its installation - enter 'skip'\n"
-                                                   "If you want to overwrite the existing installation of the mod and install it again - enter 'reinstall'\n")
-                                           },
-               "warn_reinstall": {"rus": "\nВАЖНО: повторная установка ComPatch/ComRemaster нежелательна.\nМы всегда рекомендуем ставить ComPatch/ComRemaster на чистую распакованную версию игры версии 1.02\n",
-                                  "eng": "\nIMPORTANT: overwriting existing installation of Patch/Remaster is undesirable.\nWe always recommend installing ComPatch/ComRemaster on the clean unpacked 1.02 version of the game\n"},
-               "warn_reinstall_mods": {"rus": "\nВАЖНО: повторная установка модов нежелательна.\nМы всегда рекомендуем ставить совместимые моды на свежую копию игры с ComPatch/ComRemaster\n",
-                                       "eng": "\nIMPORTANT: overwriting existing installation of mods is undesirable.\nWe always recommend installing compatible mods on a clean copy of the game with ComPatch/ComRemaster\n"},
-               "default_options": {"rus": "[Установка опционального контента]\nМожно установить всё по-умолчанию или выбрать опции.",
-                                   "eng": "[Optional content installation]\nCan be installed with default settings or you can change them."},
-               "default_options_prompt": {"rus": "Настройка по-умолчанию включает:\n",
-                                          "eng": "Default settings include:\n"},
-               "incorrect_prompt_answer": {"rus": "ответ не поддерживается, выберите один из перечисленных.\n",
-                                           "eng": "answer is unsupported, choose one of the listed options.\n"},
-               "installed_listing": {"rus": "Установлено:",
-                                     "eng": "Installed:"},
-               "already_installed": {"rus": "Уже установлены",
-                                     "eng": "Already installed"},
-               "base_version": {"rus": "Базовая версия",
-                                "eng": "Base version"},
-               "made_dpi_aware": {"rus": "+ Exe установлен флаг DPI Aware для лучшего масштабирования в оконном режиме",
-                                  "eng": "+ Exe made DPI Aware for better scaling in windowed mode"},
-               "widescreen_interface_patched": {"rus": "* Применён патч на широкоформатный 16:9 интерфейс",
-                                                "eng": "* Widescreen 16:9 interface patch applied"},
-               "binary_inserts_patched": {"rus": "* Правки ошибок движка",
-                                          "eng": "* Game engine fixes"},
-               "mm_inserts_patched": {"rus": "* Замена менеджера памяти, 4GB патч",
-                                      "eng": "* Memory manager replacement, 4GB patch"},
-               "numeric_fixes_patched": {"rus": ("* Улучшения физики и поведения авто"
-                                                 "\n* Улучшения работы игровой камеры"),
-                                         "eng": ("* Vehicle physics and handling improvements"
-                                                 "\n* Game camera improvements")},
-               "general_compatch_fixes": {"rus": ("* Исправления ошибок квестов и кат-сцен"
-                                                  "\n* Улучшения игровых локаций и низкокачественных моделей"
-                                                  "\n... и многое другое - полный список изменений в readme\n"),
-                                          "eng": "* many changes and fixes for quests, maps, models etc.\n"},
-               "ui_fixes_patched": {"rus": ("* 16:9 опции разрешения экрана в настройках"
-                                            "\n* Улучшения отображения шрифтов в консоли"),
-                                    "eng": ("* 16:9 resolution options in options menu"
-                                            "\n* Console font size fix")},
-               "fonts_corrected": {"rus": "* Шрифты скорректированы согласно системному масштабированию",
-                                   "eng": "* Fonts are corrected according to system`s scaling"},
-               "cant_correct_fonts": {"rus": "Невозможно скорректировать шрифты, Arial недоступен в системе",
-                                      "eng": "Can't correct fonts as Arial is not installed in the system"},
-               "damage_coeff_patched": {"rus": "* Урон от столкновений скорректирован в соответствии с новой физикой",
-                                        "eng": "* Vehicle crash damage is corrected to match new physics"},
-               "failed_and_cleaned": {"rus": "При работе возникла ошибка, обратитесь к разработчику с информацией о проблеме.\n",
-                                      "eng": "Patching failed, contact developer with information about the issue.\n"},
-               "installation_finished": {"rus": "Установка завершена!\n",
-                                         "eng": "Installation is complete!\n"},
-               "demteam_links": {"rus": "Discord команды Комьюнити Патча: {discord_url}\n"
-                                        "Больше информации про проект: {deuswiki_url} (может быть нужен VPN)\n"
-                                        "Свежие релизы патча на GitHub: {github_url}\n",
-                                 "eng": "Discord of Community Patch team: {discord_url}\n"
-                                        "More info about the project: {deuswiki_url}\n"
-                                        "Latest releases on GitHub: {github_url}\n"},
-               "press_enter_to_exit": {"rus": "Нажмите Enter чтобы закрыть окно.\n",
-                                       "eng": "Press Enter to close the window.\n"},
-               "press_enter_to_continue": {"rus": "Нажмите Enter чтобы продолжить.\n",
-                                           "eng": "Press Enter to continue.\n"},
-               "manifest_exists_game_unpatched": {"rus": "В указанную папку игры уже ранее пытались установить ComPatch/ComRemaster, но установка не была полностью успешной.\nУдалите игру и установите её заново перед установкой ComPatch.",
-                                                  "eng": "Targeted game directory previously was a target on unsuccessful ComPatch installation.\nDelete game and reinstall it from scratch before the new attempt to install ComPatch."},
-               "invalid_existing_manifest": {"rus": "Манифест предыдущей установки модов или ComPatch для выбранной папки с игрой повреждён или имеет неподдерживаемый формат.\nУдалите игру и установите её заново перед установкой ComPatch.",
-                                             "eng": "Installation manifest of mods or ComPatch for the target game installation is corrupted or has an unknown format.\nDelete game and reinstall it from scratch before the new attempt to install ComPatch."},
-               "stopping_patching": {"rus": "\nПатчинг остановлен, нажмите Enter, чтобы закрыть окно.",
-                                     "eng": "\nStopping patching, press Enter to close the window."},
-               "target_game_dir_doesnt_exist": {"rus": "Указанная папка игры не существует.",
-                                                "eng": "Targeted game directory doesn't exist."},
-               "not_validated_mod_manifest": {"rus": "Не удалось начать установку для мода, возможно файлы повреждены или манифест установки имеет некорректный формат",
-                                              "eng": "Couldn't start installation for mod, files might be corrupted or mod install manifest is of incorrect format"},
-               "folder": {"rus": "папка",
-                          "eng": "folder"},
-               "empty_mod_manifest": {"rus": "Не удалось начать установку для мода, возможно файлы повреждены - манифест установки пуст или сломан",
-                                      "eng": "Couldn't start installation for mod, files might be corrupted - install manifest is empty or broken"},
-               "cant_find_game_data": {"rus": "Не получается найти файлы игры.\nСкопируйте все файлы и папки патча в папку с игрой, рядом с exe файлом игры",
-                                       "eng": "Can't find game files.\nCopy all files and folders of patch to the folder where game is located, on the same level as a game executable"},
-               "corrupted_installation": {"rus": "Файлы игры или Community Patch / Remaster повреждены или не все файлы корректно скопированы.\nПереустановите игру заново и снова скопируйте файлы патча в корень перед установкой.",
-                                          "eng": "Game or Community Patch / Remaster files are corrupted or not all the patch files are present in the game directory.\nReinstall the game and copy all the files of the patch to the root folder of the game before installing."},
-               "missing_distribution": {"rus": "Файлы Community Patch / Remaster не найдены рядом с установщиком.\nПоместите установщик в одну папку с остальными файлами ComPatch.",
-                                        "eng": "Community Patch / Remaster files were not found near the installer.\nPut the installer in the same folder where other Compatch distribution files are located"},
-               "error_logging_setup": {"rus": "Ошибка во время настройки логирования",
-                                       "eng": "Error occured when trying to setup logging"},
-               "installation_aborted": {"rus": "Установка прервана по желанию пользователя.",
-                                        "eng": "Installation aborted by the user."},
-               "nothing_to_install": {"rus": "Нечего устанавливать, работа закончена.",
-                                      "eng": "Nothing to install, work finished."}
-               }
+# strings_loc = {"installation_title": {"eng": f"Community Remaster & Community Patch installation - installer version {VERSION}",
+#                                       "rus": f"Установка Community Remaster & Community Patch - версия установщика {VERSION}",
+#                                       "ua": f"Інсталяція Community Remaster & Community Patch - версія інсталятора {VERSION}"},
+#                "patch_title": {"rus": f"Установка Community Patch - версия установщика {VERSION}",
+#                                       "eng": f"Community Patch installation - installer version {VERSION}"},
+#                "remaster_title": {"rus": f"Установка Community Remaster - версия установщика {VERSION}",
+#                                   "eng": f"Community Remaster installation - installer version {VERSION}"},
+#                "mod_manager_title": {"rus": f"Mod Manager {VERSION} - установка модов для ComPatch/ComRem",
+#                                      "eng": f"Mod Manager {VERSION} - installation of mods for ComPatch/ComRem"},
+#                "advanced": {"rus": "Расширенная",
+#                             "eng": "Advanced"},
+#                "installation": {"rus": "Установка",
+#                                 "eng": "Installation"},
+#                "cant_be_installed": {"rus": "Установка невозможна",
+#                                      "eng": "Installation is not possible"},
+#                "version": {"rus": "Версия",
+#                            "eng": "Version"},
+#                "or": {"rus": "или",
+#                       "eng": "or"},
+#                "and": {"rus": "и",
+#                       "eng": "and"},
+#                "simple_intro": {"rus": ("Установка по умолчанию включает в себя все возможные улучшения, такие как:\n"
+#                                         "* HD 16:9 интерфейс\n* новые HD модели для некоторой техники и оружия\n* ремастер саундтрека\n"
+#                                         "* все доступные фиксы движка\n* исправления ошибок квестов и кат-сцен\n"
+#                                         "* улучшения игровых локаций\n* улучшения низкокачественных моделей\n"
+#                                         "... и многое другое - полный список изменений в readme."),
+#                                 "eng": ("Default installation includes all the available improvements, such as:\n"
+#                                         "* HD 16:9 interface\n* new HD models for some trucks and guns\n"
+#                                         "* sountrack remaster\n* many changes and fixes for quests, maps, models\n"
+#                                         "... find full list of changes in readme.")},
+#                "install_mods": {"rus": "Найдены доступные для установки моды. Хотите запустить установку модов?",
+#                                 "eng": "Mods available for installation found. Do you want to start installation for mods?"},
+#                "just_enter": {"rus": "Чтобы установить всё - просто нажмите 'Enter'",
+#                               "eng": "To install everything - just press 'Enter'"},
+#                "or_options": {"rus": "Для выбора опций - наберите 'options' и нажмите 'Enter'",
+#                               "eng": "To choose install options - input 'options' and press 'Enter'"},
+#                "first_choose_base_option": {"rus": "Сперва выберите основную версию:",
+#                                             "eng": "First choose base installation version."},
+#                "intro_version_choice": {"rus": ("\033[95mCommunity Remaster\033[0m - расширенная версия, 16:9 HD интерфейс, "
+#                                                 "возможность установить новые HD модели, ремастер саундтрека. "
+#                                                 "Включает все исправления Community Patch."
+#                                                 "\n\n\033[95mCommunity Patch\033[0m - базовая версия, исправления ошибок, квестов, кат-сцен, "
+#                                                 "улучшения игровых механик, интерфейс для старых 4:3 мониторов."),
+#                                         "eng": ("\033[95mCommunity Remaster\033[0m - extended version, 16:9 HD interface, "
+#                                                 "optional choice of new HD models, remastered soundtrack. "
+#                                                 "Includes all fixes from Community Patch.\n\n\033[95mCommunity Patch\033[0m - base version, "
+#                                                 "fixes bugs and quest issues, interface for old 4:3 monitors.")},
+#                "exe_not_supported": {"rus": "Найдена неподдерживаемая версия игры, установка будет прервана.\nПоддерживается установка только на распакованную игру версии 1.02.\nИгру можно приобрести в Steam: https://store.steampowered.com/app/285500\nДля установки поместите менеджер модов и папки 'patch', 'remaster', 'libs' в корневую папку игры.",
+#                                      "eng": "Unsupported game version is found, will not be able to apply patch.\nOnly unpacked version 1.02 is supported.\nGame can be purchased on Steam: https://store.steampowered.com/app/285500\nTo install put mod manager and folders 'patch', 'remaster', 'libs' inside the root folder of the game."},
+#                "exe_is_running": {"rus": "Отказано в доступе к игровому exe, возможно игра уже запущена. Если игра запущена - сперва закройте её полностью, а потом запустите менеджер модов.",
+#                                   "eng": "Game exe access denied, game is probably already running. If game is running - first close the game, then start the mod manager."},
+#                "dll_not_found": {"rus": "dxrender9.dll не найден, невозможно продолжить патчинг",
+#                                  "eng": "dxrender9.dll is not found, will not be able to apply patch"},
+#                "exe_not_found": {"rus": "Исполняемый файл игры(exe) не найден, невозможно продолжить патчинг.\nПоместите менеджер модов и папки 'patch', 'remaster', 'libs' в корневую папку игры.\nПоддерживается установка только на распакованную игру версии 1.02.\nИгру можно приобрести в Steam: https://store.steampowered.com/app/285500",
+#                                  "eng": "Game`s executable is not found, will not be able to apply patch.\nPut mod manager and folders 'patch', 'remaster', 'libs' inside the root folder of the game.\nOnly unpacked version 1.02 is supported.\nGame can be purchased on Steam: https://store.steampowered.com/app/285500"},
+#                "patching_exe": {"rus": "Работаем над exe",
+#                                 "eng": "Patching exe"},
+#                "copying_patch_files_please_wait": {"rus": "Копируем базовые файлы патча, это может занять некоторое время, пожалуйста не закрывайте установщик",
+#                                                    "eng": "Copying base patch files, this can take a bit, please don't close installer"},
+#                "copying_base_files_please_wait": {"rus": "Копируем дополнительный контент, это может занять некоторое время, пожалуйста не закрывайте установщик",
+#                                                   "eng": "Copying additional content, this can take a bit, please don't close installer"},
+#                "copying_options_please_wait": {"rus": "Копируем выбранные опции, это может занять некоторое время, пожалуйста не закрывайте установщик",
+#                                                "eng": "Copying optional content, this can take a bit, please don't close installer"},
+#                "copy_done": {"rus": "Копирование завершено",
+#                              "eng": "Finished copying"},
+#                "cant_find_distribution_files": {"rus": "Не получается найти другие файлы патча.\nУстановщик и другие файлы патча должны находиться в одной папке",
+#                                                 "eng": "Can't find game files.\nInstaller and other patch files should be located in the same folder"},
+#                "installation_error": {"rus": "При установке возникла ошибка, установка не была закончена",
+#                                       "eng": "Installation error has occured, installation hasn't been finished"},
+#                "requirements_not_met": {"rus": "Требования мода к игровой копии не удовлетворены, установка была прервана.",
+#                                         "eng": "Mod requirements for installation are not met, installation is interrupted."},
+#                "version_requirement_not_met": {"rus": "! Не выполнены требования к версии базового мода",
+#                                                "eng": "! Version requirement is not met for base mod"},
+#                "content_requirement_not_met": {"rus": "! Не все нужные аддоны базовых модов установлены.\nПеред тем как начинать установку, сперва поставьте базовый мод с следующими аддонами",
+#                                                "eng": "! Not all required content of base mods were installed.\nYou need to install additional content for the base mods before installing this one"},
+#                "technical_name": {"rus": "техническое имя",
+#                                   "eng": "technical name"},
+#                "for_mod": {"rus": "для мода",
+#                            "eng": "for mod"},
+#                "of_version": {"rus": "версии",
+#                               "eng": "of version"},
+#                "mod_url": {"rus": "Домашняя страница:",
+#                            "eng": "Home page:"},
+#                "version_needed": {"rus": "Совместимые версии",
+#                                   "eng": "Compatible versions"},
+#                "version_available": {"rus": "установленная версия",
+#                                      "eng": "installed version"},
+#                "check_for_a_new_version": {"rus": "Проверьте доступны ли новые версии для устанавливаемых модов и все ли зависимости соблюдены.",
+#                                            "eng": "Check if newer versions are available for mods and if all the required dependencies are fulfilled."},
+#                "usupported_patcher_version": {"rus": "Установка контента {content_name} запрашивает другую версию мод менеджера: {required_version}, сейчас используется: {current_version}\n"
+#                                                      "Скачать новую версию мод менеджера можно на: {github_url}",
+#                                               "eng": "Content {content_name} installation required other mod manager version: {required_version}, now used: {current_version}\n"
+#                                                      "You can download a new mod manager version from: {github_url}"},
+#                "including_options": {"rus": "Включая опции",
+#                                      "eng": "Including options"},
+#                "base_prompt": {"rus": "Введите доступный вариант и нажмите ENTER",
+#                                "eng": "Input available option and press ENTER"},
+#                "enter_accepted_prompt": {"rus": "Нажмите ENTER или сперва введите один из вариантов",
+#                                          "eng": "Press ENTER or first input one of the options"},
+#                "install_setting_ask": {"rus": "Установить опцию?",
+#                                        "eng": "Install option?"},
+#                "install_mod_ask": {"rus": "Установить мод?",
+#                                    "eng": "Install mod?"},
+#                "yes_no": {"rus": "'yes' - да, 'no' - нет",
+#                           "eng": "yes, no"},
+#                "skip": {"rus": "'skip' - пропустить опцию",
+#                         "eng": "'skip' - skip option"},
+#                "description": {"rus": "Описание:",
+#                                "eng": "Description:"},
+#                "author": {"rus": "Автор:",
+#                           "eng": "Author:"},
+#                "authors": {"rus": "Авторы:",
+#                            "eng": "Authors:"},
+#                "install_setting_title": {"rus": "Способ установки",
+#                                          "eng": "Installation setting"},
+#                "compatch_mod_incompatible_with_comrem": {"rus": "Мод сделанный специально под Community Patch нельзя устанавливать поверх Community Remaster",
+#                                                          "eng": "Mod created specifically for Community Patch can't be install over Community Remaster"},   
+#                "required_mod_not_found": {"rus": "Не установлен требуемый базовый мод(ы)",
+#                                           "eng": "Required base mod(s) is not installed"},
+#                "required_base": {"rus": "Требуемая база",
+#                                  "eng": "Required base"},
+#                "found_incompatible": {"rus": "На игру установлен несовместимый мод",
+#                                       "eng": "Game installation has an incompatible mod"},
+#                "install_settings": {"rus": "Доступные варианты установки:",
+#                                     "eng": "Available install variants:"},
+#                "optional_content": {"rus": "опциональный контент",
+#                                     "eng": "optional content"},
+#                "install_leftovers": {"rus": "Предупреждение: установка поверх грязной копии игры.\nНа эту копию игры ранее уже происходила установка модов или ComPatch, не завершившаяся успешно.\nМы можем попробовать повторно установить ComPatch/ComRemaster, установка модов будет отключена.\nВ случае ошибок, попробуйте установку на чистую копию игры.",
+#                                      "eng": "Warning: installation in the dirty environment.\nThis game copy previously experienced unsuccessfull installation of some mod or ComPatch.\nWe can try to reinstall ComPatch/ComRemaster, but mod installation will be unavailable.\nIn case of errors, try again with a clean game copy."},
+#                "cant_install_patch_over_remaster": {"rus": "Community Patch не поддерживает установку поверх Community Remaster, опция отключена",
+#                                                     "eng": "Community Patch doesn't support installation over Community Remaster, options is disabled"},
+#                "reinstalling_intro_no_mods": {"rus": ("Установщик обнаружил, что Community Patch или Remaster уже установлены на эту копию игры.\n"
+#                                                       "Доступные для установки совместимые моды не найдены.\n"
+#                                                       "Поддерживаются только моды совместимые c ComPatch/ComRem.\n"
+#                                                       "Чтобы установить такой мод, поместите распакованный мод в папку 'mods' рядом с менеджером модов и запустите его снова.\n\n"
+#                                                       "Чтобы закрыть инсталлятор - введите 'exit'\n"
+#                                                       "Для повторной установки Patch/Remaster поверх существующей инсталляции - введите 'reinstall'"
+#                                                       ),
+#                                               "eng": ("Installer detected that Community Patch or Community Remaster is already installed on this game copy.\n"
+#                                                       "No available for installation compatible mods found.\n"
+#                                                       "Only specific mods compatible with ComPatch/ComRem are supported.\n"
+#                                                       "To install such mod, place mod folder into folder 'mods' near mod manager executable and launch it again.\n\n"
+#                                                       "If you want to exit installation - enter 'exit'\n"
+#                                                       "If you want to overwrite existing installation of Community Patch/Remaster and install it again - enter 'reinstall'"
+#                                                       )
+#                                               },
+#                "reinstalling_intro": {"rus": ("Установщик обнаружил, что Community Patch или Community Remaster уже установлены на эту копию игры.\n"
+#                                               "Если вы хотите перейти к установке модов - введите 'mods'\n"
+#                                               "Если хотите повторно установить Community Patch/Remaster поверх существующей инсталляции - введите 'reinstall'"),
+#                                       "eng": ("Installer detected that Community Patch or Community Remaster is already installed on this game copy.\n"
+#                                               "If you want to continue installation of mods - enter 'mods'\n"
+#                                               "If you want to overwrite existing installation of Community Patch/Remaster and install it again - enter 'reinstall'")
+#                                       },
+#                "intro_modded_game": {"rus": ("Установщик обнаружил, что на эту копию игры с Community Patch или Community Remaster уже установлен мод.\n"
+#                                              "Повторная установка ComPatch/Remaster на эту копию отключена.\n"
+#                                              "Если вы хотите перейти к установке модов - введите 'mods'\n"
+#                                              "Чтобы закрыть инсталлятор - введите 'exit'"
+#                                              ),
+#                                      "eng": ("Installer detected that mods was already installed on this game copy with Community Patch or Community Remaster.\n"
+#                                              "Reinstallation of ComPatch/ComRem is disabled.'\n"
+#                                              "If you want to continue installation of mods - enter 'mods'\n"
+#                                              "If you want to exit installation - enter 'exit'"
+#                                              )
+#                                      },
+#                "intro_modded_no_available_mods": {"rus": ("Установщик обнаружил, что на эту копию игры с Community Patch или Community Remaster уже установлен мод.\n"
+#                                                           "Повторная установка ComPatch/Remaster на эту копию отключена.\n"
+#                                                           "Доступные для установки моды не найдены.\n"
+#                                                           "Чтобы установить мод, поместите распакованный мод в папку 'mods' рядом с менеджером модов и запустите его снова."
+#                                                           ),
+#                                                   "eng": ("Installer detected that mods was already installed on this game copy with Community Patch or Community Remaster.\n"
+#                                                           "Reinstallation of ComPatch/ComRem is disabled.'\n"
+#                                                           "No available for installation mods found.\n"
+#                                                           "To install mod, place unpacked mod into folder 'mods' near mod manager executable and launch it again."
+#                                                           )
+#                                                   },
+#                "reinstalling_intro_mods": {"rus": ("Установщик обнаружил, что данный мод уже установлен на эту копию игры.\n"
+#                                                    "Если вы хотите пропустить установку  - введите 'skip'\n"
+#                                                    "Если хотите повторно установить мод поверх существующей инсталляции - введите 'reinstall'"),
+#                                            "eng": ("Installer detected that this mod is already installed on this game copy.\n"
+#                                                    "If you want to skip its installation - enter 'skip'\n"
+#                                                    "If you want to overwrite the existing installation of the mod and install it again - enter 'reinstall'")
+#                                            },
+#                "warn_reinstall": {"rus": "ВАЖНО: повторная установка ComPatch/ComRemaster нежелательна.\nМы всегда рекомендуем ставить ComPatch/ComRemaster на чистую распакованную версию игры версии 1.02",
+#                                   "eng": "IMPORTANT: overwriting existing installation of Patch/Remaster is undesirable.\nWe always recommend installing ComPatch/ComRemaster on the clean unpacked 1.02 version of the game"},
+#                "warn_reinstall_mods": {"rus": "ВАЖНО: повторная установка модов нежелательна.\nМы всегда рекомендуем ставить совместимые моды на свежую копию игры с ComPatch/ComRemaster",
+#                                        "eng": "IMPORTANT: overwriting existing installation of mods is undesirable.\nWe always recommend installing compatible mods on a clean copy of the game with ComPatch/ComRemaster"},
+#                "default_options": {"rus": "[Установка опционального контента]\nМожно установить всё по-умолчанию или выбрать опции.",
+#                                    "eng": "[Optional content installation]\nCan be installed with default settings or you can change them."},
+#                "default_options_prompt": {"rus": "Настройка по-умолчанию включает:",
+#                                           "eng": "Default settings include:"},
+#                "incorrect_prompt_answer": {"rus": "ответ не поддерживается, выберите один из перечисленных.",
+#                                            "eng": "answer is unsupported, choose one of the listed options."},
+#                "installed_listing": {"rus": "Установлено:",
+#                                      "eng": "Installed:"},
+#                "already_installed": {"rus": "Уже установлены",
+#                                      "eng": "Already installed"},
+#                "base_version": {"rus": "Базовая версия",
+#                                 "eng": "Base version"},
+#                "made_dpi_aware": {"rus": "+ Exe установлен флаг DPI Aware для лучшего масштабирования в оконном режиме",
+#                                   "eng": "+ Exe made DPI Aware for better scaling in windowed mode"},
+#                "widescreen_interface_patched": {"rus": "* Применён патч на широкоформатный 16:9 интерфейс",
+#                                                 "eng": "* Widescreen 16:9 interface patch applied"},
+#                "binary_inserts_patched": {"rus": "* Правки ошибок движка",
+#                                           "eng": "* Game engine fixes"},
+#                "mm_inserts_patched": {"rus": "* Замена менеджера памяти, 4GB патч",
+#                                       "eng": "* Memory manager replacement, 4GB patch"},
+#                "numeric_fixes_patched": {"rus": ("* Улучшения физики и поведения авто"
+#                                                  "\n* Улучшения работы игровой камеры"),
+#                                          "eng": ("* Vehicle physics and handling improvements"
+#                                                  "\n* Game camera improvements")},
+#                "general_compatch_fixes": {"rus": ("* Исправления ошибок квестов и кат-сцен\n"
+#                                                   "* Улучшения игровых локаций и низкокачественных моделей\n"
+#                                                   "... и многое другое - полный список изменений доступен в ченжлисте"),
+#                                           "eng": ("* Fixes for quests and cutscenes\n"
+#                                                   "* Improvements of many game maps and low quality models\n"
+#                                                   "... and many other changes - see change list for full description")},
+#                "ui_fixes_patched": {"rus": ("* 16:9 опции разрешения экрана в настройках\n"
+#                                             "* Улучшения отображения шрифтов в консоли"),
+#                                     "eng": ("* 16:9 resolution options in options menu\n"
+#                                             "* Console font size fix")},
+#                "fonts_corrected": {"rus": "* Шрифты скорректированы согласно системному масштабированию",
+#                                    "eng": "* Fonts are corrected according to system`s scaling"},
+#                "cant_correct_fonts": {"rus": "Невозможно скорректировать шрифты, Arial недоступен в системе",
+#                                       "eng": "Can't correct fonts as Arial is not installed in the system"},
+#                "damage_coeff_patched": {"rus": "* Урон от столкновений скорректирован в соответствии с новой физикой",
+#                                         "eng": "* Vehicle crash damage is corrected to match new physics"},
+#                "failed_and_cleaned": {"rus": "При работе возникла ошибка, обратитесь к разработчику с информацией о проблеме.",
+#                                       "eng": "Patching failed, contact developer with information about the issue."},
+#                "installation_finished": {"rus": "Установка завершена!",
+#                                          "eng": "Installation is complete!"},
+#                "demteam_links": {"rus": "Discord команды Комьюнити Патча: {discord_url}\n"
+#                                         "Больше информации про проект: {deuswiki_url} (может быть нужен VPN)\n"
+#                                         "Свежие релизы патча на GitHub: {github_url}",
+#                                  "eng": "Discord of Community Patch team: {discord_url}\n"
+#                                         "More info about the project: {deuswiki_url}\n"
+#                                         "Latest releases on GitHub: {github_url}"},
+#                "press_enter_to_exit": {"rus": "Нажмите Enter чтобы закрыть окно.",
+#                                        "eng": "Press Enter to close the window."},
+#                "press_enter_to_continue": {"rus": "Нажмите Enter чтобы продолжить.",
+#                                            "eng": "Press Enter to continue."},
+#                "manifest_exists_game_unpatched": {"rus": "В указанную папку игры уже ранее пытались установить ComPatch/ComRemaster, но установка не была полностью успешной.\nУдалите игру и установите её заново перед установкой ComPatch.",
+#                                                   "eng": "Targeted game directory previously was a target on unsuccessful ComPatch installation.\nDelete game and reinstall it from scratch before the new attempt to install ComPatch."},
+#                "invalid_existing_manifest": {"rus": "Манифест предыдущей установки модов или ComPatch для выбранной папки с игрой повреждён или имеет неподдерживаемый формат.\nУдалите игру и установите её заново перед установкой ComPatch.",
+#                                              "eng": "Installation manifest of mods or ComPatch for the target game installation is corrupted or has an unknown format.\nDelete game and reinstall it from scratch before the new attempt to install ComPatch."},
+#                "stopping_patching": {"rus": "Патчинг остановлен, нажмите Enter, чтобы закрыть окно.",
+#                                      "eng": "Stopping patching, press Enter to close the window."},
+#                "target_game_dir_doesnt_exist": {"rus": "Указанная папка игры не существует.",
+#                                                 "eng": "Targeted game directory doesn't exist."},
+#                "not_validated_mod_manifest": {"rus": "Не удалось начать установку для мода, возможно файлы повреждены или манифест установки имеет некорректный формат",
+#                                               "eng": "Couldn't start installation for mod, files might be corrupted or mod install manifest is of incorrect format"},
+#                "folder": {"rus": "папка",
+#                           "eng": "folder"},
+#                "empty_mod_manifest": {"rus": "Не удалось начать установку для мода, возможно файлы повреждены - манифест установки пуст или сломан",
+#                                       "eng": "Couldn't start installation for mod, files might be corrupted - install manifest is empty or broken"},
+#                "cant_find_game_data": {"rus": "Не получается найти файлы игры.\nСкопируйте все файлы и папки патча в папку с игрой, рядом с exe файлом игры",
+#                                        "eng": "Can't find game files.\nCopy all files and folders of patch to the folder where game is located, on the same level as a game executable"},
+#                "corrupted_installation": {"rus": "Файлы игры или Community Patch / Remaster повреждены или не все файлы корректно скопированы.\nПереустановите игру заново и снова скопируйте файлы патча в корень перед установкой.",
+#                                           "eng": "Game or Community Patch / Remaster files are corrupted or not all the patch files are present in the game directory.\nReinstall the game and copy all the files of the patch to the root folder of the game before installing."},
+#                "missing_distribution": {"rus": "Файлы Community Patch / Remaster не найдены рядом с установщиком.\nПоместите установщик в одну папку с остальными файлами ComPatch.",
+#                                         "eng": "Community Patch / Remaster files were not found near the installer.\nPut the installer in the same folder where other Compatch distribution files are located"},
+#                "error_logging_setup": {"rus": "Ошибка во время настройки логирования",
+#                                        "eng": "Error occured when trying to setup logging"},
+#                "installation_aborted": {"rus": "Установка прервана по желанию пользователя.",
+#                                         "eng": "Installation aborted by the user."},
+#                "nothing_to_install": {"rus": "Нечего устанавливать, работа закончена.",
+#                                       "eng": "Nothing to install, work finished."}
+#                }
 
 
 def set_title() -> None:
@@ -708,15 +697,3 @@ def get_text_offsets(version: str) -> dict:
                     0x598DCC: ["169", 3]}
     return offsets_text
 
-
-def loc_string(str_name: str, **kwargs) -> str:
-    loc_str = strings_loc.get(str_name)
-    if loc_str is not None:
-        final_string = loc_str[LANG]
-        if kwargs:
-            final_string = final_string.format(**kwargs)
-        return final_string
-
-    else:
-        logger.warning(f"Localized string '{str_name}' not found!")
-        return f"Unlocalised string '{str_name}'"

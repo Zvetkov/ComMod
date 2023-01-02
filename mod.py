@@ -7,10 +7,8 @@ import os
 from pathlib import Path
 import typing
 
-import data
-
 from console_color import bcolors, format_text, remove_colors
-from data import loc_string
+from localisation import loc_string, DEM_DISCORD, COMPATCH_GITHUB, WIKI_COMPATCH
 from file_ops import copy_from_to
 
 logger = logging.getLogger('dem')
@@ -61,6 +59,7 @@ class Mod:
                 self.patcher_version_requirement = [str(ver) for ver in patcher_version_requirement]
 
             self.patcher_options = yaml_config.get("patcher_options")
+
             self.distibution_dir = distribution_dir
             self.options_dict = {}
             self.no_base_content = False
@@ -124,7 +123,8 @@ class Mod:
                         if console:
                             if self.name == "community_remaster":
                                 print("\n")  # separator
-                            print(format_text(loc_string("copying_base_files_please_wait"), bcolors.RED))
+                            print(format_text(loc_string("copying_base_files_please_wait"), bcolors.RED)
+                                  + "\n")
                         mod_files.append(base_path)
                     else:
                         wip_setting = self.options_dict[install_setting]
@@ -143,7 +143,7 @@ class Mod:
                             mod_files.append(base_work_path)
                             mod_files.append(custom_install_work_path)
                         if console and installation_prompt_result != "skip":
-                            print(format_text(loc_string("copying_options_please_wait"), bcolors.RED))
+                            print(format_text(loc_string("copying_options_please_wait"), bcolors.RED) + "\n")
                 copy_from_to(mod_files, game_data_path, console)
                 return True, []
             else:
@@ -418,6 +418,7 @@ class Mod:
                 "gravity": [[float], False, [-100.0, -1.0]],
                 "skins_in_shop": [[int], False, [8, 32]],
                 "blast_damage_friendly_fire": [[bool, str], False, None],
+                "game_font": [[str], False]
             }
             schema_optional_content = {
                 "name": [[str], True],
@@ -574,14 +575,14 @@ class Mod:
                                     content_name=format_text(self.display_name, bcolors.WARNING),
                                     required_version=and_word.join(self.patcher_version_requirement),
                                     current_version=patcher_version,
-                                    github_url=format_text(data.COMPATCH_GITHUB, bcolors.HEADER)))
+                                    github_url=format_text(COMPATCH_GITHUB, bcolors.HEADER)))
 
             if mod_manager_too_new and self.name == "community_remaster":
                 error_msg += f"\n\n{loc_string('check_for_a_new_version')}\n\n"
                 error_msg += loc_string("demteam_links",
-                                        discord_url=format_text(data.DEM_DISCORD, bcolors.HEADER),
-                                        deuswiki_url=format_text(data.WIKI_COMPATCH, bcolors.HEADER),
-                                        github_url=format_text(data.COMPATCH_GITHUB, bcolors.HEADER))
+                                        discord_url=format_text(DEM_DISCORD, bcolors.HEADER),
+                                        deuswiki_url=format_text(WIKI_COMPATCH, bcolors.HEADER),
+                                        github_url=format_text(COMPATCH_GITHUB, bcolors.HEADER)) + "\n"
 
         return compatible, error_msg
 
@@ -664,6 +665,7 @@ class Mod:
                 if ((float in types) or (int in types)) and (not(min_req <= value <= max_req)):
                     logger.error(f"key '{field}' is not in supported range '{min_req}-{max_req}'")
                     return False
+
         return True
 
     @staticmethod

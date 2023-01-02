@@ -1,7 +1,5 @@
 import os
 # import winreg
-
-from ctypes import windll
 import logging
 
 import data
@@ -11,75 +9,51 @@ from get_system_fonts import get_fonts
 logger = logging.getLogger('dem')
 
 
-def get_monitor_resolution() -> tuple[int, int]:
-    res_x = windll.user32.GetSystemMetrics(0)
-    res_y = windll.user32.GetSystemMetrics(1)
-    screen_size = int(res_x), int(res_y)
-    logger.info(f"reported res X:Y: {res_x}:{res_y}")
-    logger.info(f"os scale factor: {data.OS_SCALE_FACTOR}")
-    logger.info(f"screen size {screen_size[0]}:{screen_size[1]}")
-    return screen_size
-
-
-def scale_fonts(root_dir: str, scale_factor: float) -> None:
+def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> None:
+    error = ""
     config = file_ops.get_config(root_dir)
     ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
     ui_schema = file_ops.xml_to_objfy(ui_schema_path)
 
-    system_fonts = [font.lower() for font in os.listdir(r'C:\Windows\fonts')]
+    listed_system_fonts = [font.lower() for font in os.listdir(r'C:\Windows\fonts')]
 
-    tahoma_available = False
-    arial_available = False
-
-    # hardcode
-    force_arial = True
-
-    if "tahoma.ttf" in system_fonts:
-        font_alias = "Tahoma"
-        tahoma_available = True
-
-    arial_available = "arial.ttf" in system_fonts
-
-    if (not tahoma_available and not force_arial) or not arial_available:
-        system_fonts = get_fonts()
-        if "Tahoma" in system_fonts:
-            font_alias = "Tahoma"
-            tahoma_available = True
-        elif "SM_Tahoma" in system_fonts:
-            font_alias = "SM_Tahoma"
-            tahoma_available = True
-        else:
-            tahoma_available = False
-
-        arial_available = "Arial" in system_fonts
-
-    if ((not tahoma_available) and arial_available) or force_arial:
+    if not custom_font:
         font_alias = "Arial"
-        tahoma_available = True
+    else:
+        font_alias = custom_font
+
+    font_available = f"{font_alias.lower().replace(' ', '')}.ttf" in listed_system_fonts
+
+    if not font_available:
+        system_fonts = get_fonts()
+        font_available = font_alias in system_fonts
+
+    if not font_available:
+        return False
 
     large_font_size = str(round(12 / scale_factor * data.ENLARGE_UI_COEF, 1))
     sml_font_size = str(round(10 / scale_factor * data.ENLARGE_UI_COEF, 1))
-    if arial_available:
-        if ui_schema["schema"].attrib.get("titleFontSize") is not None and tahoma_available:
-            ui_schema["schema"].attrib["titleFontFace"] = font_alias
-            ui_schema["schema"].attrib["titleFontSize"] = large_font_size
-            ui_schema["schema"].attrib["titleFontType"] = "0"
-        if ui_schema["schema"].attrib.get("wndFontSize") is not None and tahoma_available:
-            ui_schema["schema"].attrib["wndFontFace"] = font_alias
-            ui_schema["schema"].attrib["wndFontSize"] = sml_font_size
-            ui_schema["schema"].attrib["wndFontType"] = "0"
-        if ui_schema["schema"].attrib.get("tooltipFontSize") is not None and tahoma_available:
-            ui_schema["schema"].attrib["tooltipFontFace"] = font_alias
-            ui_schema["schema"].attrib["tooltipFontSize"] = large_font_size
-            ui_schema["schema"].attrib["tooltipFontType"] = "0"
-        if ui_schema["schema"].attrib.get("miscFontSize") is not None and arial_available:
-            ui_schema["schema"].attrib["miscFontFace"] = "Arial"
-            ui_schema["schema"].attrib["miscFontSize"] = sml_font_size
-            ui_schema["schema"].attrib["miscFontType"] = "0"
-        file_ops.save_to_file(ui_schema, ui_schema_path)
-        logger.info("fonts corrected")
-    else:
-        logger.info("cant correct fonts")
+
+    if ui_schema["schema"].attrib.get("titleFontSize") is not None and font_available:
+        ui_schema["schema"].attrib["titleFontFace"] = font_alias
+        ui_schema["schema"].attrib["titleFontSize"] = large_font_size
+        ui_schema["schema"].attrib["titleFontType"] = "0"
+    if ui_schema["schema"].attrib.get("wndFontSize") is not None and font_available:
+        ui_schema["schema"].attrib["wndFontFace"] = font_alias
+        ui_schema["schema"].attrib["wndFontSize"] = sml_font_size
+        ui_schema["schema"].attrib["wndFontType"] = "0"
+    if ui_schema["schema"].attrib.get("tooltipFontSize") is not None and font_available:
+        ui_schema["schema"].attrib["tooltipFontFace"] = font_alias
+        ui_schema["schema"].attrib["tooltipFontSize"] = large_font_size
+        ui_schema["schema"].attrib["tooltipFontType"] = "0"
+    if ui_schema["schema"].attrib.get("miscFontSize") is not None and font_available:
+        ui_schema["schema"].attrib["miscFontFace"] = font_alias
+        ui_schema["schema"].attrib["miscFontSize"] = sml_font_size
+        ui_schema["schema"].attrib["miscFontType"] = "0"
+    file_ops.save_to_file(ui_schema, ui_schema_path)
+
+    return True
+
 
 # def make_dpi_aware(path_to_exe):
 #     compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"

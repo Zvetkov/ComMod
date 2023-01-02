@@ -1,0 +1,199 @@
+advanced: Advanced
+already_installed: Already installed
+and: and
+author: 'Author:'
+authors: 'Authors:'
+base_prompt: Input available option and press ENTER
+base_version: Base version
+binary_inserts_patched: '* Game engine fixes'
+cant_be_installed: Installation is not possible
+cant_correct_fonts: Can't correct fonts as Arial is not installed in the system
+cant_find_distribution_files: 'Can''t find game files.
+
+  Installer and other patch files should be located in the same folder'
+cant_find_game_data: 'Can''t find game files.
+
+  Copy all files and folders of patch to the folder where game is located, on the same level as a game executable'
+cant_install_patch_over_remaster: Community Patch doesn't support installation over Community Remaster, options is disabled
+check_for_a_new_version: Check if newer versions are available for mods and if all the required dependencies are fulfilled.
+compatch_mod_incompatible_with_comrem: Mod created specifically for Community Patch can't be install over Community Remaster
+content_requirement_not_met: '! Not all required content of base mods were installed.
+
+  You need to install additional content for the base mods before installing this one'
+copy_done: Finished copying
+copying_base_files_please_wait: Copying additional content, this can take a bit, please don't close installer
+copying_options_please_wait: Copying optional content, this can take a bit, please don't close installer
+copying_patch_files_please_wait: Copying base patch files, this can take a bit, please don't close installer
+corrupted_installation: 'Game or Community Patch / Remaster files are corrupted or not all the patch files are present in the game directory.
+
+  Reinstall the game and copy all the files of the patch to the root folder of the game before installing.'
+damage_coeff_patched: '* Vehicle crash damage is corrected to match new physics'
+default_options: '[Optional content installation]
+
+  Can be installed with default settings or you can change them.'
+default_options_prompt: 'Default settings include:'
+demteam_links: 'Discord of Community Patch / Remaster team: {discord_url}
+
+  More info about the project: {deuswiki_url}
+
+  Latest releases on GitHub: {github_url}'
+description: 'Description:'
+dll_not_found: dxrender9.dll is not found, will not be able to apply patch
+empty_mod_manifest: Couldn't start installation for mod, files might be corrupted - install manifest is empty or broken
+enter_accepted_prompt: Press ENTER or first input one of the options
+error_logging_setup: Error occured when trying to setup logging
+exe_is_running: Game exe access denied, game is probably already running. If game is running - first close the game, then start the mod manager.
+exe_not_found: 'Game`s executable is not found, will not be able to apply patch.
+
+  Put mod manager and folders ''patch'', ''remaster'', ''libs'' inside the root folder of the game.
+
+  Only unpacked version 1.02 is supported.
+
+  Game can be purchased on Steam: https://store.steampowered.com/app/285500'
+exe_not_supported: 'Unsupported game version is found, will not be able to apply patch.
+
+  Only unpacked version 1.02 is supported.
+
+  Game can be purchased on Steam: https://store.steampowered.com/app/285500
+
+  To install put mod manager and folders ''patch'', ''remaster'', ''libs'' inside the root folder of the game.'
+failed_and_cleaned: Patching failed, contact developer with information about the issue.
+first_choose_base_option: First choose base installation version.
+folder: folder
+fonts_corrected: '* Fonts are corrected according to system`s scaling'
+for_mod: for mod
+found_incompatible: Game installation has an incompatible mod
+general_compatch_fixes: '* Fixes for quests and cutscenes
+
+  * Improvements of many game maps and low quality models
+
+  ... and many other changes - see change list for full description'
+including_options: Including options
+incorrect_prompt_answer: answer is unsupported, choose one of the listed options.
+install_leftovers: 'Warning: installation in the dirty environment.
+
+  This game copy previously experienced unsuccessfull installation of some mod or ComPatch.
+
+  We can try to reinstall ComPatch/ComRemaster, but mod installation will be unavailable.
+
+  In case of errors, try again with a clean game copy.'
+install_mod_ask: Install mod?
+install_mods: Mods available for installation found. Do you want to start installation for mods?
+install_setting_ask: Install option?
+install_setting_title: Installation setting
+install_settings: 'Available install variants:'
+installation: Installation
+installation_aborted: Installation aborted by the user.
+installation_error: Installation error has occured, installation hasn't been finished
+installation_finished: Installation is complete!
+installation_title: Community Remaster & Community Patch installation - installer version {VERSION}
+installed_listing: 'Installed:'
+intro_modded_game: 'Installer detected that mods was already installed on this game copy with Community Patch or Community Remaster.
+
+  Reinstallation of ComPatch/ComRem is disabled.''
+
+  If you want to continue installation of mods - enter ''mods''
+
+  If you want to exit installation - enter ''exit'''
+intro_modded_no_available_mods: 'Installer detected that mods was already installed on this game copy with Community Patch or Community Remaster.
+
+  Reinstallation of ComPatch/ComRem is disabled.''
+
+  No available for installation mods found.
+
+  To install mod, place unpacked mod into folder ''mods'' near mod manager executable and launch it again.'
+intro_version_choice: "Community Remaster - extended version, 16:9 HD interface, optional choice of new HD models, remastered soundtrack. Includes all fixes from Community Patch.
+
+  Community Patch - base version, fixes bugs and quest issues, interface for old 4:3 monitors."
+invalid_existing_manifest: 'Installation manifest of mods or ComPatch for the target game installation is corrupted or has an unknown format.
+
+  Delete game and reinstall it from scratch before the new attempt to install ComPatch.'
+just_enter: To install everything - just press 'Enter'
+made_dpi_aware: + Exe made DPI Aware for better scaling in windowed mode
+manifest_exists_game_unpatched: 'Targeted game directory previously was a target on unsuccessful ComPatch installation.
+
+  Delete game and reinstall it from scratch before the new attempt to install ComPatch.'
+missing_distribution: 'Community Patch / Remaster files were not found near the installer.
+
+  Put the installer in the same folder where other Compatch distribution files are located'
+mm_inserts_patched: '* Memory manager replacement, 4GB patch'
+mod_manager_title: Mod Manager {VERSION} - installation of mods for ComPatch/ComRem
+mod_url: 'Home page:'
+not_validated_mod_manifest: Couldn't start installation for mod, files might be corrupted or mod install manifest is of incorrect format
+nothing_to_install: Nothing to install, work finished.
+numeric_fixes_patched: '* Vehicle physics and handling improvements
+
+  * Game camera improvements'
+of_version: of version
+optional_content: optional content
+or: or
+or_options: To choose install options - input 'options' and press 'Enter'
+patch_title: Community Patch installation - installer version {VERSION}
+patching_exe: Patching exe
+press_enter_to_continue: Press Enter to continue.
+press_enter_to_exit: Press Enter to close the window.
+reinstalling_intro: 'Installer detected that Community Patch or Community Remaster is already installed on this game copy.
+
+  If you want to continue installation of mods - enter ''mods''
+
+  If you want to overwrite existing installation of Community Patch/Remaster and install it again - enter ''reinstall'''
+reinstalling_intro_mods: 'Installer detected that this mod is already installed on this game copy.
+
+  If you want to skip its installation - enter ''skip''
+
+  If you want to overwrite the existing installation of the mod and install it again - enter ''reinstall'''
+reinstalling_intro_no_mods: 'Installer detected that Community Patch or Community Remaster is already installed on this game copy.
+
+  No available for installation compatible mods found.
+
+  Only specific mods compatible with ComPatch/ComRem are supported.
+
+  To install such mod, place mod folder into folder ''mods'' near mod manager executable and launch it again.
+
+
+  If you want to exit installation - enter ''exit''
+
+  If you want to overwrite existing installation of Community Patch/Remaster and install it again - enter ''reinstall'''
+remaster_title: Community Remaster installation - installer version {VERSION}
+required_base: Required base
+required_mod_not_found: Required base mod(s) is not installed
+requirements_not_met: Mod requirements for installation are not met, installation is interrupted.
+simple_intro: 'Default installation includes all the available improvements, such as:
+
+  * HD 16:9 interface
+
+  * new HD models for some trucks and guns
+
+  * sountrack remaster
+
+  * all available engine level fixes
+
+  * bugfixes for quests and cutscenes
+
+  * many changes and fixes for maps
+  
+  * improvements of low quality models
+
+  ... find full list of changes in changelist file.'
+skip: '''skip'' - skip option'
+stopping_patching: Stopping patching, press Enter to close the window.
+target_game_dir_doesnt_exist: Targeted game directory doesn't exist.
+technical_name: technical name
+ui_fixes_patched: '* 16:9 resolution options in options menu
+
+  * Console font size fix'
+usupported_patcher_version: 'Content {content_name} installation required other mod manager version: {required_version}, now used: {current_version}
+
+  You can download a new mod manager version from: {github_url}'
+version: Version
+version_available: installed version
+version_needed: Compatible versions
+version_requirement_not_met: '! Version requirement is not met for base mod'
+warn_reinstall: 'IMPORTANT: overwriting existing installation of Patch/Remaster is undesirable.
+
+  We always recommend installing ComPatch/ComRemaster on the clean unpacked 1.02 version of the game'
+warn_reinstall_mods: 'IMPORTANT: overwriting existing installation of mods is undesirable.
+
+  We always recommend installing compatible mods on a clean copy of the game with ComPatch/ComRemaster'
+widescreen_interface_patched: '* Widescreen 16:9 interface patch applied'
+yes_no: yes, no

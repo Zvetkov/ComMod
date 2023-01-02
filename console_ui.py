@@ -3,7 +3,7 @@ import sys
 import file_ops
 
 from console_color import bcolors, format_text
-from data import loc_string
+from localisation import loc_string
 from environment import GameCopy, InstallationContext
 
 from mod import Mod
@@ -41,7 +41,8 @@ class ConsoleUX:
             case "default":
                 self.header = installation_title
             case "leftovers":
-                self.header = installation_title + format_text(loc_string("install_leftovers"), bold_red)
+                self.header = (installation_title + format_text(loc_string("install_leftovers"), bold_red)
+                               + "\n")
             case "patching_exe":
                 self.header = installation_title + exe_info
             case "patch":
@@ -51,8 +52,10 @@ class ConsoleUX:
             case "remaster_custom":
                 self.header = additional_string
             case "patch_over_remaster":
-                self.header = (format_text(loc_string("remaster_title"), bold_orange) + '\n' + exe_info
-                               + format_text(loc_string("cant_install_patch_over_remaster"), bold_blue))
+                self.header = (format_text(loc_string("remaster_title"), bold_orange) + '\n'
+                               + exe_info
+                               + format_text(loc_string("cant_install_patch_over_remaster"), bold_blue)
+                               + "\n")
             case "advanced":
                 self.header = advanced + installation_title
             case "mod_manager":
@@ -115,7 +118,7 @@ class ConsoleUX:
                     print(self.header)
 
                 if previous_prompt is not None:
-                    print(format_text(f"'{previous_prompt}' - {loc_string('incorrect_prompt_answer')}",
+                    print(format_text(f"'{previous_prompt}' - {loc_string('incorrect_prompt_answer')}\n",
                                       bcolors.RED))
 
                 if description is not None and not auto_clear:
@@ -126,7 +129,7 @@ class ConsoleUX:
 
                 formatted_msg = ""
                 if stopping:
-                    formatted_msg = f"{format_text(loc_string('stopping_patching'), bcolors.RED)}"
+                    formatted_msg = f"\n{format_text(loc_string('stopping_patching'), bcolors.RED)}"
                 elif no_options and accept_enter:
                     formatted_msg = f"{format_text(loc_string('press_enter_to_continue'))}"
                 elif accept_enter:
@@ -141,7 +144,7 @@ class ConsoleUX:
 
                 print(formatted_msg)
 
-                user_choice = input()
+                user_choice = input("")
                 if user_choice != '':
                     user_choice.strip("'").strip('"')
                 if user_choice not in option_list:
@@ -188,7 +191,7 @@ class ConsoleUX:
             if mod_loading_errors:
                 self.print_lines(mod_loading_errors, color=bcolors.RED)
         elif installed_content_description:
-            print(format_text(loc_string("installation_finished"), bcolors.OKGREEN))
+            print(format_text(loc_string("installation_finished"), bcolors.OKGREEN) + "\n")
         else:
             print(format_text(loc_string("nothing_to_install"), bcolors.OKGREEN) + "\n")
 
@@ -196,7 +199,7 @@ class ConsoleUX:
         if self.auto_clear:
             os.system('cls')
         print(self.header)
-        print(format_text(loc_string("copying_patch_files_please_wait"), bcolors.RED))
+        print(format_text(loc_string("copying_patch_files_please_wait"), bcolors.RED) + "\n")
         try:
             file_ops.copy_from_to([os.path.join(distribution_dir, "patch")], os.path.join(game_root, "data"),
                                   console=True)
@@ -304,9 +307,9 @@ class ConsoleUX:
 
             if game.installed_content.get(mod.name) is not None:
                 options_to_offer = ["reinstall", "skip"]
-                description = (format_text(loc_string("reinstalling_intro_mods")) + "\n"
-                               + description + "\n"
-                               + format_text(loc_string("warn_reinstall_mods"), bcolors.OKBLUE))
+                description = (format_text(loc_string("reinstalling_intro_mods")) + "\n\n"
+                               + description + "\n\n"
+                               + format_text(loc_string("warn_reinstall_mods"), bcolors.OKBLUE) + "\n")
             else:
                 options_to_offer = ["yes", "no"]
                 description += f" ({loc_string('yes_no')})"
@@ -344,9 +347,10 @@ class ConsoleUX:
                 description = (f"{format_text(loc_string('description'), bcolors.OKBLUE)}\n"
                                f"{mod.description}\n"
                                f"{format_text(loc_string('default_options'), bcolors.HEADER)}\n\n"
-                               f"{format_text(loc_string('default_options_prompt'))}\n{default_options}\n"
-                               f"{format_text(loc_string('just_enter'), bcolors.HEADER)}"
-                               f"{loc_string('or_options')}")
+                               f"{format_text(loc_string('default_options_prompt'))}\n\n"
+                               f"{default_options}\n"
+                               f"{format_text(loc_string('just_enter'), bcolors.HEADER)}\n"
+                               f"{loc_string('or_options')}\n")
 
                 custom_install_prompt = self.prompt_for(["options"], accept_enter=True,
                                                         description=description)
