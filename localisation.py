@@ -11,6 +11,26 @@ DEM_DISCORD = "https://discord.gg/jZHxYdF"
 COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
 WIKI_COMPATCH = "https://deuswiki.com/w/Community_Patch"
 
+local_dict = {
+    "welcome": "Добро пожаловать в менеджер модов!",
+    "quick_start": "Быстрый старт",
+    "commod_needs_game": "Для работы ComMod нужна установленная распакованная Ex Machina версии 1.02.",
+    "commod_needs_remaster": "Для работы ComMod нужны файлы Community Remaster\n(папки 'patch', 'remaster', 'libs').",
+    "steam_game_found": "Найдена копия игры установленная в Steam, использовать её?",
+    "choose_found": "Выбрать найденную",
+    "show_path_to": "Указать путь к файлам сейчас?",
+    "path_to_game": "Путь к игре",
+    "path_to_comrem": "Путь к файлам Community Remaster",
+    "choose_path": "Указать путь",
+    "ask_to_choose_path": "Укажите путь",
+    "choose_path_manually": "Указать путь вручную",
+    "later": "Позже",
+    "confirm_choice": "Подтвердить выбор",
+    "you_can_postpone_but": "Вы можете выбрать папки позднее, но без них ComMod не сможет полноценно работать.",
+    "target_dir_missing_files": "Указанная папка не содержит все необходимые файлы.",
+    "unsupported_exe_version": "Указанная папка содержит не поддерживаемую версию игры"
+}
+
 
 def get_strings_dict() -> dict:
     eng = read_yaml(load_internal_file("localisation/strings_eng.yaml"))
@@ -18,7 +38,8 @@ def get_strings_dict() -> dict:
     ukr = read_yaml(load_internal_file("localisation/strings_ukr.yaml"))
 
     if eng.keys() != rus.keys() or eng.keys() != ukr.keys():
-        raise Exception("Localisation string for one of the languages is missing")
+        if not local_dict:
+            raise Exception("Localisation string for one of the languages is missing")
 
     loc_dict = {key: {"eng": value} for key, value in eng.items()}
 
@@ -31,7 +52,9 @@ def get_strings_dict() -> dict:
     return loc_dict
 
 
-def loc_string(str_name: str, **kwargs) -> str:
+def tr(str_name: str, **kwargs) -> str:
+    '''Returns localised string based on the current locale language,
+       uses localisation files for each supported language'''
     loc_str = STRINGS.get(str_name)
     if loc_str is not None:
         final_string = loc_str[LANG]
@@ -40,7 +63,9 @@ def loc_string(str_name: str, **kwargs) -> str:
         if kwargs:
             final_string = final_string.format(**kwargs)
         return final_string
-
+    # developer fallback
+    elif local_dict.get(str_name):
+        return local_dict[str_name]
     else:
         logger.warning(f"Localized string '{str_name}' not found!")
         return f"Unlocalised string '{str_name}'"

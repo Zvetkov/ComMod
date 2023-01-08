@@ -367,8 +367,12 @@ def rename_effects_bps(game_root_path: str) -> None:
     bps_path = os.path.join(game_root_path, "data", "models", "effects.bps")
     new_bps_path = os.path.join(game_root_path, "data", "models", "stock_effects.bps")
     if os.path.exists(bps_path):
-        os.rename(bps_path, new_bps_path)
-        logger.info(f"Renamed effects.bps in path '{bps_path}'")
+        if os.path.exists(new_bps_path):
+            os.remove(bps_path)
+            logger.info(f"Deleted effects.bps in path '{bps_path}' as renamed backup already exists")
+        else:
+            os.rename(bps_path, new_bps_path)
+            logger.info(f"Renamed effects.bps in path '{bps_path}'")
     elif not os.path.exists(new_bps_path):
         logger.warning(f"Can't find effects.bps not in normal path '{bps_path}', "
                        "nor in renamed form, probably was deleted by user")

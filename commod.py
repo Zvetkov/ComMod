@@ -14,14 +14,19 @@ from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnp
 
 from environment import InstallationContext, GameCopy
 
-from console_color import format_text, bcolors
-from localisation import loc_string, DEM_DISCORD, WIKI_COMPATCH, COMPATCH_GITHUB
+from color import fconsole, bcolors
+from localisation import tr, DEM_DISCORD, WIKI_COMPATCH, COMPATCH_GITHUB
 
 import console_ui
 import data
 import file_ops
+import commod_qt
 
 from mod import Mod
+
+
+def main_gui(options: argparse.Namespace) -> None:
+    commod_qt.main(options)
 
 
 def main_console(options: argparse.Namespace) -> None:
@@ -81,7 +86,7 @@ def main_console(options: argparse.Namespace) -> None:
         console.simple_end("exe_not_found")
         return
     except ExeIsRunning:
-        logger.error(loc_string("exe_is_running"))
+        logger.error(tr("exe_is_running"))
         console.simple_end("exe_is_running")
         return
     except ExeNotSupported as er:
@@ -135,28 +140,28 @@ def main_console(options: argparse.Namespace) -> None:
             if context.validated_mod_configs and not game.leftovers:
                 if game.is_modded():
                     console.switch_header("mod_manager")
-                    description = f'{format_text(loc_string("already_installed"), bcolors.OKGREEN)}:\n'
+                    description = f'{fconsole(tr("already_installed"), bcolors.OKGREEN)}:\n'
                     for content_piece in game.installed_descriptions.values():
                         description += content_piece
-                    description += '\n' + loc_string("intro_modded_game") + '\n'
+                    description += '\n' + tr("intro_modded_game") + '\n'
                     reinstall_prompt = console.prompt_for(["mods", "exit"], accept_enter=False,
                                                           description=description)
                 else:
-                    description = f'{format_text(loc_string("already_installed"), bcolors.OKGREEN)}:\n'
+                    description = f'{fconsole(tr("already_installed"), bcolors.OKGREEN)}:\n'
                     for content_piece in game.installed_descriptions.values():
                         description += content_piece
-                    description += ("\n" + loc_string("reinstalling_intro") + "\n\n"
-                                    + format_text(loc_string("warn_reinstall"), bcolors.OKBLUE) + "\n")
+                    description += ("\n" + tr("reinstalling_intro") + "\n\n"
+                                    + fconsole(tr("warn_reinstall"), bcolors.OKBLUE) + "\n")
 
                     reinstall_prompt = console.prompt_for(["mods", "reinstall"], accept_enter=False,
                                                           description=description)
             elif not game.is_modded():
-                description = f'{format_text(loc_string("already_installed"), bcolors.OKGREEN)}:\n'
+                description = f'{fconsole(tr("already_installed"), bcolors.OKGREEN)}:\n'
                 for content_piece in game.installed_descriptions.values():
                     description += content_piece
 
-                description += (f'\n{loc_string("reinstalling_intro_no_mods")}\n\n'
-                                + format_text(loc_string("warn_reinstall"), bcolors.OKBLUE) + "\n")
+                description += (f'\n{tr("reinstalling_intro_no_mods")}\n\n'
+                                + fconsole(tr("warn_reinstall"), bcolors.OKBLUE) + "\n")
 
                 if session.mod_loading_errors:
                     description += console.format_lines(session.mod_loading_errors, color=bcolors.RED)
@@ -165,12 +170,12 @@ def main_console(options: argparse.Namespace) -> None:
                                                       description=description)
             else:
                 console.switch_header("mod_manager")
-                description = f'{format_text(loc_string("already_installed"), bcolors.OKGREEN)}:\n'
+                description = f'{fconsole(tr("already_installed"), bcolors.OKGREEN)}:\n'
                 for content_piece in game.installed_descriptions.values():
                     description += content_piece
 
                 description += \
-                    f'\n{format_text(loc_string("intro_modded_no_available_mods"), bcolors.OKGREEN)}\n'
+                    f'\n{fconsole(tr("intro_modded_no_available_mods"), bcolors.OKGREEN)}\n'
 
                 if session.mod_installation_errors or session.mod_loading_errors:
                     if session.mod_installation_errors:
@@ -207,9 +212,9 @@ def main_console(options: argparse.Namespace) -> None:
         elif options.compatch and not ("ComRemaster" in game.exe_version):
             version_choice = "patch"
         else:
-            description_intro = (f"{loc_string('simple_intro')}\n\n"
-                                 f"{format_text(loc_string('just_enter'), bcolors.HEADER)}\n"
-                                 f"{loc_string('or_options')}\n")
+            description_intro = (f"{tr('simple_intro')}\n\n"
+                                 f"{fconsole(tr('just_enter'), bcolors.HEADER)}\n"
+                                 f"{tr('or_options')}\n")
             version_choice = console.prompt_for(["options"], accept_enter=True,
                                                 description=description_intro)
 
@@ -225,8 +230,8 @@ def main_console(options: argparse.Namespace) -> None:
                 version_choice = "remaster"
             else:
                 console.switch_header("advanced")
-                description = (format_text(loc_string("first_choose_base_option"), bcolors.OKBLUE) + "\n\n"
-                               + loc_string("intro_version_choice") + "\n")
+                description = (fconsole(tr("first_choose_base_option"), bcolors.OKBLUE) + "\n\n"
+                               + tr("intro_version_choice") + "\n")
                 version_choice = console.prompt_for(["remaster", "patch"], accept_enter=False,
                                                     description=description)
             if version_choice == "remaster":
@@ -242,13 +247,13 @@ def main_console(options: argparse.Namespace) -> None:
         if version_choice == "patch":
             logger.info(session.content_in_processing)
             console.copy_patch_files(context.distribution_dir, game.game_root_path)
-            patch_description = [loc_string(line) for line in install_base(version_choice, game, context)]
+            patch_description = [tr(line) for line in install_base(version_choice, game, context)]
             patch_description.append("\n")  # separator
             file_ops.rename_effects_bps(game.game_root_path)
             console.final_screen_print(patch_description)
             # session.installed_content_description.append("")  # separator
 
-            print(format_text(loc_string("installation_finished"), bcolors.OKGREEN) + "\n")
+            print(fconsole(tr("installation_finished"), bcolors.OKGREEN) + "\n")
         elif version_choice == "remaster":
             full_install = remaster_options == "all"
 
@@ -276,7 +281,7 @@ def main_console(options: argparse.Namespace) -> None:
 
             try:
                 patch_description = install_base(version_choice, game, context, exe_options)
-                patch_description = [loc_string(line) for line in patch_description]
+                patch_description = [tr(line) for line in patch_description]
             except DXRenderDllNotFound:
                 console.simple_end("dll_not_found")
                 return
@@ -289,12 +294,12 @@ def main_console(options: argparse.Namespace) -> None:
                 if error_messages:
                     logger.error(error_messages)
                 logger.error("Status of mod installation is not ok")
-                print(format_text(f"\n{loc_string('installation_error')}: Community Remaster!", bcolors.RED))
+                print(fconsole(f"\n{tr('installation_error')}: Community Remaster!", bcolors.RED))
             else:
                 session.installed_content_description.extend(
                     remaster_mod.get_install_description(installed_remaster_settings))
                 console.print_lines(session.installed_content_description)
-                print(format_text(loc_string("installation_finished"), bcolors.OKGREEN) + "\n")
+                print(fconsole(tr("installation_finished"), bcolors.OKGREEN) + "\n")
         else:
             raise NameError(f"Unsupported installation option '{version_choice}'!")
 
@@ -302,10 +307,10 @@ def main_console(options: argparse.Namespace) -> None:
         console.finilize_manifest(game, session)
 
         if context.validated_mod_configs:
-            input(loc_string("press_enter_to_continue") + "\n")
+            input(tr("press_enter_to_continue") + "\n")
             console.switch_header("mod_manager")
-            description = (f"{loc_string('install_mods')}\n"
-                           f"({loc_string('yes_no')})\n")
+            description = (f"{tr('install_mods')}\n"
+                           f"({tr('yes_no')})\n")
             install_custom_mods = console.prompt_for(["yes", "no"], accept_enter=False,
                                                      description=description)
             if install_custom_mods == "yes":
@@ -322,11 +327,11 @@ def main_console(options: argparse.Namespace) -> None:
             console.switch_header("default")
             console.final_screen_print(session.installed_content_description)
 
-        print(loc_string("demteam_links",
-                         discord_url=format_text(DEM_DISCORD, bcolors.HEADER),
-                         deuswiki_url=format_text(WIKI_COMPATCH, bcolors.HEADER),
-                         github_url=format_text(COMPATCH_GITHUB, bcolors.HEADER)) + "\n")
-        input(format_text(loc_string("press_enter_to_exit"), bcolors.OKGREEN) + "\n")
+        print(tr("demteam_links",
+                 discord_url=fconsole(DEM_DISCORD, bcolors.HEADER),
+                 deuswiki_url=fconsole(WIKI_COMPATCH, bcolors.HEADER),
+                 github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)) + "\n")
+        input(fconsole(tr("press_enter_to_exit"), bcolors.OKGREEN) + "\n")
     # near-global exception handler
     except Exception as er:
         console.simple_end("failed_and_cleaned", err_msg=er)
@@ -407,7 +412,7 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                 sys.exit()
 
             if not status_ok:
-                session.mod_installation_errors.append(f"\n{loc_string('installation_error')}: "
+                session.mod_installation_errors.append(f"\n{tr('installation_error')}: "
                                                        f"{mod.display_name}")
             else:
                 session.content_in_processing[mod.name] = mod_install_settings.copy()
@@ -438,7 +443,7 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                 session.installed_content_description.extend(installed_mod_description)
 
                 description = (console.format_lines(installed_mod_description)
-                               + format_text(loc_string("installation_finished"),
+                               + fconsole(tr("installation_finished"),
                                              bcolors.OKGREEN) + "\n")
                 console.finilize_manifest(game, session)
                 logger.info(f"Mod {mod.name} has been installed")
@@ -453,12 +458,12 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
     console.final_screen_mod_manager_print(session.installed_content_description,
                                            session.mod_installation_errors,
                                            session.mod_loading_errors)
-    print(loc_string("demteam_links",
-                     discord_url=format_text(DEM_DISCORD, bcolors.HEADER),
-                     deuswiki_url=format_text(WIKI_COMPATCH, bcolors.HEADER),
-                     github_url=format_text(COMPATCH_GITHUB, bcolors.HEADER)) + "\n")
+    print(tr("demteam_links",
+                     discord_url=fconsole(DEM_DISCORD, bcolors.HEADER),
+                     deuswiki_url=fconsole(WIKI_COMPATCH, bcolors.HEADER),
+                     github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)) + "\n")
     logger.info("Finished work")
-    input(format_text(loc_string("press_enter_to_exit"), bcolors.OKGREEN) + "\n")
+    input(fconsole(tr("press_enter_to_exit"), bcolors.OKGREEN) + "\n")
     logger.info("Exited normally")
 
 
@@ -471,7 +476,7 @@ def _init_input_parser():
     parser.add_argument('-dev', help='developer mode',
                         action="store_true", default=False, required=False)
     parser.add_argument('-console', help='run in console',
-                        action="store_true", default=True, required=False)
+                        action="store_true", default=False, required=False)
     installation_option = parser.add_mutually_exclusive_group()
     installation_option.add_argument('-compatch', help='base ComPatch setup, no console interaction required',
                                      action="store_true", default=False)
@@ -482,8 +487,10 @@ def _init_input_parser():
 
 
 if __name__ == '__main__':
-    if "Windows" in platform.system():
-        windll.shcore.SetProcessDpiAwareness(2)
     options = _init_input_parser().parse_args()
     if options.console:
+        if "Windows" in platform.system():
+            windll.shcore.SetProcessDpiAwareness(2)
         sys.exit(main_console(options))
+    else:
+        sys.exit(main_gui(options))

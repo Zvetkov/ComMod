@@ -3,7 +3,7 @@ import math
 from os import system
 from ctypes import windll
 
-DATE = "(Jan 01 2023)"
+DATE = "(Jan 02 2023)"
 VERSION = "1.13"
 
 COMPATCH_VER = f"ExMachina - Community Patch build v{VERSION} {DATE}"
@@ -12,10 +12,12 @@ COMREM_VER = f"ExMachina - Community Remaster build v{VERSION} {DATE}"
 COMREM_VER_SHRT = f"ExMachina - ComRem v{VERSION} {DATE}"
 
 VERSION_BYTES_102_NOCD = 0x005906A3
-VERSION_BYTES_102_STAR = 0x00000241
+VERSION_BYTES_102_STAR = 0x000102CD
 
 VERSION_BYTES_103_NOCD = 0x005917D2
-VERSION_BYTES_103_STAR = 0x00000309
+VERSION_BYTES_103_STAR = 0x000103CD
+
+VERSION_BYTES_DEM_LNCH = 0x0000DEAD
 
 
 ENCODING = 'windows-1251'
@@ -671,8 +673,11 @@ hidden_values = {"low_fuel_threshold": [0.25, 0x124CCD, "pointer", "used_elsewhe
 #                }
 
 
+def get_title() -> str:
+    return f"DEM Community Mod Manager - v{VERSION} {DATE}"
+
 def set_title() -> None:
-    system("title " + f"DEM Community Mod Manager - v{VERSION} {DATE}")
+    system("title " + get_title())
 
 
 def get_text_offsets(version: str) -> dict:

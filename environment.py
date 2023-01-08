@@ -7,14 +7,15 @@ import sys
 
 from pathlib import Path
 from datetime import datetime
-from console_color import bcolors, format_text
+import winreg
+from color import bcolors, fconsole
 from mod import Mod
 from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory,\
                   DistributionNotFound, FileLoggingSetupError, InvalidExistingManifest, ModsDirMissing,\
                   NoModsFound, CorruptedRemasterFiles, PatchedButDoesntHaveManifest, WrongGameDirectoryPath
 from data import VERSION, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
-                 VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR
-from localisation import loc_string
+                 VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR, VERSION_BYTES_DEM_LNCH
+from localisation import tr
 from file_ops import running_in_venv, read_yaml, makedirs
 
 
@@ -24,9 +25,10 @@ class InstallationContext:
     (dir where installation files are located) and some details about ComMod
     '''
     def __init__(self, distribution_dir: str | None = None,
-                 dev_mode: bool = False) -> None:
+                 dev_mode: bool = False, can_skip_adding_distro: bool = False) -> None:
         self.developer_mode = dev_mode
         self.target_game_copy = None
+        self.distribution_dir = None
         self.validated_mod_configs = {}
         self.commod_version = VERSION
         self.os = platform.system()
@@ -37,7 +39,7 @@ class InstallationContext:
                 self.add_distribution_dir(distribution_dir)
             except EnvironmentError:
                 logging.error(f"Couldn't add '{distribution_dir = }'")
-        else:
+        elif not can_skip_adding_distro:
             self.add_default_distribution_dir()
 
         self.current_session = self.Session()
@@ -61,15 +63,24 @@ class InstallationContext:
                 return False
         return True
 
-    def add_distribution_dir(self, distribution_dir: str) -> None:
+    @staticmethod
+    def get_config():
+        config_path = os.path.join(InstallationContext.get_local_path(), "commod.yaml")
+        if os.path.exists(config_path):
+            config = read_yaml(config_path)
+            return config
+        return None
+
+    def add_distribution_dir(self, distribution_dir: str, ignore_invalid: bool = False) -> None:
         '''
         Distribution dir is a location of files available for installation
         By default it's ComPatch and ComRemaster files, but can also contain mods
         '''
         if self.validate_distribution_dir(distribution_dir):
             self.distribution_dir = os.path.normpath(distribution_dir)
-        else:
-            raise DistributionNotFound(distribution_dir, "Couldn't find all files in given distribuion dir")
+        elif not ignore_invalid:
+            raise DistributionNotFound(distribution_dir,
+                                       "Couldn't find all required files in given distribuion dir")
 
     def load_system_info(self):
         self.os = platform.system()
@@ -123,8 +134,8 @@ class InstallationContext:
             self.remaster_config = yaml_config
             self.remaster_path = os.path.join(self.distribution_dir, "remaster")
 
-    def add_default_distribution_dir(self) -> None:
-        '''Looks for distribution files arround exe and sets as distribution dir if its validated'''
+    @staticmethod
+    def get_local_path():
         sys_exe = str(Path(sys.executable).resolve())
         # check if we are running as py script, compiled exe, or in venv
         if ".exe" in sys_exe and not running_in_venv():
@@ -138,7 +149,11 @@ class InstallationContext:
         else:
             raise EnvironmentError
 
-        exe_path = str(exe_path)
+        return str(exe_path)
+
+    def add_default_distribution_dir(self) -> None:
+        '''Looks for distribution files arround exe and sets as distribution dir if its validated'''
+        exe_path = self.get_local_path()
 
         if self.validate_distribution_dir(exe_path):
             self.distribution_dir = exe_path
@@ -159,7 +174,7 @@ class InstallationContext:
             yaml_config = read_yaml(mod_config_path)
             if yaml_config is None:
                 self.logger.warning(f"Couldn't read mod manifest: {mod_config_path}")
-                mod_loading_errors.append(f"\n{loc_string('empty_mod_manifest')}: "
+                mod_loading_errors.append(f"\n{tr('empty_mod_manifest')}: "
                                           f"{Path(mod_config_path).parent.name} - "
                                           f"{Path(mod_config_path).name}")
                 continue
@@ -168,8 +183,8 @@ class InstallationContext:
                 self.validated_mod_configs[mod_config_path] = yaml_config
             else:
                 self.logger.warning(f"Couldn't validate Mod manifest: {mod_config_path}")
-                mod_loading_errors.append(f"\n{loc_string('not_validated_mod_manifest')}.\n"
-                                          f"{loc_string('folder').capitalize()}: "
+                mod_loading_errors.append(f"\n{tr('not_validated_mod_manifest')}.\n"
+                                          f"{tr('folder').capitalize()}: "
                                           f"/{Path(mod_config_path).parent.parent.name}"
                                           f"/{Path(mod_config_path).parent.name}"
                                           f"/{Path(mod_config_path).name}")
@@ -194,7 +209,7 @@ class InstallationContext:
                                 mod_list.append(internal_manifest_path)
         return mod_list
 
-    def setup_loggers(self) -> None:
+    def setup_loggers(self, stream_only: bool = False) -> None:
         self.logger = logging.getLogger('dem')
         if self.logger.handlers:
             self.logger.debug("Logger already exists, will use it with existing settings")
@@ -205,30 +220,34 @@ class InstallationContext:
             stream_formatter = logging.Formatter('%(levelname)-7s - %(module)-11s'
                                                  ' - line %(lineno)-3d: %(message)s')
 
-            file_handler = logging.FileHandler(
-                                os.path.join(self.log_path,
-                                             f'debug_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.log'),
-                                encoding='utf-8')
-
             if self.developer_mode:
                 stream_handler = logging.StreamHandler()
                 stream_handler.setLevel(logging.DEBUG)
                 stream_handler.setFormatter(stream_formatter)
                 self.logger.addHandler(stream_handler)
 
-                file_handler.setLevel(logging.DEBUG)
+                file_handler_level = logging.DEBUG
             else:
                 # stream_handler.setLevel(logging.WARNING)
-                file_handler.setLevel(logging.INFO)
+                file_handler_level = logging.INFO
 
-            file_handler.setFormatter(formatter)
+            if not stream_only:
+                file_handler = logging.FileHandler(
+                                    os.path.join(self.log_path,
+                                                 f'debug_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.log'),
+                                    encoding='utf-8')
+                file_handler.setLevel(file_handler_level)
+                file_handler.setFormatter(formatter)
+                self.logger.addHandler(file_handler)
 
-            self.logger.addHandler(file_handler)
             self.logger.info("Loggers initialised")
 
     def setup_logging_folder(self) -> None:
         if self.distribution_dir is not None:
             log_path = os.path.join(self.distribution_dir, 'logs_commod')
+            if os.path.exists(log_path) and not os.path.isdir(log_path):
+                os.remove(log_path)
+
             if not os.path.exists(log_path):
                 os.mkdir(log_path)
             self.log_path = log_path
@@ -240,8 +259,69 @@ class InstallationContext:
         def __init__(self) -> None:
             self.mod_loading_errors = []
             self.mod_installation_errors = []
+            self.steam_parsing_error = None
+
             self.content_in_processing = {}
             self.installed_content_description = []
+            self.steam_game_paths = None
+
+        def load_steam_game_paths(self) -> tuple[str, str]:
+            '''Tries to find the game in default Steam folder, returns path and error message'''
+            steam_install_reg_path = r"SOFTWARE\WOW6432Node\Valve\Steam"
+            hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+            validated_dirs = []
+            try:
+                # getting Steam installation folder from Reg
+                steam_install_reg_value = winreg.OpenKey(hklm, steam_install_reg_path)
+                steam_install_path = winreg.QueryValueEx(steam_install_reg_value, 'InstallPath')[0]
+
+                # game can be installed in main Steam dir or in any of the libraries specified in config
+                library_folders_config = os.path.join(steam_install_path, "SteamApps", "libraryfolders.vdf")
+                library_folders = [steam_install_path]
+                game_folders = []
+
+                with open(library_folders_config, 'r') as f:
+                    lines = f.readlines()
+                    if '"libraryfolders"\n' in lines:
+                        library_folders = [line for line in lines if '"path"' in line]
+
+                    for lib in library_folders:
+                        striped_lib = lib.replace('path', "").replace('"', '').strip()
+                        if striped_lib:
+                            path = Path(striped_lib)
+                            if path.is_dir():
+                                games_path = path / "SteamApps" / "common"
+                                if games_path.is_dir():
+                                    game_folders.append(games_path)
+
+                if not library_folders:
+                    self.steam_parsing_error = "NoLibraryFolders"
+                    return False
+
+                if not game_folders:
+                    self.steam_parsing_error = "NoGameFolders"
+                    return False
+
+                for folder in game_folders:
+                    # checking that game install exist for this library
+                    # and that data folder and exe exists as well
+                    expected_game_path = folder / "Hard Truck Apocalypse"
+                    if expected_game_path.is_dir():
+                        validated, _ = GameCopy.validate_game_dir(expected_game_path)
+                        if validated:
+                            validated_dirs.append(str(expected_game_path))
+
+                    for entry in folder.glob("*"):
+                        if entry.is_dir() and entry != expected_game_path:
+                            validated, _ = GameCopy.validate_game_dir(str(entry))
+                            if validated:
+                                validated_dirs.append(str(entry))
+            except FileNotFoundError:
+                self.steam_parsing_error = "FileNotFound/RegistryNotFound"
+                return False
+
+            self.steam_game_paths = validated_dirs
+            return True
 
 
 class GameCopy:
@@ -252,12 +332,22 @@ class GameCopy:
         self.patched_version = False
         self.leftovers = False
         self.target_exe = None
+        self.label = ""
 
     @staticmethod
     def validate_game_dir(game_root_path: str) -> tuple[bool, str]:
         '''Checks existence of expected basic file structure in given game directory'''
         if not os.path.isdir(game_root_path):
             return False, game_root_path
+
+        possible_exe_paths = [os.path.join(game_root_path, "hta.exe"),
+                              os.path.join(game_root_path, "game.exe"),
+                              os.path.join(game_root_path, "start.exe"),
+                              os.path.join(game_root_path, "ExMachina.exe")]
+
+        if not any([os.path.exists(exepath) for exepath in possible_exe_paths]):
+            return False, os.path.join(game_root_path, "hta.exe")
+
         paths_to_check = [os.path.join(game_root_path, "dxrender9.dll"),
                           os.path.join(game_root_path, "data"),
                           os.path.join(game_root_path, "data", "effects"),
@@ -307,22 +397,18 @@ class GameCopy:
 
     def process_game_install(self, target_dir: str) -> None:
         '''Parse game install to know the version and current state of it'''
-        if not os.path.exists(target_dir):
+        if not os.path.isdir(target_dir):
             raise WrongGameDirectoryPath
         else:
             valid_base_dir, missing_path = self.validate_game_dir(target_dir)
             if not valid_base_dir:
                 raise InvalidGameDirectory(missing_path)
-        possible_exe_paths = [os.path.join(target_dir, "hta.exe"),
-                              os.path.join(target_dir, "game.exe"),
-                              os.path.join(target_dir, "start.exe"),
-                              os.path.join(target_dir, "ExMachina.exe")]
-        for exe_path in possible_exe_paths:
-            if os.path.exists(exe_path):
-                self.target_exe = os.path.normpath(exe_path)
-                break
 
-        if self.target_exe is None:
+        exe_path = self.get_exe_name(target_dir)
+
+        if exe_path is not None:
+            self.target_exe = exe_path
+        else:
             raise ExeNotFound
 
         self.exe_version = self.get_exe_version(self.target_exe)
@@ -409,19 +495,19 @@ class GameCopy:
                 build = f" [{install_manifest['build']}]"
 
             if colourise:
-                description = format_text(f'{name} ({loc_string("version")} '
+                description = fconsole(f'{name} ({tr("version")} '
                                           f'{install_manifest["version"]}){build}\n',
                                           bcolors.OKBLUE)
             else:
-                description = f'{name} ({loc_string("version")} {install_manifest["version"]})\n'
+                description = f'{name} ({tr("version")} {install_manifest["version"]})\n'
 
             if installed_optional_content:
                 if colourise:
-                    description += format_text("*", bcolors.OKCYAN)
-                description += (f' {loc_string("optional_content").capitalize()}: '
+                    description += fconsole("*", bcolors.OKCYAN)
+                description += (f' {tr("optional_content").capitalize()}: '
                                 f'{", ".join(sorted(list(installed_optional_content)))}\n')
             elif optional_content_keys:
-                description += f'{format_text("*", bcolors.OKCYAN)} {loc_string("base_version")}\n'
+                description += f'{fconsole("*", bcolors.OKCYAN)} {tr("base_version")}\n'
 
             # description += "\n"
             self.installed_descriptions[content_piece] = description
@@ -429,6 +515,18 @@ class GameCopy:
     @staticmethod
     def is_compatch_compatible_exe(version: str) -> bool:
         return ("Clean" in version) or ("ComRemaster" in version) or ("ComPatch" in version)
+
+    @staticmethod
+    def get_exe_name(target_dir: str):
+        possible_exe_paths = [os.path.join(target_dir, "hta.exe"),
+                              os.path.join(target_dir, "game.exe"),
+                              os.path.join(target_dir, "start.exe"),
+                              os.path.join(target_dir, "ExMachina.exe")]
+        for exe_path in possible_exe_paths:
+            if os.path.exists(exe_path):
+                return os.path.normpath(exe_path)
+
+        return None
 
     @staticmethod
     def get_exe_version(target_exe: str) -> str:
@@ -442,6 +540,8 @@ class GameCopy:
                 version_identifier_103_star = f.read(15)
                 f.seek(VERSION_BYTES_102_STAR)
                 version_identifier_102_star = f.read(15)
+                f.seek(VERSION_BYTES_DEM_LNCH)
+                version_identifier_dem_lnch = f.read(15) 
 
             if version_identifier[8:12] == b'1.02':
                 return "Clean 1.02"
@@ -463,12 +563,14 @@ class GameCopy:
                 return "ComPatch 1.13"
             elif version_identifier[8:12] == b'1.04':
                 return "KRBDZSKL 1.04"
-            elif version_identifier_103_nocd[1:5]:
+            elif version_identifier_103_nocd[1:5] == b'1.03':
                 return "DRM Free 1.03"
-            elif version_identifier_103_star[:7]:
+            elif version_identifier_103_star[:9] == b'\xbf\xcf\x966\xf1\x97\xf2\xc5\x11':
                 return "1.03 Starforce"
-            elif version_identifier_102_star[:7]:
+            elif version_identifier_102_star[:9] == b'O0\x87\xfa%\xbc\x9f\x86Q':
                 return "1.02 Starforce"
+            elif version_identifier_dem_lnch[:9] == b'\x00\x8dU\x98R\xe8)\x07\x00':
+                return "Old DEM launcher"
             else:
                 return "Unknown"
         except PermissionError:

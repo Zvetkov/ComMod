@@ -1,0 +1,12 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+    <file>icons/chrome-close-white.svg</file>
+    <file>icons/chrome-close-black.svg</file>
+    <file>icons/chrome-maximize-white.svg</file>
+    <file>icons/chrome-maximize-black.svg</file>
+    <file>icons/chrome-minimize-white.svg</file>
+    <file>icons/chrome-minimize-black.svg</file>
+    <file>icons/chrome-restore-white.svg</file>
+    <file>icons/chrome-restore-black.svg</file>
+</qresource>
+</RCC>
