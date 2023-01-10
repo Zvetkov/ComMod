@@ -329,6 +329,8 @@ def main_console(options: argparse.Namespace) -> None:
         input(format_text(loc_string("press_enter_to_exit"), bcolors.OKGREEN) + "\n")
     # near-global exception handler
     except Exception as er:
+        logger.exception(f"Encountered unhandled error: {er}")
+        logger.error("Exiting because of an error")
         console.simple_end("failed_and_cleaned", err_msg=er)
 
 
