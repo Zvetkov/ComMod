@@ -21,7 +21,8 @@ class bcolors(Enum):
 
 class css(Enum):
     HEADER = 'font-size: 16pt'
-    BLUE = 'color:blue'
+    BLUE = 'color:CornflowerBlue'
+    ORANGE = 'color: orange'
     CYAN = 'color:cyan'
     GREEN = 'color:green'
     LGREEN = 'color:LightGreen'
@@ -55,6 +56,7 @@ def fcss(string: str,
     '''Format text with css/html color and styles tags,
     setting p=True wraps text to paragraph tag <p>'''
     if isinstance(style, list):
+        style = [str(st) for st in style]
         style = "; ".join(style)
 
     if p:

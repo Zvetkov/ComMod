@@ -27,7 +27,6 @@ class InstallationContext:
     def __init__(self, distribution_dir: str | None = None,
                  dev_mode: bool = False, can_skip_adding_distro: bool = False) -> None:
         self.developer_mode = dev_mode
-        self.target_game_copy = None
         self.distribution_dir = None
         self.validated_mod_configs = {}
         self.commod_version = VERSION

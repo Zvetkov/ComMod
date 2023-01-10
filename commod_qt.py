@@ -80,8 +80,10 @@ def main(options):
         app.session.load_steam_game_paths()
         window.show_guick_start_wizard()
         window.wizard.destroyed.connect(mw.show)
+        window.wizard.destroyed.connect(window.proccess_game_and_distro_setup)
     else:
         mw.show()
+        window.proccess_game_and_distro_setup()
 
     app.exec()
 
@@ -214,22 +216,78 @@ class MainWindow(QtWidgets.QMainWindow):
         dir_dialogue = QtWidgets.QFileDialog(self)
         dir_dialogue.setFileMode(QtWidgets.QFileDialog.Directory)
         directory_name = dir_dialogue.getExistingDirectory(self, tr("path_to_game"))
-        self.update_status(directory_name)
+        # self.update_status(directory_name)
+        validated, _ = GameCopy.validate_game_dir(directory_name)
+        if validated:
+            err_msg = ""
+            detailed_info = ""
+
+            try:
+                exe_name = GameCopy.get_exe_name(directory_name)
+                exe_version = GameCopy.get_exe_version(exe_name)
+                validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
+                if validated_exe:
+                    self.app.game.process_game_install(directory_name)
+                else:
+                    err_msg = fcss(f'{tr("unsupported_exe_version")}: {exe_version}',
+                                   [css.RED, css.BOLD], p=True)
+            except ExeIsRunning:
+                err_msg = fcss(tr("exe_is_running"), [css.RED, css.BOLD], p=True)
+            except Exception as ex:
+                detailed_info = str(ex)
+
+            if err_msg or detailed_info:
+                error_box = QtWidgets.QMessageBox()
+                error_box.setIcon(QtWidgets.QMessageBox.Critical)
+                error_box.setWindowTitle(tr("path_to_game"))
+
+                if not err_msg:
+                    err_msg = fcss(tr("failed_and_cleaned"), [css.RED, css.BOLD], p=True)
+
+                err_msg += f"{tr('commod_needs_game')}"
+                error_box.setText(err_msg)
+                if detailed_info:
+                    error_box.setDetailedText(detailed_info)
+                error_box.exec()
+        else:
+            error_box = QtWidgets.QMessageBox()
+            error_box.setIcon(QtWidgets.QMessageBox.Critical)
+            error_box.setWindowTitle(tr("path_to_game"))
+            err_msg = fcss(tr("target_dir_missing_files"), [css.RED, css.BOLD], p=True)
+            err_msg += f"{tr('commod_needs_game')}"
+            error_box.setText(err_msg)
+            error_box.exec()
+
+        self.proccess_game_and_distro_setup()
 
     def openDistributionFolder(self):
         self.update_status("openGameFolder placeholder", logging.DEBUG)
         dir_dialogue = QtWidgets.QFileDialog(self)
         dir_dialogue.setFileMode(QtWidgets.QFileDialog.Directory)
         directory_name = dir_dialogue.getExistingDirectory(self, tr("path_to_comrem"))
-        if directory_name:
+        validated = InstallationContext.validate_distribution_dir(directory_name)
+        if validated:
             try:
                 self.app.context.add_distribution_dir(directory_name)
-            except DistributionNotFound:
+            except Exception as ex:
                 error_box = QtWidgets.QMessageBox()
-                err_msg = fcss(tr("target_dir_missing_files"), [css.RED, css.BOLD], p=True)
-                err_msg += f"<br><br>{tr('commod_needs_remaster')}"
-                error_box.setText = err_msg
+                error_box.setIcon(QtWidgets.QMessageBox.Critical)
+                error_box.setWindowTitle(tr("path_to_comrem"))
+                err_msg = fcss(tr("failed_and_cleaned"), [css.RED, css.BOLD], p=True)
+                err_msg += f"{br(tr('commod_needs_remaster'))}"
+                error_box.setText(err_msg)
+                error_box.setDetailedText(str(ex))
                 error_box.exec()
+        else:
+            error_box = QtWidgets.QMessageBox()
+            error_box.setIcon(QtWidgets.QMessageBox.Critical)
+            error_box.setWindowTitle(tr("path_to_comrem"))
+            err_msg = fcss(tr("target_dir_missing_files"), [css.RED, css.BOLD], p=True)
+            err_msg += f"{br(tr('commod_needs_remaster'))}"
+            error_box.setText(err_msg)
+            error_box.exec()
+
+        self.proccess_game_and_distro_setup()
 
     def close_application(self):
         self.app.quit()
@@ -298,21 +356,114 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_tab_widget.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
 
         # filtering and sorting model
-        self.proxy_model = QtCore.QSortFilterProxyModel()
-        self.proxy_model.setDynamicSortFilter(True)
-        self.proxy_model.setRecursiveFilteringEnabled(True)
+        # self.proxy_model = QtCore.QSortFilterProxyModel()
+        # self.proxy_model.setDynamicSortFilter(True)
+        # self.proxy_model.setRecursiveFilteringEnabled(True)
 
         # self.load_prototypes_to_source_model()
 
         # tree view to display in tab
-        tab_mod_explorer = QtWidgets.QWidget()
-        self.tree_mod_explorer = QtWidgets.QTreeView()
-        self.tree_mod_explorer.setModel(self.proxy_model)
-        self.tree_mod_explorer.setSortingEnabled(True)
-        self.tree_mod_explorer.setColumnWidth(0, 180)
-        self.tree_mod_explorer.setColumnWidth(1, 150)
+        # tab_mod_explorer = QtWidgets.QWidget()
+        # self.tree_mod_explorer = QtWidgets.QTreeView()
+        # self.tree_mod_explorer.setModel(self.proxy_model)
+        # self.tree_mod_explorer.setSortingEnabled(True)
+        # self.tree_mod_explorer.setColumnWidth(0, 180)
+        # self.tree_mod_explorer.setColumnWidth(1, 150)
 
-        self.main_tab_widget.addTab(tab_mod_explorer, "&Mod Explorer")
+        # self.main_tab_widget.addTab(tab_mod_explorer, "&Mod Explorer")
+        self.setup_notice = SetupStateInfoNotice(self)
+        self.main_tab_widget.addTab(self.setup_notice, f'&{tr("finish_setup")}')
+        index = self.main_tab_widget.indexOf(self.setup_notice)
+        self.main_tab_widget.setTabVisible(index, False)
+
+    def proccess_game_and_distro_setup(self):
+        if self.app.game.target_exe is None or self.app.context.distribution_dir is None:
+            index = self.main_tab_widget.indexOf(self.setup_notice)
+            self.main_tab_widget.setTabVisible(index, True)
+        else:
+            index = self.main_tab_widget.indexOf(self.setup_notice)
+            self.main_tab_widget.setTabVisible(index, False)
+        self.setup_notice.update_view()
+
+
+class SetupStateInfoNotice(QtWidgets.QWidget):
+    def __init__(self, parent: MainWindow):
+        QtWidgets.QWidget.__init__(self)
+        self.app = parent.app
+        self.icons = parent.icons
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        self.need_game = QtWidgets.QWidget()
+        layout_need_game = QtWidgets.QVBoxLayout(self.need_game)
+        need_game_intro = QtWidgets.QLabel(fcss(tr("commod_needs_game"), [css.BLUE, css.BOLD]))
+        # need_game_intro.setStyleSheet(f'"{css.ORANGE};"')
+        need_game_hyper = ClickableIconLabel(text=fcss(tr("add_game_using_btn")),
+                                             icon=self.icons["dir"])
+        need_game_hyper.clicked.connect(parent.openGameFolder)
+        layout_need_game.addWidget(need_game_intro)
+        layout_need_game.addWidget(need_game_hyper)
+
+        self.need_distro = QtWidgets.QWidget()
+        layout_need_distro = QtWidgets.QVBoxLayout(self.need_distro)
+        need_distro_intro = QtWidgets.QLabel(fcss(tr("commod_needs_remaster"), [css.BLUE, css.BOLD]))
+
+        need_distro_hyper = ClickableIconLabel(text=fcss(tr("add_distro_using_btn")),
+                                               icon=self.icons["dir"])
+        need_distro_hyper.clicked.connect(parent.openDistributionFolder)
+        layout_need_distro.addWidget(need_distro_intro)
+        layout_need_distro.addWidget(need_distro_hyper)
+
+        layout.addWidget(self.need_game)
+        layout.addWidget(self.need_distro)
+        layout.addStretch()
+
+    def update_view(self):
+        self.need_game.setVisible(self.app.game.target_exe is None)
+        self.need_distro.setVisible(self.app.context.distribution_dir is None)
+
+
+class ClickableLabel(QtWidgets.QLabel):
+    clicked = QtCore.Signal()
+
+    def __init__(self, text: str = "", parent: QtWidgets.QWidget | None = None) -> None:
+        QtWidgets.QLabel.__init__(self, text, parent)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_Hover)
+        # self.setStyleSheet("QLabel:hover {color: MediumPurple; text-decoration: underline;}")
+
+    def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:
+        self.clicked.emit()
+
+
+class ClickableIconLabel(QtWidgets.QWidget):
+    clicked = QtCore.Signal()
+
+    def __init__(self, icon, text, final_stretch=True):
+        QtWidgets.QWidget.__init__(self)
+        icon_size = QtCore.QSize(16, 16)
+        hor_spacing = 2
+
+        layout = QtWidgets.QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(layout)
+
+        icon_label = ClickableLabel()
+        icon_label.setPixmap(icon.pixmap(icon_size))
+
+        text_label = ClickableLabel(text)
+
+        layout.addWidget(icon_label)
+        layout.addSpacing(hor_spacing)
+        layout.addWidget(text_label)
+
+        icon_label.clicked.connect(self.clicked_parts)
+        text_label.clicked.connect(self.clicked_parts)
+
+        if final_stretch:
+            layout.addStretch()
+
+    def clicked_parts(self):
+        self.clicked.emit()
 
 
 class QuickStart(QtWidgets.QWidget):
@@ -455,13 +606,15 @@ class QuickStart(QtWidgets.QWidget):
         dir_dialogue = QtWidgets.QFileDialog(self)
         dir_dialogue.setFileMode(QtWidgets.QFileDialog.Directory)
         directory_name = dir_dialogue.getExistingDirectory(self, tr("path_to_game"))
-        self.update_game_edit(str(Path(directory_name)))
+        if directory_name:
+            self.update_game_edit(str(Path(directory_name)))
 
     def add_distro_folder(self):
         dir_dialogue = QtWidgets.QFileDialog(self)
         dir_dialogue.setFileMode(QtWidgets.QFileDialog.Directory)
         directory_name = dir_dialogue.getExistingDirectory(self, tr("path_to_comrem"))
-        self.update_distro_edit(str(Path(directory_name)))
+        if directory_name:
+            self.update_distro_edit(str(Path(directory_name)))
 
     def update_game_edit(self, directory_name, set_text: bool = False):
         validated, _ = GameCopy.validate_game_dir(directory_name)
@@ -490,7 +643,6 @@ class QuickStart(QtWidgets.QWidget):
                 self.game_edit.setText(directory_name)
             else:
                 self.game_edit.setText('')
-            self.game_dir = None
         self.check_if_env_is_ready()
 
     def update_distro_edit(self, directory_name, set_text: bool = False):

@@ -96,6 +96,10 @@ QGroupBox::title {
     background-color: transparent;
 }
 
+ClickableLabel:hover {
+  color: white;
+}
+
 /*
  * QToolBar
  */

@@ -26,6 +26,9 @@ local_dict = {
     "choose_path_manually": "Указать путь вручную",
     "later": "Позже",
     "confirm_choice": "Подтвердить выбор",
+    "finish_setup": "Завершите настройку",
+    "add_game_using_btn": "Указать путь к игре можно кнопкой выше или нажав сюда",
+    "add_distro_using_btn": "Указать путь к файлам Community Remaster можно кнопкой выше или нажав сюда",
     "you_can_postpone_but": "Вы можете выбрать папки позднее, но без них ComMod не сможет полноценно работать.",
     "target_dir_missing_files": "Указанная папка не содержит все необходимые файлы.",
     "unsupported_exe_version": "Указанная папка содержит не поддерживаемую версию игры"
