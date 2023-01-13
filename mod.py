@@ -104,6 +104,7 @@ class Mod:
                 console: bool = False) -> tuple[bool, list]:
         '''Returns bool success status of install and errors list in case mod requirements are not met'''
         try:
+            self.logger.info(f"Existing content: {existing_content}")
             mod_files = []
             requirements_met, error_msgs = self.check_requirements(existing_content,
                                                                    existing_content_descriptions)

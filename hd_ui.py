@@ -116,21 +116,19 @@ def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, en
         if enable:
             good_width = screen_width in list(data.possible_resolutions.keys())
             good_heigth = data.possible_resolutions.get(screen_width) == screen_height
-            if width == "1024" and height == "768":
-                if good_width and good_heigth:
-                    new_width = str(screen_width)
-                    new_height = str(screen_height)
+            if good_width and good_heigth:
+                new_width = str(screen_width)
+                new_height = str(screen_height)
             else:
-                if not (good_width and good_heigth):
-                    new_width = "1280"
-                    new_height = "720"
-                else:
-                    new_width = str(screen_width)
-                    new_height = str(screen_height)
+                new_width = "1280"
+                new_height = "720"
         else:
             if width == "1280" and height == "720":
                 new_width = "1024"
                 new_height = "768"
+            else:
+                new_width = False
+                new_height = False
         if not (width == "1920" or width == "2560" or width == "3840") and new_width and new_height:
             config.attrib["r_width"] = new_width
             config.attrib["r_height"] = new_height

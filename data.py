@@ -3,7 +3,7 @@ import math
 from os import system
 from ctypes import windll
 
-DATE = "(Jan 01 2023)"
+DATE = "(Jan 13 2023)"
 VERSION = "1.13"
 
 COMPATCH_VER = f"ExMachina - Community Patch build v{VERSION} {DATE}"

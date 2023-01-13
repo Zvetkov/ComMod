@@ -68,6 +68,8 @@ def main_console(options: argparse.Namespace) -> None:
 
     try:
         game.process_game_install(target_dir)
+        if game.installed_content:
+            logger.info(f"Installed content: {game.installed_content}")
     except WrongGameDirectoryPath:
         logger.error(f"path doesn't exist: '{target_dir}'")
         console.simple_end("target_game_dir_doesnt_exist")
@@ -240,6 +242,8 @@ def main_console(options: argparse.Namespace) -> None:
                                                             "display_name": "Community Patch"}
 
         if version_choice == "patch":
+            logger.info("***")
+            logger.info("Starting installation of ComPatch")
             logger.info(session.content_in_processing)
             console.copy_patch_files(context.distribution_dir, game.game_root_path)
             patch_description = [loc_string(line) for line in install_base(version_choice, game, context)]
@@ -263,6 +267,9 @@ def main_console(options: argparse.Namespace) -> None:
 
             console.switch_header("remaster")
             console.copy_patch_files(context.distribution_dir, game.game_root_path)
+            logger.info("***")
+            logger.info(f"Starting {remaster_mod.name} {remaster_mod.version} installation"
+                        f" with config {installed_remaster_settings}")
             # for comrem we don't count what is already installed, we use the current session content
             # to determine if remaster is compatible with the local compatch verison
             status_ok, error_messages = remaster_mod.install(game.data_path,
@@ -394,7 +401,8 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
             logger.info("***")
             if console.auto_clear:
                 os.system('cls')
-            logger.info(f"Starting mod {mod.name} installation with config {mod_install_settings}")
+            logger.info(f"Starting mod {mod.name} {mod.version} installation "
+                        f"with config {mod_install_settings}")
 
             try:
                 print(console.header)

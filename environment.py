@@ -78,7 +78,7 @@ class InstallationContext:
         self.under_windows = "Windows" in self.os
         self.monitor_res = self.get_monitor_resolution()
 
-        self.logger.info(f"Running on {self.os}: {self.os_version}")
+        self.logger.info(f"Running on {self.os} {self.os_version}")
 
     def get_monitor_resolution(self) -> tuple[int, int]:
         if "Windows" in platform.system():
