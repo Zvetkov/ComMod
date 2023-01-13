@@ -102,9 +102,8 @@ intro_modded_no_available_mods: 'Installer detected that mods was already instal
   No available for installation mods found.
 
   To install mod, place unpacked mod into folder ''mods'' near mod manager executable and launch it again.'
-intro_version_choice: "Community Remaster - extended version, 16:9 HD interface, optional choice of new HD models, remastered soundtrack. Includes all fixes from Community Patch.
-
-  Community Patch - base version, fixes bugs and quest issues, interface for old 4:3 monitors."
+compatch_description: "base version, fixes bugs and quest issues, interface for old 4:3 monitors"
+comrem_description: "extended version, 16:9 HD interface, optional choice of new HD models, remastered soundtrack. Includes all fixes from Community Patch"
 invalid_existing_manifest: 'Installation manifest of mods or ComPatch for the target game installation is corrupted or has an unknown format.
 
   Delete game and reinstall it from scratch before the new attempt to install ComPatch.'

@@ -228,7 +228,12 @@ def main_console(options: argparse.Namespace) -> None:
             else:
                 console.switch_header("advanced")
                 description = (format_text(loc_string("first_choose_base_option"), bcolors.OKBLUE) + "\n\n"
-                               + loc_string("intro_version_choice") + "\n")
+                               + format_text("Community Remaster", bcolors.HEADER) + ": "
+                               + loc_string("comrem_description") + " [remaster]"
+                               + "\n\n"
+                               + format_text("Community Patch", bcolors.HEADER) + ": "
+                               + loc_string("compatch_description") + " [patch]"
+                               + "\n")
                 version_choice = console.prompt_for(["remaster", "patch"], accept_enter=False,
                                                     description=description)
             if version_choice == "remaster":
@@ -247,7 +252,7 @@ def main_console(options: argparse.Namespace) -> None:
             logger.info(session.content_in_processing)
             console.copy_patch_files(context.distribution_dir, game.game_root_path)
             patch_description = [loc_string(line) for line in install_base(version_choice, game, context)]
-            patch_description.append("\n")  # separator
+            patch_description.append("")  # separator
             file_ops.rename_effects_bps(game.game_root_path)
             console.final_screen_print(patch_description)
             # session.installed_content_description.append("")  # separator
@@ -284,6 +289,7 @@ def main_console(options: argparse.Namespace) -> None:
             try:
                 patch_description = install_base(version_choice, game, context, exe_options)
                 patch_description = [loc_string(line) for line in patch_description]
+                patch_description.append("")  # separator
             except DXRenderDllNotFound:
                 console.simple_end("dll_not_found")
                 return
