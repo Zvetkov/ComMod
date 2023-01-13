@@ -1,9 +1,13 @@
+
 import logging
 import os
 import sys
 
+import qtawesome as qta
+
 from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
+# from __feature__ import true_property
 
 from qtmodern import styles, windows, resources  # resources are being used implicitly
 from data import get_title
@@ -23,6 +27,12 @@ def main(options):
     window = MainWindow(app)
     app.window = window
     mw = windows.ModernWindow(window)
+
+    palette = QtWidgets.QApplication.instance().palette()
+
+    qta.set_defaults(color="red",
+                     color_active="red",
+                     color_on="red")
 
     mw.resize(1024, 720)
     mw.setMinimumHeight(600)
@@ -114,29 +124,29 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setup_quick_look()
 
-    def choose_from_steam(self):
-        steam_game_selector = QuickStart(self.app.session.steam_game_paths)
-        steam_game_selector.show()
+    # def choose_from_steam(self):
+    #     steam_game_selector = QuickStart(self.app.session.steam_game_paths)
+    #     steam_game_selector.show()
 
-    def show_distro_start_wizard(self):
-        msg_box = QtWidgets.QMessageBox()
-        msg_box.setWindowTitle(tr("path_to_comrem"))
-        msg_box.setIconPixmap(self.icons["dir"].pixmap(32, 32))
+    # def show_distro_start_wizard(self):
+    #     msg_box = QtWidgets.QMessageBox()
+    #     msg_box.setWindowTitle(tr("path_to_comrem"))
+    #     msg_box.setIconPixmap(self.icons["dir"].pixmap(32, 32))
 
-        info = fcss(tr("welcome"), p=True) + br(tr("commod_needs_remaster"))
-        msg_box.setText(info)
+    #     info = fcss(tr("welcome"), p=True) + br(tr("commod_needs_remaster"))
+    #     msg_box.setText(info)
 
-        msg_box.setInformativeText(tr("show_path_to"))
+    #     msg_box.setInformativeText(tr("show_path_to"))
 
-        choose_dir_btn = msg_box.addButton(tr("choose_path"), QtWidgets.QMessageBox.ActionRole)
-        discard_btn = msg_box.addButton(tr("later"), QtWidgets.QMessageBox.RejectRole)
-        msg_box.setDefaultButton(choose_dir_btn)
-        choose_dir_btn.clicked.connect(self.openDistributionFolder)
+    #     choose_dir_btn = msg_box.addButton(tr("choose_path"), QtWidgets.QMessageBox.ActionRole)
+    #     discard_btn = msg_box.addButton(tr("later"), QtWidgets.QMessageBox.RejectRole)
+    #     msg_box.setDefaultButton(choose_dir_btn)
+    #     choose_dir_btn.clicked.connect(self.openDistributionFolder)
 
-        msg_box.exec()
+    #     msg_box.exec()
 
-        if msg_box.clickedButton() == discard_btn:
-            return None
+    #     if msg_box.clickedButton() == discard_btn:
+    #         return None
 
     def show_guick_start_wizard(self):
         wizard = QuickStart(self.app)
@@ -188,11 +198,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.menuBar().addMenu(self.aboutMenu)
 
     def create_actions(self):
-        self.openGameFolderAction = QtGui.QAction(QtGui.QIcon.fromTheme("folder-open", self.icons["dir"]),
+        self.openGameFolderAction = QtGui.QAction(QtGui.QIcon.fromTheme("folder-open", qta.icon("fa5s.folder-plus")),
                                                   "&Open Game Folder...", self, shortcut="Ctrl+O",
                                                   statusTip="Open folder where Ex Machina is installed",
                                                   triggered=self.openGameFolder)
-        self.openDistributionAction = QtGui.QAction(QtGui.QIcon.fromTheme("folder-open", self.icons["dir"]),
+        self.openDistributionAction = QtGui.QAction(QtGui.QIcon.fromTheme("folder-open", qta.icon("fa5s.folder-plus")),
                                                     "&Open Distribution Folder...", self, shortcut="Ctrl+Shift+O",
                                                     statusTip="Open folder where ComRem and mods are located",
                                                     triggered=self.openDistributionFolder)
@@ -201,7 +211,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                         triggered=self.close_application)
 
         self.propertiesAction = QtGui.QAction(QtGui.QIcon.fromTheme("application-properties",
-                                              self.icons["gear"]),
+                                              qta.icon("fa5s.cog")),
                                               "&Properties", self, shortcut="Ctrl+P",
                                               statusTip="Application properties", triggered=self.properties)
 
@@ -216,7 +226,8 @@ class MainWindow(QtWidgets.QMainWindow):
         dir_dialogue = QtWidgets.QFileDialog(self)
         dir_dialogue.setFileMode(QtWidgets.QFileDialog.Directory)
         directory_name = dir_dialogue.getExistingDirectory(self, tr("path_to_game"))
-        # self.update_status(directory_name)
+        if not directory_name:
+            return
         validated, _ = GameCopy.validate_game_dir(directory_name)
         if validated:
             err_msg = ""
@@ -225,14 +236,17 @@ class MainWindow(QtWidgets.QMainWindow):
             try:
                 exe_name = GameCopy.get_exe_name(directory_name)
                 exe_version = GameCopy.get_exe_version(exe_name)
-                validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
-                if validated_exe:
-                    self.app.game.process_game_install(directory_name)
+
+                if exe_version is not None:
+                    validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
+                    if validated_exe:
+                        self.app.game.process_game_install(directory_name)
+                    else:
+                        err_msg = fcss(f'{tr("unsupported_exe_version")}: {exe_version}',
+                                       [css.RED, css.BOLD], p=True)
                 else:
-                    err_msg = fcss(f'{tr("unsupported_exe_version")}: {exe_version}',
+                    err_msg = fcss(f'{tr("exe_is_running")}: {Path(exe_name).name}',
                                    [css.RED, css.BOLD], p=True)
-            except ExeIsRunning:
-                err_msg = fcss(tr("exe_is_running"), [css.RED, css.BOLD], p=True)
             except Exception as ex:
                 detailed_info = str(ex)
 
@@ -265,6 +279,8 @@ class MainWindow(QtWidgets.QMainWindow):
         dir_dialogue = QtWidgets.QFileDialog(self)
         dir_dialogue.setFileMode(QtWidgets.QFileDialog.Directory)
         directory_name = dir_dialogue.getExistingDirectory(self, tr("path_to_comrem"))
+        if not directory_name:
+            return
         validated = InstallationContext.validate_distribution_dir(directory_name)
         if validated:
             try:
@@ -303,7 +319,17 @@ class MainWindow(QtWidgets.QMainWindow):
     def setup_tool_bar(self):
         self.fileToolBar = self.addToolBar("File&Edit")
         self.fileToolBar.addAction(self.openGameFolderAction)
+        self.game_selector = QtWidgets.QComboBox()
+        self.game_selector.addItem("[Ex Machina] Ex Machina Community Remaster")
+        self.fileToolBar.addWidget(self.game_selector)
+        self.fileToolBar.addSeparator()
+
         self.fileToolBar.addAction(self.openDistributionAction)
+        self.distro_setector = QtWidgets.QComboBox()
+        self.distro_setector.addItem("[ComRemaster 1.13] EM-CommunityPatch")
+        self.fileToolBar.addWidget(self.distro_setector)
+        self.fileToolBar.addSeparator()
+
         self.fileToolBar.addAction(self.propertiesAction)
 
     def setup_status_bar(self):
@@ -399,7 +425,7 @@ class SetupStateInfoNotice(QtWidgets.QWidget):
         need_game_intro = QtWidgets.QLabel(fcss(tr("commod_needs_game"), [css.BLUE, css.BOLD]))
         # need_game_intro.setStyleSheet(f'"{css.ORANGE};"')
         need_game_hyper = ClickableIconLabel(text=fcss(tr("add_game_using_btn")),
-                                             icon=self.icons["dir"])
+                                             icon=qta.icon("fa5s.folder-open"))
         need_game_hyper.clicked.connect(parent.openGameFolder)
         layout_need_game.addWidget(need_game_intro)
         layout_need_game.addWidget(need_game_hyper)
@@ -409,7 +435,7 @@ class SetupStateInfoNotice(QtWidgets.QWidget):
         need_distro_intro = QtWidgets.QLabel(fcss(tr("commod_needs_remaster"), [css.BLUE, css.BOLD]))
 
         need_distro_hyper = ClickableIconLabel(text=fcss(tr("add_distro_using_btn")),
-                                               icon=self.icons["dir"])
+                                               icon=qta.icon("fa5s.folder-open"))
         need_distro_hyper.clicked.connect(parent.openDistributionFolder)
         layout_need_distro.addWidget(need_distro_intro)
         layout_need_distro.addWidget(need_distro_hyper)
@@ -435,28 +461,41 @@ class ClickableLabel(QtWidgets.QLabel):
         self.clicked.emit()
 
 
+class ClickableIcon(qta.IconWidget):
+    clicked = QtCore.Signal()
+
+    def __init__(self, *args, **kwargs) -> None:
+        qta.IconWidget.__init__(self, *args, **kwargs)
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_Hover)
+        # self.setStyleSheet("QLabel:hover {color: MediumPurple; text-decoration: underline;}")
+
+    def mousePressEvent(self, ev: QtGui.QMouseEvent) -> None:
+        self.clicked.emit()
+
+
 class ClickableIconLabel(QtWidgets.QWidget):
     clicked = QtCore.Signal()
 
-    def __init__(self, icon, text, final_stretch=True):
+    def __init__(self, icon=None, text="", final_stretch=True):
         QtWidgets.QWidget.__init__(self)
-        icon_size = QtCore.QSize(16, 16)
+        self.icon_size = QtCore.QSize(16, 16)
         hor_spacing = 2
 
         layout = QtWidgets.QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
-        icon_label = ClickableLabel()
-        icon_label.setPixmap(icon.pixmap(icon_size))
+        self.icon_label = ClickableIcon()
+        if icon is not None:
+            self.icon_label.setIcon(icon)
 
         text_label = ClickableLabel(text)
 
-        layout.addWidget(icon_label)
+        layout.addWidget(self.icon_label)
         layout.addSpacing(hor_spacing)
         layout.addWidget(text_label)
 
-        icon_label.clicked.connect(self.clicked_parts)
+        self.icon_label.clicked.connect(self.clicked_parts)
         text_label.clicked.connect(self.clicked_parts)
 
         if final_stretch:
@@ -464,6 +503,9 @@ class ClickableIconLabel(QtWidgets.QWidget):
 
     def clicked_parts(self):
         self.clicked.emit()
+
+    def set_icon(self, icon):
+        self.icon_label.setIcon(icon)
 
 
 class QuickStart(QtWidgets.QWidget):
@@ -483,9 +525,8 @@ class QuickStart(QtWidgets.QWidget):
 
         info_widget = QtWidgets.QWidget()
         info_layout = QtWidgets.QHBoxLayout(info_widget)
-        icon = self.icons["dir"].pixmap(48, 48)
-        info_icon = QtWidgets.QLabel()
-        info_icon.setPixmap(icon)
+        info_icon = qta.IconWidget()
+        info_icon.setIcon(qta.icon("fa5s.folder-open"))
         info_label = QtWidgets.QLabel(fcss(tr("welcome")))
 
         info_layout.addWidget(info_icon, 30, QtCore.Qt.AlignCenter)
@@ -497,9 +538,9 @@ class QuickStart(QtWidgets.QWidget):
         distro_button = QtWidgets.QPushButton(tr("choose_path"), self)
         distro_button.setMinimumWidth(130)
         distro_button.clicked.connect(self.add_distro_folder)
-        distro_status_icon = QtWidgets.QLabel()
+        distro_status_icon = qta.IconWidget()
         self.distro_status_icon = distro_status_icon
-        distro_status_icon.setPixmap(self.icons["dir"].pixmap(16, 16))
+        distro_status_icon.setIcon(qta.icon("fa5s.folder-open"))
 
         distro_edit = QtWidgets.QLineEdit()
         self.distro_edit = distro_edit
@@ -541,9 +582,9 @@ class QuickStart(QtWidgets.QWidget):
         steam_layout.addWidget(steam_btn_agree, 1, 2, 1, 1)
         # steam_layout.setAlignment(steam_btn_agree, QtCore.Qt.AlignHCenter)
 
-        game_status_icon = QtWidgets.QLabel()
+        game_status_icon = qta.IconWidget()
         self.game_status_icon = game_status_icon
-        game_status_icon.setPixmap(self.icons["dir"].pixmap(16, 16))
+        game_status_icon.setIcon(qta.icon("fa5s.folder-open"))
 
         game_edit = QtWidgets.QLineEdit()
         self.game_edit = game_edit
@@ -621,23 +662,28 @@ class QuickStart(QtWidgets.QWidget):
         if validated:
             exe_name = GameCopy.get_exe_name(directory_name)
             exe_version = GameCopy.get_exe_version(exe_name)
-            validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
+            validated_exe = ""
+            if exe_version is not None:
+                validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
             if validated_exe:
                 self.game_edit.setStyleSheet("font-weight: bold;")
                 self.game_edit.setText(directory_name)
                 self.game_edit.setPlaceholderText(tr("ask_to_choose_path"))
-                self.game_status_icon.setPixmap(self.icons["check"].pixmap(16, 16))
+                self.game_status_icon.setIcon(qta.icon("fa5s.check-circle", color="green"))
                 self.game_dir = directory_name
             else:
                 self.game_edit.setStyleSheet("border: 1px solid rgba(255, 0, 0, 60%); border-radius: 2px")
-                self.game_edit.setPlaceholderText(f'{tr("unsupported_exe_version")}: {exe_version}')
-                self.game_status_icon.setPixmap(self.icons["cross"].pixmap(16, 16))
+                if exe_version is not None:
+                    self.game_edit.setPlaceholderText(f'{tr("unsupported_exe_version")}: {exe_version}')
+                else:
+                    self.game_edit.setPlaceholderText(f'{tr("exe_is_running")}: {Path(exe_name).name}')
+                self.game_status_icon.setIcon(qta.icon("fa5s.exclamation-circle", color="red"))
                 self.game_edit.setText('')
                 self.game_dir = None
         elif directory_name:
             self.game_edit.setStyleSheet("border: 1px solid rgba(255, 0, 0, 60%); border-radius: 2px")
             self.game_edit.setPlaceholderText(tr("target_dir_missing_files"))
-            self.game_status_icon.setPixmap(self.icons["cross"].pixmap(16, 16))
+            self.game_status_icon.setIcon(qta.icon("fa5s.exclamation-circle", color="red"))
             self.game_dir = None
             if set_text:
                 self.game_edit.setText(directory_name)
@@ -651,12 +697,12 @@ class QuickStart(QtWidgets.QWidget):
             self.distro_edit.setStyleSheet("font-weight: bold;")
             self.distro_edit.setText(directory_name)
             self.distro_edit.setPlaceholderText(tr("ask_to_choose_path"))
-            self.distro_status_icon.setPixmap(self.icons["check"].pixmap(16, 16))
+            self.distro_status_icon.setIcon(qta.icon("fa5s.check-circle", color="green"))
             self.distro_dir = directory_name
         elif directory_name:
             self.distro_edit.setStyleSheet("border: 1px solid rgba(255, 0, 0, 60%); border-radius: 2px")
             self.distro_edit.setPlaceholderText(tr("target_dir_missing_files"))
-            self.distro_status_icon.setPixmap(self.icons["cross"].pixmap(16, 16))
+            self.distro_status_icon.setIcon(qta.icon("fa5s.exclamation-circle", color="red"))
             self.distro_dir = None
             if set_text:
                 self.distro_edit.setText(directory_name)
@@ -671,7 +717,7 @@ class QuickStart(QtWidgets.QWidget):
         else:
             self.game_edit.setStyleSheet("")
             self.game_edit.setPlaceholderText(tr("ask_to_choose_path"))
-            self.game_status_icon.setPixmap(self.icons["dir"].pixmap(16, 16))
+            self.game_status_icon.setIcon(qta.icon("fa5s.folder-open"))
             self.game_dir = None
             self.check_if_env_is_ready()
 
@@ -682,7 +728,7 @@ class QuickStart(QtWidgets.QWidget):
         else:
             self.distro_edit.setStyleSheet("")
             self.distro_edit.setPlaceholderText(tr("ask_to_choose_path"))
-            self.distro_status_icon.setPixmap(self.icons["dir"].pixmap(16, 16))
+            self.distro_status_icon.setIcon(qta.icon("fa5s.folder-open"))
             self.distro_dir = None
             self.check_if_env_is_ready()
 

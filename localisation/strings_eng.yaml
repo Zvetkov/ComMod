@@ -42,7 +42,8 @@ dll_not_found: dxrender9.dll is not found, will not be able to apply patch
 empty_mod_manifest: Couldn't start installation for mod, files might be corrupted - install manifest is empty or broken
 enter_accepted_prompt: Press ENTER or first input one of the options
 error_logging_setup: Error occured when trying to setup logging
-exe_is_running: Game exe access denied, game is probably already running. If game is running - first close the game, then start the mod manager.
+exe_is_running: Game exe access denied, game is probably already running
+exe_is_running_fix: If game is running - first close the game, then start the mod manager.
 exe_not_found: 'Game`s executable is not found, will not be able to apply patch.
 
   Put mod manager and folders ''patch'', ''remaster'', ''libs'' inside the root folder of the game.

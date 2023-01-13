@@ -86,8 +86,8 @@ def main_console(options: argparse.Namespace) -> None:
         console.simple_end("exe_not_found")
         return
     except ExeIsRunning:
-        logger.error(tr("exe_is_running"))
-        console.simple_end("exe_is_running")
+        logger.error(tr("exe_is_running") + ". " + tr("exe_is_running_fix"))
+        console.simple_end("exe_is_running" + ". " + tr("exe_is_running_fix"))
         return
     except ExeNotSupported as er:
         logger.error(f"Exe version is not supported. Version: {er.exe_version}")

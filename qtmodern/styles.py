@@ -2,6 +2,7 @@ from os.path import join, dirname, abspath
 
 from PySide6.QtGui import QPalette, QColor
 from PySide6.QtWidgets import QApplication
+from qt_material import apply_stylesheet
 
 _STYLESHEET = join(dirname(abspath(__file__)), 'resources/style.qss')
 """ str: Main stylesheet. """
@@ -28,7 +29,7 @@ def dark(app: QApplication):
     darkPalette = QPalette()
 
     # base
-    darkPalette.setColor(QPalette.WindowText, QColor(180, 180, 180))
+    darkPalette.setColor(QPalette.WindowText, "#b4b4b4")
     darkPalette.setColor(QPalette.Button, QColor(53, 53, 53))
     darkPalette.setColor(QPalette.Light, QColor(180, 180, 180))
     darkPalette.setColor(QPalette.Midlight, QColor(90, 90, 90))
@@ -61,6 +62,11 @@ def dark(app: QApplication):
 
     app.setPalette(darkPalette)
 
-    _apply_base_theme(app)
+    # _apply_base_theme(app)
+    # extra = {
+    #     # Density Scale
+    #     'density_scale': '-1',
+    # }
+    # apply_stylesheet(app, theme='dark_amber.xml', extra=extra)
     # map(lambda x: x.redraw(), app.topLevelWidgets())
     # map(lambda x: x.update(), app.topLevelWindows())
