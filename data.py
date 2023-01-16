@@ -123,8 +123,16 @@ binary_inserts = {
                   # ai::BreakableObjectPrototypeInfo::LoadFromXML
                   0x452D6C: "6A06",
                   # near plane fix 1.0 -> 0.1
-                  0x3AB7FB: "68CDCCCC3D"
+                  0x3AB7FB: "68CDCCCC3D",
                   }
+
+em_102_icon_offset = 0x60A0E8
+em_102_version_info_offset_start = 0x60A0F0
+em_102_version_info_offset_end = 0x60A3A4
+em_102_version_info_len = 692
+
+new_icon_group_info = "0000010001000000000001002000F38E00000100"
+new_icon_header_ends = 0x16
 
 mm_inserts = {
               # MemoryManager::MemoryManager

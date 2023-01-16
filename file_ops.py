@@ -175,6 +175,10 @@ def dump_yaml(data, path) -> bool:
     return True
 
 
+def get_internal_file_path(file_name: str) -> str:
+    return os.path.join(os.path.dirname(__file__), file_name)
+
+
 def patch_offsets(f, offsets_dict: dict) -> None:
     for offset in offsets_dict.keys():
         f.seek(offset)
@@ -255,6 +259,22 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
         changes_description.append("general_compatch_fixes")
 
         if version_choice == "remaster":
+            # patching new icon
+            f.seek(data.em_102_version_info_offset_start)
+            version_info = f.read(data.em_102_version_info_len)
+
+            with open(get_internal_file_path("icons/hta_comrem.ico"), 'rb+') as ficon:
+                ficon.seek(data.new_icon_header_ends)
+                icon_raw = ficon.read()
+
+            if icon_raw:
+                f.write()
+
+            f.seek(data.em_102_icon_offset)
+
+
+
+
             if under_windows:
                 if exe_options.get("game_font") is not None:
                     font_alias = exe_options.get("game_font")

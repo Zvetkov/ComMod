@@ -2,7 +2,7 @@ import os
 import locale
 import logging
 
-from file_ops import read_yaml
+from file_ops import read_yaml, get_internal_file_path
 from data import VERSION
 
 logger = logging.getLogger('dem')
@@ -36,9 +36,9 @@ local_dict = {
 
 
 def get_strings_dict() -> dict:
-    eng = read_yaml(load_internal_file("localisation/strings_eng.yaml"))
-    rus = read_yaml(load_internal_file("localisation/strings_rus.yaml"))
-    ukr = read_yaml(load_internal_file("localisation/strings_ukr.yaml"))
+    eng = read_yaml(get_internal_file_path("localisation/strings_eng.yaml"))
+    rus = read_yaml(get_internal_file_path("localisation/strings_rus.yaml"))
+    ukr = read_yaml(get_internal_file_path("localisation/strings_ukr.yaml"))
 
     if eng.keys() != rus.keys() or eng.keys() != ukr.keys():
         if not local_dict:
@@ -72,17 +72,6 @@ def tr(str_name: str, **kwargs) -> str:
     else:
         logger.warning(f"Localized string '{str_name}' not found!")
         return f"Unlocalised string '{str_name}'"
-
-
-def load_internal_file(file_name: str) -> str:
-    # sys_exe = str(Path(sys.executable).resolve())
-    # if ".exe" in sys_exe and not running_in_venv():
-    #     # Nuitka way
-    #     return Path(sys.argv[0]).resolve().parent + file_name
-    # elif running_in_venv():
-    #     # probably running in venv
-    #     exe_path = Path(__file__).resolve().parent + file_name
-    return os.path.join(os.path.dirname(__file__), file_name)
 
 
 def_locale = locale.getdefaultlocale()[0].replace("_", "-")
