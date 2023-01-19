@@ -259,21 +259,87 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
         changes_description.append("general_compatch_fixes")
 
         if version_choice == "remaster":
-            # patching new icon
-            f.seek(data.em_102_version_info_offset_start)
-            version_info = f.read(data.em_102_version_info_len)
+            f.seek(data.size_of_rsrc_offset)
+            old_rsrc_size = int.from_bytes(f.read(4), byteorder='little')
 
-            with open(get_internal_file_path("icons/hta_comrem.ico"), 'rb+') as ficon:
-                ficon.seek(data.new_icon_header_ends)
-                icon_raw = ficon.read()
+            if old_rsrc_size == 6632:
+                # patching new icon
+                icon_raw: bytes
+                with open(get_internal_file_path("icons/hta_comrem.ico"), 'rb+') as ficon:
+                    ficon.seek(data.new_icon_header_ends)
+                    icon_raw = ficon.read()
 
-            if icon_raw:
-                f.write()
+                if icon_raw:
+                    size_of_icon = len(icon_raw)
 
-            f.seek(data.em_102_icon_offset)
+                    block_size_overflow = len(icon_raw) % 0x10
+                    padding_size = 0x10 - block_size_overflow
 
+                    # reading reloc struct to write in at the end of the rsrc latter on
+                    f.seek(data.offset_of_reloc_offset)
+                    reloc_offset = int.from_bytes(f.read(4), byteorder='little') - data.rva_offset
+                    f.seek(data.size_of_reloc_offset)
+                    reloc_size = int.from_bytes(f.read(4), byteorder='little')
 
+                    f.seek(reloc_offset)
+                    reloc = f.read(reloc_size)
 
+                    # writing icon
+                    f.seek(data.em_102_icon_offset)
+                    f.write(icon_raw)
+                    f.write(b"\x00" * padding_size)
+
+                    # writing icon group and saving address to write it to table below
+                    new_icon_group_address = f.tell()
+                    f.write(bytes.fromhex(data.new_icon_group_info))
+                    end_rscr_address = f.tell()
+                    f.write(b"\x00" * 8)  # padding for icon group
+
+                    current_size = f.tell() - data.offset_of_rsrc
+                    block_size_overflow = current_size % 0x1000
+
+                    # padding rsrc to 4Kb block size
+                    padding_size_rsrc = 0x1000 - block_size_overflow
+                    raw_size_of_rsrc = current_size + padding_size_rsrc
+                    f.write(b"\x00" * padding_size_rsrc)
+
+                    # now writing reloc struct and saving its address to write to table below
+                    new_reloc_address_raw = f.tell()
+                    new_reloc_address = new_reloc_address_raw + data.rva_offset
+
+                    # padding reloc to 4Kb block size
+                    block_size_overflow = len(reloc) % 0x1000
+                    padding_size = 0x1000 - block_size_overflow
+                    f.write(reloc)
+                    f.write(b"\x00" * padding_size)
+                    size_of_image = f.tell()
+
+                    # updating pointers in PE header for rsrc struct and reloc struct
+                    f.seek(data.size_of_rsrc_offset)
+                    # old_rsrc_size = int.from_bytes(f.read(4), byteorder='little')
+                    size_of_rscs = end_rscr_address - data.offset_of_rsrc
+                    f.write(size_of_rscs.to_bytes(4, byteorder='little'))
+                    f.seek(data.resource_dir_size)
+                    f.write(size_of_rscs.to_bytes(4, byteorder='little'))
+
+                    f.seek(data.raw_size_of_rsrc_offset)
+                    f.write(raw_size_of_rsrc.to_bytes(4, byteorder='little'))
+
+                    f.seek(data.offset_of_reloc_offset)
+                    f.write(new_reloc_address.to_bytes(4, byteorder='little'))
+
+                    # updating size of resource for icon and pointer to icon group resource
+                    f.seek(data.new_icon_size_offset)
+                    f.write(size_of_icon.to_bytes(4, byteorder='little'))
+
+                    f.seek(data.new_icon_group_offset)
+                    f.write((new_icon_group_address+data.rva_offset).to_bytes(4, byteorder='little'))
+
+                    f.seek(data.offset_of_reloc_raw)
+                    f.write(new_reloc_address_raw.to_bytes(4, byteorder='little'))
+
+                    f.seek(data.size_of_image)
+                    f.write((size_of_image+data.rva_offset).to_bytes(4, byteorder='little'))
 
             if under_windows:
                 if exe_options.get("game_font") is not None:

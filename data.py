@@ -126,13 +126,34 @@ binary_inserts = {
                   0x3AB7FB: "68CDCCCC3D",
                   }
 
-em_102_icon_offset = 0x60A0E8
-em_102_version_info_offset_start = 0x60A0F0
-em_102_version_info_offset_end = 0x60A3A4
-em_102_version_info_len = 692
+em_102_icon_offset = 0x60A3A8
+em_102_icon_size = 5694
+# em_102_start_resource_entry = 0x60A0B8
+
+# em_102_version_info_offset_start = 0x60A0F0
+# em_102_version_info_offset_end = 0x60A3A4
+# em_102_version_info_len = 692
+
+rva_offset = 0x3D000
+size_of_image = 0x198
+
+
+offset_of_rsrc = 0x60A000
+resource_dir_size = 0x1D4
+size_of_rsrc_offset = 0x2C0
+raw_size_of_rsrc_offset = 0x2C8
+
+offset_of_reloc_offset = 0x2EC
+size_of_reloc_offset = 0x2E8
+
+offset_of_reloc_raw = 0x2F4
 
 new_icon_group_info = "0000010001000000000001002000F38E00000100"
 new_icon_header_ends = 0x16
+
+new_icon_size_offset = 0x60A0BC
+new_icon_group_offset = 0x60A0C8
+
 
 mm_inserts = {
               # MemoryManager::MemoryManager
