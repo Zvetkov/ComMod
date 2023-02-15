@@ -13,7 +13,7 @@ from mod import Mod
 from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory,\
                   DistributionNotFound, FileLoggingSetupError, InvalidExistingManifest, ModsDirMissing,\
                   NoModsFound, CorruptedRemasterFiles, PatchedButDoesntHaveManifest, WrongGameDirectoryPath
-from data import VERSION, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
+from data import VERSION, VERSION_BYTES_100_STAR, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
                  VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR, VERSION_BYTES_DEM_LNCH
 from localisation import tr
 from file_ops import running_in_venv, read_yaml, makedirs
@@ -535,12 +535,14 @@ class GameCopy:
                 version_identifier = f.read(15)
                 f.seek(VERSION_BYTES_103_NOCD)
                 version_identifier_103_nocd = f.read(15)
-                f.seek(VERSION_BYTES_103_STAR)
-                version_identifier_103_star = f.read(15)
+                f.seek(VERSION_BYTES_100_STAR)
+                version_identifier_100_star = f.read(15)
                 f.seek(VERSION_BYTES_102_STAR)
                 version_identifier_102_star = f.read(15)
+                f.seek(VERSION_BYTES_103_STAR)
+                version_identifier_103_star = f.read(15)
                 f.seek(VERSION_BYTES_DEM_LNCH)
-                version_identifier_dem_lnch = f.read(15) 
+                version_identifier_dem_lnch = f.read(15)
 
             if version_identifier[8:12] == b'1.02':
                 return "Clean 1.02"
@@ -564,10 +566,12 @@ class GameCopy:
                 return "KRBDZSKL 1.04"
             elif version_identifier_103_nocd[1:5] == b'1.03':
                 return "DRM Free 1.03"
-            elif version_identifier_103_star[:9] == b'\xbf\xcf\x966\xf1\x97\xf2\xc5\x11':
-                return "1.03 Starforce"
+            elif version_identifier_100_star[1:5] == b'1.0 ':
+                return "1.0 Starforce"
             elif version_identifier_102_star[:9] == b'O0\x87\xfa%\xbc\x9f\x86Q':
                 return "1.02 Starforce"
+            elif version_identifier_103_star[:9] == b'\xbf\xcf\x966\xf1\x97\xf2\xc5\x11':
+                return "1.03 Starforce"
             elif version_identifier_dem_lnch[:9] == b'\x00\x8dU\x98R\xe8)\x07\x00':
                 return "Old DEM launcher"
             else:
