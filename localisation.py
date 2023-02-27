@@ -31,7 +31,8 @@ local_dict = {
     "add_distro_using_btn": "Указать путь к файлам Community Remaster можно кнопкой выше или нажав сюда",
     "you_can_postpone_but": "Вы можете выбрать папки позднее, но без них ComMod не сможет полноценно работать.",
     "target_dir_missing_files": "Указанная папка не содержит все необходимые файлы.",
-    "unsupported_exe_version": "Указанная папка содержит не поддерживаемую версию игры"
+    "unsupported_exe_version": "Указанная папка содержит не поддерживаемую версию игры",
+    "havent_been_chosen": "не указан",
 }
 
 

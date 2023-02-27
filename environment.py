@@ -16,7 +16,7 @@ from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnp
 from data import VERSION, VERSION_BYTES_100_STAR, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
                  VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR, VERSION_BYTES_DEM_LNCH
 from localisation import tr
-from file_ops import running_in_venv, read_yaml, makedirs
+from file_ops import running_in_venv, read_yaml, makedirs, shorten_path
 
 
 class InstallationContext:
@@ -77,6 +77,7 @@ class InstallationContext:
         '''
         if self.validate_distribution_dir(distribution_dir):
             self.distribution_dir = os.path.normpath(distribution_dir)
+            self.short_path = shorten_path(self.distribution_dir, 45)
         elif not ignore_invalid:
             raise DistributionNotFound(distribution_dir,
                                        "Couldn't find all required files in given distribuion dir")
@@ -156,6 +157,7 @@ class InstallationContext:
 
         if self.validate_distribution_dir(exe_path):
             self.distribution_dir = exe_path
+            self.short_path = shorten_path(self.distribution_dir, 45)
         else:
             raise DistributionNotFound(exe_path, "Distribution not found around mod manager exe")
 
@@ -331,6 +333,7 @@ class GameCopy:
         self.patched_version = False
         self.leftovers = False
         self.target_exe = None
+        self.game_root_path = None  # TODO missed this default initially, check for checks braking because of None
         self.label = ""
 
     @staticmethod
@@ -423,6 +426,13 @@ class GameCopy:
 
         patched_version = ("ComRemaster" in self.exe_version) or ("ComPatch" in self.exe_version)
 
+        # if len(self.game_root_path) > 60:
+        #     path_identifier = f"{Path(self.game_root_path).drive}/.../{Path(self.game_root_path).name}"
+        # else:
+        #     path_identifier = self.game_root_path
+        version_str = self.exe_version.replace("Remaster", "Rem")
+        self.display_name = f"[{version_str}] {shorten_path(self.game_root_path, 45)}"
+        
         if os.path.exists(self.installed_manifest_path):
             install_manifest = read_yaml(self.installed_manifest_path)
             valid_manifest = self.validate_install_manifest(install_manifest)
@@ -433,12 +443,14 @@ class GameCopy:
             elif patched_version and not valid_manifest:
                 raise InvalidExistingManifest(self.installed_manifest_path)
             else:
+                self.leftovers = True
                 raise HasManifestButUnpatched(self.exe_version, install_manifest)
 
         if patched_version:
             self.patched_version = True
             self.installed_content = None
-            raise PatchedButDoesntHaveManifest(self.exe_version)
+            self.leftovers = True
+            raise PatchedButDoesntHaveManifest(self.exe_version)        
 
     def is_modded(self) -> bool:
         if self.installed_content is None:

@@ -44,8 +44,11 @@ def main(options):
     # creating dummy objects to fill latter
     app.context = InstallationContext(dev_mode=app.dev, can_skip_adding_distro=True)
     app.context.setup_loggers(stream_only=True)
+    app.known_distros = set()
+
     app.session = app.context.current_session
     app.game = GameCopy()
+    app.known_games = set()
 
     # if nothing else is known, we expect commod to launch inside the game folder
     # with distibution files (ComRem files and optional "mods" directory) around
@@ -84,7 +87,8 @@ def main(options):
 
     need_quick_start = (config is None
                         and app.context.distribution_dir is None
-                        and app.game.target_exe is None)
+                        and app.game.game_root_path is None
+                        and not options.skip_wizard)
 
     if need_quick_start:
         app.session.load_steam_game_paths()
@@ -99,7 +103,7 @@ def main(options):
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, app):
+    def __init__(self, app) -> None:
         super(MainWindow, self).__init__()
 
         # setting up application skin and display properties
@@ -221,17 +225,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.aboutQtAction = QtGui.QAction("About &Qt", self, statusTip="Show the Qt library's About box",
                                            triggered=QtWidgets.QApplication.instance().aboutQt)
 
-    def openGameFolder(self):
+    def openGameFolder(self, known_game = ""):
         self.update_status("openGameFolder placeholder", logging.DEBUG)
-        dir_dialogue = QtWidgets.QFileDialog(self)
-        dir_dialogue.setFileMode(QtWidgets.QFileDialog.Directory)
-        directory_name = dir_dialogue.getExistingDirectory(self, tr("path_to_game"))
-        if not directory_name:
-            return
+        if known_game:
+            directory_name = known_game
+        else:
+            dir_dialogue = QtWidgets.QFileDialog(self)
+            dir_dialogue.setFileMode(QtWidgets.QFileDialog.Directory)
+            directory_name = dir_dialogue.getExistingDirectory(self, tr("path_to_game"))
+            if not directory_name:
+                return
         validated, _ = GameCopy.validate_game_dir(directory_name)
         if validated:
             err_msg = ""
-            detailed_info = ""
+            err_detailed = ""
+            info_msg = ""
+            info_detailed = ""
 
             try:
                 exe_name = GameCopy.get_exe_name(directory_name)
@@ -240,6 +249,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 if exe_version is not None:
                     validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
                     if validated_exe:
+                        # TODO: handle "patched but doesn't have manifest"
                         self.app.game.process_game_install(directory_name)
                     else:
                         err_msg = fcss(f'{tr("unsupported_exe_version")}: {exe_version}',
@@ -247,10 +257,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     err_msg = fcss(f'{tr("exe_is_running")}: {Path(exe_name).name}',
                                    [css.RED, css.BOLD], p=True)
+            except PatchedButDoesntHaveManifest as ex:
+                info_msg = fcss(f'{tr("install_leftovers")}',
+                                [css.YELLOW, css.BOLD], p=True)
+                info_detailed = f"{ex!r}"
+            except HasManifestButUnpatched as ex:
+                info_msg = fcss(f'{tr("install_leftovers")}',
+                                [css.YELLOW, css.BOLD], p=True)
+                info_detailed = f"{ex!r}"
             except Exception as ex:
-                detailed_info = str(ex)
+                err_detailed = f"{ex!r}"
 
-            if err_msg or detailed_info:
+            if err_msg or err_detailed:
                 error_box = QtWidgets.QMessageBox()
                 error_box.setIcon(QtWidgets.QMessageBox.Critical)
                 error_box.setWindowTitle(tr("path_to_game"))
@@ -260,9 +278,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 err_msg += f"{tr('commod_needs_game')}"
                 error_box.setText(err_msg)
-                if detailed_info:
-                    error_box.setDetailedText(detailed_info)
+                if err_detailed:
+                    error_box.setDetailedText(err_detailed)
                 error_box.exec()
+            if info_msg:
+                info_box = QtWidgets.QMessageBox()
+                info_box.setIcon(QtWidgets.QMessageBox.Information)
+                info_box.setWindowTitle(tr("path_to_game"))
+
+                info_msg += f"{tr('commod_needs_game')}"
+                info_box.setText(info_msg)
+                info_box.setDetailedText(info_detailed)
+                info_box.exec()
         else:
             error_box = QtWidgets.QMessageBox()
             error_box.setIcon(QtWidgets.QMessageBox.Critical)
@@ -274,13 +301,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.proccess_game_and_distro_setup()
 
-    def openDistributionFolder(self):
+    def openDistributionFolder(self, known_distro: str = ""):
         self.update_status("openGameFolder placeholder", logging.DEBUG)
-        dir_dialogue = QtWidgets.QFileDialog(self)
-        dir_dialogue.setFileMode(QtWidgets.QFileDialog.Directory)
-        directory_name = dir_dialogue.getExistingDirectory(self, tr("path_to_comrem"))
-        if not directory_name:
-            return
+        if known_distro:
+            directory_name = known_distro
+        else:
+            dir_dialogue = QtWidgets.QFileDialog(self)
+            dir_dialogue.setFileMode(QtWidgets.QFileDialog.Directory)
+            directory_name = dir_dialogue.getExistingDirectory(self, tr("path_to_comrem"))
+            if not directory_name:
+                return
+
         validated = InstallationContext.validate_distribution_dir(directory_name)
         if validated:
             try:
@@ -320,17 +351,50 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fileToolBar = self.addToolBar("File&Edit")
         self.fileToolBar.addAction(self.openGameFolderAction)
         self.game_selector = QtWidgets.QComboBox()
-        self.game_selector.addItem("[Ex Machina] Ex Machina Community Remaster")
+        self.game_selector.setMinimumWidth(300)
+        self.game_selector.addItem(f"{tr('path_to_game')} [{tr('havent_been_chosen')}]", 'dummy')  # [Ex Machina] Ex Machina Community Remaster")
+        self.game_selector.setDisabled(True)
+        self.game_selector.currentIndexChanged.connect(self.game_selector_changed_game)
         self.fileToolBar.addWidget(self.game_selector)
         self.fileToolBar.addSeparator()
 
         self.fileToolBar.addAction(self.openDistributionAction)
-        self.distro_setector = QtWidgets.QComboBox()
-        self.distro_setector.addItem("[ComRemaster 1.13] EM-CommunityPatch")
-        self.fileToolBar.addWidget(self.distro_setector)
+        self.distro_selector = QtWidgets.QComboBox()
+        self.distro_selector.setMinimumWidth(300)
+        self.distro_selector.addItem(f"{tr('path_to_comrem')} [{tr('havent_been_chosen')}]", 'dummy')  # [ComRemaster 1.13] EM-CommunityPatch")
+        self.distro_selector.setDisabled(True)
+        self.distro_selector.currentIndexChanged.connect(self.distro_selector_changed_distro)
+        self.fileToolBar.addWidget(self.distro_selector)
         self.fileToolBar.addSeparator()
 
         self.fileToolBar.addAction(self.propertiesAction)
+
+    def game_selector_changed_game(self):
+        current_game = self.game_selector.currentData()
+        if current_game != self.app.game.game_root_path:
+            previous_game = self.app.game
+            self.app.game = GameCopy() 
+            self.openGameFolder(current_game)
+            if self.app.game.game_root_path is None:
+                self.app.game = previous_game
+                previous_index = self.game_selector.findData(self.app.game.game_root_path)
+                self.game_selector.setCurrentIndex(previous_index)
+                #TODO: handler case when all game copies are broken inside the session
+                self.setup_notice.update_view()
+            previous_game = None
+
+    def distro_selector_changed_distro(self):
+        current_distro = self.distro_selector.currentData()
+        if current_distro != self.app.context.distribution_dir:
+            previous_context = self.app.context
+            self.app.context = InstallationContext(dev_mode=self.app.dev, can_skip_adding_distro=True)
+            self.openDistributionFolder(current_distro)
+            if self.app.context.distribution_dir is None:
+                self.app.context = previous_context
+                previous_index = self.distro_selector.findData(self.app.context.distribution_dir)
+                self.distro_selector.setCurrentIndex(previous_index)
+                self.setup_notice.update_view()
+            previous_context = None
 
     def setup_status_bar(self):
         self.statusBar().showMessage("Ready")
@@ -403,12 +467,43 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_tab_widget.setTabVisible(index, False)
 
     def proccess_game_and_distro_setup(self):
-        if self.app.game.target_exe is None or self.app.context.distribution_dir is None:
+        if self.app.game.game_root_path is not None:
+            index_of_game = self.game_selector.findData(self.app.game.game_root_path)
+            if index_of_game == -1:
+                self.game_selector.addItem(self.app.game.display_name, self.app.game.game_root_path)
+                index_of_game = self.game_selector.findData(self.app.game.game_root_path)
+            self.game_selector.setCurrentIndex(index_of_game)
+            self.app.known_games.add(self.app.game.game_root_path)
+            # enabling dropdown if we have multiple managed game distros
+            have_multiple_games = len(self.app.known_games) > 1
+            self.game_selector.setEnabled(have_multiple_games)
+
+            dummy_index = self.game_selector.findData("dummy") 
+            if dummy_index != -1:
+                self.game_selector.removeItem(dummy_index)
+
+        if self.app.context.distribution_dir is not None:
+            index_of_distro = self.distro_selector.findData(self.app.context.distribution_dir)
+            if index_of_distro == -1:
+                self.distro_selector.addItem(self.app.context.short_path, self.app.context.distribution_dir)
+                index_of_distro = self.distro_selector.count()
+                index_of_distro = self.distro_selector.findData(self.app.context.distribution_dir)
+            self.distro_selector.setCurrentIndex(index_of_distro)
+            self.app.known_distros.add(self.app.context.distribution_dir)
+            have_multiple_distros = len(self.app.known_distros) > 1
+            self.distro_selector.setEnabled(have_multiple_distros)
+
+            dummy_index = self.distro_selector.findData("dummy")
+            if dummy_index != -1:
+                self.distro_selector.removeItem(dummy_index)
+
+        if self.app.game.game_root_path is None or self.app.context.distribution_dir is None:
             index = self.main_tab_widget.indexOf(self.setup_notice)
             self.main_tab_widget.setTabVisible(index, True)
         else:
             index = self.main_tab_widget.indexOf(self.setup_notice)
             self.main_tab_widget.setTabVisible(index, False)
+        
         self.setup_notice.update_view()
 
 
@@ -445,7 +540,7 @@ class SetupStateInfoNotice(QtWidgets.QWidget):
         layout.addStretch()
 
     def update_view(self):
-        self.need_game.setVisible(self.app.game.target_exe is None)
+        self.need_game.setVisible(self.app.game.game_root_path is None)
         self.need_distro.setVisible(self.app.context.distribution_dir is None)
 
 
@@ -571,6 +666,7 @@ class QuickStart(QtWidgets.QWidget):
         steam_dirs_list.setContentsMargins(10, 0, 0, 0)
         self.steam_dirs_list = steam_dirs_list
         steam_dirs_list.addItems(self.app.session.steam_game_paths)
+        # TODO: potential bug if now steam game copies found in the system?
         steam_dirs_list.setCurrentIndex(steam_dirs_list.findText(self.app.session.steam_game_paths[0]))
 
         steam_btn_agree = QtWidgets.QPushButton(tr("choose_found"), self)

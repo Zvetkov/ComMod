@@ -18,6 +18,28 @@ import hd_ui
 logger = logging.getLogger('dem')
 
 
+def shorten_path(path: str | Path, length: int = 60) -> str:
+    if isinstance(path, str):
+        path_to_shorten = Path(path)
+    elif isinstance(path, Path):
+        path_to_shorten = path
+    else:
+        raise TypeError(f"Path is of type {type(path)}: {path}")
+
+    final_str = path_to_shorten.as_posix()
+    if len(final_str) <= length:
+        return final_str
+
+    for i in range(1, len(path_to_shorten.parts)):
+        final_str = path_to_shorten.drive + "/../" + Path(*path_to_shorten.parts[i:]).as_posix()
+        if len(final_str) <= length:
+            return final_str
+
+    if len(path_to_shorten.stem) <= length - 3:
+        return "../" + path_to_shorten.stem
+    else:
+        return "../" + path_to_shorten.stem[:length-4] + "~"
+
 def child_from_xml_node(xml_node: objectify.ObjectifiedElement, child_name: str, do_not_warn: bool = False):
     '''Get child from ObjectifiedElement by name'''
     try:

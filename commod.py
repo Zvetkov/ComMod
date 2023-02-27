@@ -101,11 +101,9 @@ def main_console(options: argparse.Namespace) -> None:
         logger.warning(f"Found existing compatch manifest, but exe version is unexpected: {er.exe_version}"
                        f"\nManifest contents: {er.manifest_content}")
         console.switch_header("leftovers")
-        game.leftovers = True
     except PatchedButDoesntHaveManifest as er:
         logger.warning(f"Executable is patched (version: {er.exe_version}), but install manifest is missing")
         console.switch_header("leftovers")
-        game.leftovers = True
 
     logger.info(f"Target exe [{game.exe_version}]: {game.target_exe}")
     if game.installed_content:
@@ -477,6 +475,8 @@ def _init_input_parser():
                         action="store_true", default=False, required=False)
     parser.add_argument('-console', help='run in console',
                         action="store_true", default=False, required=False)
+    parser.add_argument('-skip_wizard', help='skips quick setup wizzard in GUI mode', 
+                        default=False, required=False, action="store_true")
     installation_option = parser.add_mutually_exclusive_group()
     installation_option.add_argument('-compatch', help='base ComPatch setup, no console interaction required',
                                      action="store_true", default=False)
