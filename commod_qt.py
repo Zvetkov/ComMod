@@ -126,7 +126,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setup_top_menu()
         self.setup_tool_bar()
 
-        self.setup_quick_look()
+        # self.setup_quick_look()
 
     # def choose_from_steam(self):
     #     steam_game_selector = QuickStart(self.app.session.steam_game_paths)
@@ -352,7 +352,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fileToolBar.addAction(self.openGameFolderAction)
         self.game_selector = QtWidgets.QComboBox()
         self.game_selector.setMinimumWidth(300)
-        self.game_selector.addItem(f"{tr('path_to_game')} [{tr('havent_been_chosen')}]", 'dummy')  # [Ex Machina] Ex Machina Community Remaster")
+        self.game_selector.addItem(f"{tr('path_to_game')} [{tr('havent_been_chosen')}]", 'dummy')
         self.game_selector.setDisabled(True)
         self.game_selector.currentIndexChanged.connect(self.game_selector_changed_game)
         self.fileToolBar.addWidget(self.game_selector)
@@ -361,25 +361,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fileToolBar.addAction(self.openDistributionAction)
         self.distro_selector = QtWidgets.QComboBox()
         self.distro_selector.setMinimumWidth(300)
-        self.distro_selector.addItem(f"{tr('path_to_comrem')} [{tr('havent_been_chosen')}]", 'dummy')  # [ComRemaster 1.13] EM-CommunityPatch")
+        self.distro_selector.addItem(f"{tr('path_to_comrem')} [{tr('havent_been_chosen')}]", 'dummy')
         self.distro_selector.setDisabled(True)
         self.distro_selector.currentIndexChanged.connect(self.distro_selector_changed_distro)
         self.fileToolBar.addWidget(self.distro_selector)
         self.fileToolBar.addSeparator()
-
+        spacer = QtWidgets.QWidget()
+        spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.fileToolBar.addWidget(spacer)
         self.fileToolBar.addAction(self.propertiesAction)
 
     def game_selector_changed_game(self):
         current_game = self.game_selector.currentData()
         if current_game != self.app.game.game_root_path:
             previous_game = self.app.game
-            self.app.game = GameCopy() 
+            self.app.game = GameCopy()
             self.openGameFolder(current_game)
             if self.app.game.game_root_path is None:
                 self.app.game = previous_game
                 previous_index = self.game_selector.findData(self.app.game.game_root_path)
                 self.game_selector.setCurrentIndex(previous_index)
-                #TODO: handler case when all game copies are broken inside the session
+                # TODO: handler case when all game copies are broken inside the session
                 self.setup_notice.update_view()
             previous_game = None
 
