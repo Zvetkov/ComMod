@@ -463,8 +463,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.main_tab_widget.addTab(tab_mod_explorer, "&Mod Explorer")
         self.setup_notice = SetupStateInfoNotice(self)
         self.main_tab_widget.addTab(self.setup_notice, f'&{tr("finish_setup")}')
-        index = self.main_tab_widget.indexOf(self.setup_notice)
-        self.main_tab_widget.setTabVisible(index, False)
+        index_setup_notice = self.main_tab_widget.indexOf(self.setup_notice)
+        self.main_tab_widget.setTabVisible(index_setup_notice, False)
+        self.comrem_wizard = SetupComremWidget(self)
+        self.main_tab_widget.addTab(self.comrem_wizard, f'&Community Remaster / Patch')
+        index_comrem_wizard = self.main_tab_widget.indexOf(self.comrem_wizard)
+        self.main_tab_widget.setTabVisible(index_comrem_wizard, False)
 
     def proccess_game_and_distro_setup(self):
         if self.app.game.game_root_path is not None:
@@ -544,6 +548,36 @@ class SetupStateInfoNotice(QtWidgets.QWidget):
         self.need_distro.setVisible(self.app.context.distribution_dir is None)
 
 
+class SetupComremWidget(QtWidgets.QWidget):
+    def __init__(self, parent: MainWindow):
+        QtWidgets.QWidget.__init__(self)
+        self.app = parent.app
+        self.icons = parent.icons
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        self.mods_table = QtWidgets.QTableWidget(columns=8)
+        need_game_intro = QtWidgets.QLabel(fcss(tr("commod_needs_game"), [css.BLUE, css.BOLD]))
+        # need_game_intro.setStyleSheet(f'"{css.ORANGE};"')
+        need_game_hyper = ClickableIconLabel(text=fcss(tr("add_game_using_btn")),
+                                             icon=qta.icon("fa5s.folder-open"))
+        need_game_hyper.clicked.connect(parent.openGameFolder)
+        layout_need_game.addWidget(need_game_intro)
+        layout_need_game.addWidget(need_game_hyper)
+
+        self.need_distro = QtWidgets.QWidget()
+        layout_need_distro = QtWidgets.QVBoxLayout(self.need_distro)
+        need_distro_intro = QtWidgets.QLabel(fcss(tr("commod_needs_remaster"), [css.BLUE, css.BOLD]))
+
+        need_distro_hyper = ClickableIconLabel(text=fcss(tr("add_distro_using_btn")),
+                                               icon=qta.icon("fa5s.folder-open"))
+        need_distro_hyper.clicked.connect(parent.openDistributionFolder)
+        layout_need_distro.addWidget(need_distro_intro)
+        layout_need_distro.addWidget(need_distro_hyper)
+
+        layout.addWidget(self.need_game)
+        layout.addWidget(self.need_distro)
+        layout.addStretch()
 class ClickableLabel(QtWidgets.QLabel):
     clicked = QtCore.Signal()
 
