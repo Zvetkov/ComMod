@@ -66,23 +66,33 @@
   border-top-right-radius: 3px;
 }
 
+QWidget{
+  font-family: "Roboto";
+}
+
 QMenu {
+  /* font-family: "Roboto"; */
   font-size: 12px;
 }
 
 QMenuBar {
+  /* font-family: "Roboto"; */
+  font-weight: bold;
   font-size: 12px;
 }
 
 QStatusBar {
+  /* font-family: "Roboto"; */
   font-size: 12px;
 }
 
 QDockWidget {
+  /* font-family: "Roboto"; */
   font-size: 12px;
 }
 
 QMessageBox {
+  /* font-family: "Roboto"; */
   font-size: 12px;
 }
 
@@ -109,6 +119,8 @@ QToolBar {
 }
 
 QToolTip {
+  /* font-family: "Roboto"; */
+  font-size: 12px;
   color: #FFAC14; 
   background-color: #191919; 
   border: 1px solid black;

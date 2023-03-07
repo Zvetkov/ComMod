@@ -7,6 +7,7 @@ import qtawesome as qta
 
 from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
+from file_ops import get_internal_file_path
 # from __feature__ import true_property
 
 from qtmodern import styles, windows, resources  # resources are being used implicitly
@@ -24,6 +25,8 @@ from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnp
 
 def main(options):
     app = QtWidgets.QApplication(sys.argv)
+    std_font = QtGui.QFont("Roboto", 10)
+    app.setFont(std_font)
     window = MainWindow(app)
     app.window = window
     mw = windows.ModernWindow(window)
@@ -225,7 +228,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.aboutQtAction = QtGui.QAction("About &Qt", self, statusTip="Show the Qt library's About box",
                                            triggered=QtWidgets.QApplication.instance().aboutQt)
 
-    def openGameFolder(self, known_game = ""):
+    def openGameFolder(self, known_game: str = ""):
         self.update_status("openGameFolder placeholder", logging.DEBUG)
         if known_game:
             directory_name = known_game
@@ -250,6 +253,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
                     if validated_exe:
                         # TODO: handle "patched but doesn't have manifest"
+                        if self.app.game.target_exe is not None:
+                            self.app.game = GameCopy()
                         self.app.game.process_game_install(directory_name)
                     else:
                         err_msg = fcss(f'{tr("unsupported_exe_version")}: {exe_version}',
@@ -383,6 +388,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.game_selector.setCurrentIndex(previous_index)
                 # TODO: handler case when all game copies are broken inside the session
                 self.setup_notice.update_view()
+            else:
+                self.app.context.new_session()
             previous_game = None
 
     def distro_selector_changed_distro(self):
@@ -467,10 +474,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_tab_widget.addTab(self.setup_notice, f'&{tr("finish_setup")}')
         index_setup_notice = self.main_tab_widget.indexOf(self.setup_notice)
         self.main_tab_widget.setTabVisible(index_setup_notice, False)
-        self.comrem_wizard = LocalModsWidget(self)
-        self.main_tab_widget.addTab(self.comrem_wizard, f'&Community Remaster / Patch')
-        index_comrem_wizard = self.main_tab_widget.indexOf(self.comrem_wizard)
-        self.main_tab_widget.setTabVisible(index_comrem_wizard, False)
+
+        # self.comrem_wizard = LocalModsWidget(self)
+        # self.main_tab_widget.addTab(self.comrem_wizard, f'&Community Remaster / Patch')
+        # index_comrem_wizard = self.main_tab_widget.indexOf(self.comrem_wizard)
+        # self.main_tab_widget.setTabVisible(index_comrem_wizard, False)
+
+        self.game_home_screen = GameHomeScreen(self)
+        self.main_tab_widget.addTab(self.game_home_screen, f'&{tr("game_info")}')
+        index_game_home = self.main_tab_widget.indexOf(self.game_home_screen)
+        self.main_tab_widget.setTabVisible(index_game_home, False)
 
     def proccess_game_and_distro_setup(self):
         if self.app.game.game_root_path is not None:
@@ -484,7 +497,7 @@ class MainWindow(QtWidgets.QMainWindow):
             have_multiple_games = len(self.app.known_games) > 1
             self.game_selector.setEnabled(have_multiple_games)
 
-            dummy_index = self.game_selector.findData("dummy") 
+            dummy_index = self.game_selector.findData("dummy")
             if dummy_index != -1:
                 self.game_selector.removeItem(dummy_index)
 
@@ -509,7 +522,11 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             index = self.main_tab_widget.indexOf(self.setup_notice)
             self.main_tab_widget.setTabVisible(index, False)
-        
+
+            game_home_screen_index = self.main_tab_widget.indexOf(self.game_home_screen)
+            self.game_home_screen.update_game(self.app.game, self.app.context)
+            self.main_tab_widget.setTabVisible(game_home_screen_index, True)
+
         self.setup_notice.update_view()
 
 
@@ -550,36 +567,240 @@ class SetupStateInfoNotice(QtWidgets.QWidget):
         self.need_distro.setVisible(self.app.context.distribution_dir is None)
 
 
-class LocalModsWidget(QtWidgets.QWidget):
+class GameHomeScreen(QtWidgets.QWidget):
     def __init__(self, parent: MainWindow):
         QtWidgets.QWidget.__init__(self)
-        self.app = parent.app
-        self.icons = parent.icons
+        game_home_layout = QtWidgets.QVBoxLayout(self)
+        icon_and_info_layout = QtWidgets.QHBoxLayout()
+        icon_layout = QtWidgets.QVBoxLayout()
+        info_layout = QtWidgets.QVBoxLayout()
+        info_layout.setSpacing(15)
+        info_layout.setContentsMargins(15, 0, 128, 0)
+        bottom_bar_layout = QtWidgets.QHBoxLayout()
+        bottom_bar_widget = QtWidgets.QWidget()
 
-        layout = QtWidgets.QVBoxLayout(self)
+        icon_and_info_widget = QtWidgets.QWidget()
+        left_stretch = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+        left_stretch.setHorizontalStretch(1)
+        right_stretch = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+        right_stretch.setHorizontalStretch(6)
 
-        self.mods_table = QtWidgets.QTableWidget(columns=8)
-        comrem_name = QtWidgets.QLabel(fcss(tr("comrem_name"), [css.BLUE, css.BOLD]))
-        # need_game_intro.setStyleSheet(f'"{css.ORANGE};"')
-        need_game_hyper = ClickableIconLabel(text=fcss(tr("add_game_using_btn")),
-                                             icon=qta.icon("fa5s.folder-open"))
-        need_game_hyper.clicked.connect(parent.openGameFolder)
-        # layout_need_game.addWidget(need_game_intro)
-        # layout_need_game.addWidget(need_game_hyper)
+        game_icon_widget = QtWidgets.QWidget()
+        game_icon_widget.setSizePolicy(left_stretch)
+        game_icon_widget.setLayout(icon_layout)
+        game_icon = ResizableIconLabel()
+        game_icon.setScaledContents(1)
+        game_icon.setMinimumSize(1, 1)
+        game_icon_widget.setMaximumWidth(256)
+        game_icon_pixmap = QtGui.QPixmap(get_internal_file_path("icons/hta_comrem.png"))
+        game_icon.setPixmap(game_icon_pixmap)  # .scaled(64, 64, QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation)
+        # game_icon_widget.setMaximumWidth(100)
+        # game_icon.setAlignment(QtCore.Qt.AlignTop)
+        game_icon.setAlignment(QtCore.Qt.AlignHCenter)
+        icon_layout.addWidget(game_icon)
+        icon_layout.addStretch()
 
-        self.need_distro = QtWidgets.QWidget()
-        layout_need_distro = QtWidgets.QVBoxLayout(self.need_distro)
-        need_distro_intro = QtWidgets.QLabel(fcss(tr("commod_needs_remaster"), [css.BLUE, css.BOLD]))
+        game_info_widget = QtWidgets.QWidget()
+        game_info_widget.setSizePolicy(right_stretch)
 
-        need_distro_hyper = ClickableIconLabel(text=fcss(tr("add_distro_using_btn")),
-                                               icon=qta.icon("fa5s.folder-open"))
-        need_distro_hyper.clicked.connect(parent.openDistributionFolder)
-        layout_need_distro.addWidget(need_distro_intro)
-        layout_need_distro.addWidget(need_distro_hyper)
+        game_home_layout.addWidget(icon_and_info_widget)
+        game_home_layout.addWidget(bottom_bar_widget)
 
-        layout.addWidget(self.need_game)
-        layout.addWidget(self.need_distro)
-        layout.addStretch()
+        icon_and_info_widget.setLayout(icon_and_info_layout)
+        icon_and_info_layout.addWidget(game_icon_widget)
+        icon_and_info_layout.addWidget(game_info_widget)
+
+        game_info_widget.setLayout(info_layout)
+        label_name = QtWidgets.QLabel("Game Name")
+        header_font = QtGui.QFont()
+        header_font.setPointSize(22)
+        header_font.setBold(True)
+        label_name.setFont(header_font)
+
+        label_version = QtWidgets.QLabel(fcss(tr("Some additional info about the game"), [css.ORANGE, css.BOLD]))
+        version_font = QtGui.QFont()
+        version_font.setPointSize(10)
+        label_version.setFont(version_font)
+
+        label_opt_content = QtWidgets.QLabel(fcss(tr("* Optional content: some_thing, and_other_thing"), [css.BLUE, css.BOLD]))
+        label_opt_content.setFont(version_font)
+
+        mods_label = QtWidgets.QLabel(fcss(tr("Other mod"), [css.BLUE, css.BOLD]))
+        mods_label.setFont(version_font)
+
+        hor_line = QHLine()
+        hor_line.setMinimumHeight(30)
+
+        link_install_mods = ClickableIconLabel(text=fcss(tr("install_mods")),
+                                               icon=qta.icon("fa5s.wrench"))
+
+        link_download_mods = ClickableIconLabel(text=fcss(tr("download_mods")),
+                                                icon=qta.icon("fa5s.download"))
+
+        link_backup_game = ClickableIconLabel(text=fcss(tr("backup_game")),
+                                              icon=qta.icon("mdi6.backup-restore"))
+
+        button_launch_game = QtWidgets.QPushButton(tr("launch_game_button"))
+        # button_launch_game = QtWidgets.QToolButton()
+        # self.openGameFolderAction
+        # button_launch_game.setMenu(parent.fileToolBar)
+        # button_launch_game.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+        # button_launch_game.setDefaultAction(parent.openGameFolderAction)
+        button_launch_game.setMinimumSize(160, 80)
+        button_launch_game.setMaximumSize(320, 160)
+        button_launch_game.setFont(header_font)
+
+        info_layout.addWidget(label_name)
+        info_layout.addWidget(label_version)
+        info_layout.addWidget(label_opt_content)
+        info_layout.addWidget(mods_label)
+        info_layout.addWidget(hor_line)
+        info_layout.addWidget(link_install_mods)
+        info_layout.addWidget(link_download_mods)
+        info_layout.addWidget(link_backup_game)
+        info_layout.addStretch()
+        info_layout.addWidget(button_launch_game)
+        info_layout.addStretch()
+
+        bottom_bar_widget.setLayout(bottom_bar_layout)
+        our_discord_label = ClickableIconLabel(text=fcss(tr("our_discord")),
+                                               icon=qta.icon("fa5b.discord"),
+                                               icon_size=24)
+        our_discord_label.setMinimumWidth(100)
+        our_discord_label.setContentsMargins(50, 0, 0, 0)
+        our_discord_label.setAlignment(QtCore.Qt.AlignCenter)
+        our_github_label = ClickableIconLabel(text=fcss(tr("our_github")),
+                                              icon=qta.icon("fa5b.github"),
+                                              icon_size=24)
+        our_github_label.setMinimumWidth(100)
+        our_github_label.setAlignment(QtCore.Qt.AlignCenter)
+        bottom_bar_layout.addWidget(our_discord_label)
+        bottom_bar_layout.addWidget(our_github_label)
+        bottom_bar_layout.addStretch()
+
+        self.game_icon_label = game_icon
+        self.game_name_label = label_name
+        self.game_version_label = label_version
+        self.additional_content_label = label_opt_content
+        self.mods_label = mods_label
+        self.install_mods_label = link_install_mods
+        self.download_mods_label = link_download_mods
+        self.backup_game_label = link_backup_game
+        self.start_game_btn = button_launch_game
+
+    def update_game(self, game: GameCopy, context: InstallationContext):
+        if game.game_name == "Ex Machina":
+            if "ComRemaster" in game.exe_version:
+                game_icon = get_internal_file_path("icons/hta_comrem.png")
+            else:
+                game_icon = get_internal_file_path("icons/original_hta.png")
+        elif game.game_name == "Ex Machina: Meridian 113":
+            game_icon = get_internal_file_path("icons/original_m113.png")
+        elif game.game_name == "Ex Machina: Arcade":
+            game_icon = get_internal_file_path("icons/original_arcade.png")
+        else:
+            game_icon = None
+
+        if game_icon is None:
+            game_icon = qta.icon("fa5s.question")
+        else:
+            game_icon = QtGui.QPixmap(game_icon)
+
+        self.game_icon_label.setVisible(False)  # to prevent flicker on icon change 
+        self.game_icon_label.setPixmap(game_icon)
+        self.game_icon_label.setVisible(True)
+
+        self.game_name_label.setText(game.game_name)
+
+        game_version_text = ""
+        game_optional_content = ""
+        self.mods_label.clear()
+        self.mods_label.setVisible(False)
+
+        game.load_installed_descriptions(context.validated_mod_configs)
+        if game.installed_descriptions:
+            mods = set(game.installed_content)
+            standard_mods = set(("community_patch", "community_remaster"))
+
+            comrem_desc = game.installed_descriptions.get("community_remaster")
+            compatch_desc = game.installed_descriptions.get("community_patch")
+
+            if comrem_desc is not None:
+                comrem_desc = comrem_desc.split("\n")
+                game_version_text = comrem_desc[0]
+                game_optional_content = comrem_desc[1]
+            elif compatch_desc is not None:
+                compatch_desc = compatch_desc.split("\n")
+                game_version_text = compatch_desc[0]
+
+            custom_mods = mods.difference(standard_mods)
+            if custom_mods:
+                mods_text = ""
+                for mod_desc in custom_mods:
+                    mod_desc_split = game.installed_descriptions[mod_desc].split("\n")
+                    mod_version = mod_desc_split[0]
+                    mod_optional_content = mod_desc_split[1]
+                    mods_text += fcss(mod_version, [css.ORANGE, css.BOLD]) + "<br>"
+                    mods_text += fcss(mod_optional_content, [css.BLUE, css.BOLD])
+                    mods_text += "<br>"
+                self.mods_label.setVisible(True)
+                self.mods_label.setText(mods_text)
+            else:
+                self.mods_label.clear()
+                self.mods_label.setVisible(False)
+        else:
+            if game.exe_version == "Clean 1.02":
+                game_version_text = game.exe_version
+            elif game.leftovers:
+                game_version_text = game.exe_version + " exe"
+                game_optional_content = fcss(tr("install_leftovers"), css.RED)
+            else:
+                raise NotImplementedError("Not implemented version handler on game home screen")
+
+        if game_version_text:
+            self.game_version_label.setVisible(True)
+            self.game_version_label.setText(fcss(game_version_text, [css.ORANGE, css.BOLD]))
+        else:
+            self.game_version_label.setVisible(False)
+
+        if game_optional_content:
+            self.additional_content_label.setVisible(True)
+            self.additional_content_label.setText(fcss(game_optional_content, [css.BLUE, css.BOLD]))
+        else:
+            self.additional_content_label.setVisible(False)
+
+# class LocalModsWidget(QtWidgets.QWidget):
+#     def __init__(self, parent: MainWindow):
+#         QtWidgets.QWidget.__init__(self)
+#         self.app = parent.app
+#         self.icons = parent.icons
+
+#         layout = QtWidgets.QVBoxLayout(self)
+
+#         self.mods_table = QtWidgets.QTableWidget(columns=8)
+#         comrem_name = QtWidgets.QLabel(fcss(tr("comrem_name"), [css.BLUE, css.BOLD]))
+#         # need_game_intro.setStyleSheet(f'"{css.ORANGE};"')
+#         need_game_hyper = ClickableIconLabel(text=fcss(tr("add_game_using_btn")),
+#                                              icon=qta.icon("fa5s.folder-open"))
+#         need_game_hyper.clicked.connect(parent.openGameFolder)
+#         # layout_need_game.addWidget(need_game_intro)
+#         # layout_need_game.addWidget(need_game_hyper)
+
+#         self.need_distro = QtWidgets.QWidget()
+#         layout_need_distro = QtWidgets.QVBoxLayout(self.need_distro)
+#         need_distro_intro = QtWidgets.QLabel(fcss(tr("commod_needs_remaster"), [css.BLUE, css.BOLD]))
+
+#         need_distro_hyper = ClickableIconLabel(text=fcss(tr("add_distro_using_btn")),
+#                                                icon=qta.icon("fa5s.folder-open"))
+#         need_distro_hyper.clicked.connect(parent.openDistributionFolder)
+#         layout_need_distro.addWidget(need_distro_intro)
+#         layout_need_distro.addWidget(need_distro_hyper)
+
+#         layout.addWidget(self.need_game)
+#         layout.addWidget(self.need_distro)
+#         layout.addStretch()
+
+
 class ClickableLabel(QtWidgets.QLabel):
     clicked = QtCore.Signal()
 
@@ -607,10 +828,12 @@ class ClickableIcon(qta.IconWidget):
 class ClickableIconLabel(QtWidgets.QWidget):
     clicked = QtCore.Signal()
 
-    def __init__(self, icon=None, text="", final_stretch=True):
+    def __init__(self, icon: QtGui.QIcon = None,
+                 text="", final_stretch=True, icon_size=16):
         QtWidgets.QWidget.__init__(self)
-        self.icon_size = QtCore.QSize(16, 16)
+        self.icon_size = QtCore.QSize(icon_size, icon_size)
         hor_spacing = 2
+        # self.setMinimumHeight(icon_size)
 
         layout = QtWidgets.QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -618,16 +841,18 @@ class ClickableIconLabel(QtWidgets.QWidget):
 
         self.icon_label = ClickableIcon()
         if icon is not None:
-            self.icon_label.setIcon(icon)
+            self.set_icon(icon)
+            # self.icon_label.setMinimumSize(self.icon_size)
 
-        text_label = ClickableLabel(text)
+        self.text_label = ClickableLabel(text)
+        # self.text_label.setMinimumHeight(icon_size)
 
         layout.addWidget(self.icon_label)
         layout.addSpacing(hor_spacing)
-        layout.addWidget(text_label)
+        layout.addWidget(self.text_label)
 
         self.icon_label.clicked.connect(self.clicked_parts)
-        text_label.clicked.connect(self.clicked_parts)
+        self.text_label.clicked.connect(self.clicked_parts)
 
         if final_stretch:
             layout.addStretch()
@@ -636,7 +861,11 @@ class ClickableIconLabel(QtWidgets.QWidget):
         self.clicked.emit()
 
     def set_icon(self, icon):
+        self.icon_label.setIconSize(self.icon_size)
         self.icon_label.setIcon(icon)
+
+    def setAlignment(self, alignment_flag):
+        self.text_label.setAlignment(alignment_flag)
 
 
 class QuickStart(QtWidgets.QWidget):
@@ -900,6 +1129,60 @@ class QuickStart(QtWidgets.QWidget):
 
         self.close()
         self.mw.show()
+
+
+class QHLine(QtWidgets.QFrame):
+    def __init__(self):
+        super(QHLine, self).__init__()
+        self.setFrameShape(QtWidgets.QFrame.HLine)
+        self.setLineWidth(2)
+        self.setStyleSheet("color: #848484")
+        # self.setFrameShadow(QtWidgets.QFrame.Sunken)
+
+
+class QVLine(QtWidgets.QFrame):
+    def __init__(self):
+        super(QVLine, self).__init__()
+        self.setFrameShape(QtWidgets.QFrame.VLine)
+        self.setLineWidth(2)
+        self.setStyleSheet("color: #848484")
+        # self.setFrameShadow(QtWidgets.QFrame.Sunken)
+
+
+class ResizableIconLabel(QtWidgets.QLabel):
+    def __init__(self, parent: QtWidgets.QWidget | None = None):
+        super().__init__(parent)
+        self.setMinimumSize(1, 1)
+        self.setScaledContents(False)
+        self._pixmap: QtGui.QPixmap | None = None
+
+    def heightForWidth(self, width: int) -> int:
+        if self._pixmap is None:
+            return self.height()
+        else:
+            return self._pixmap.height() * width / self._pixmap.width()
+
+    def scaledPixmap(self) -> QtGui.QPixmap:
+        scaled = self._pixmap.scaled(
+            self.size() * self.devicePixelRatioF(),
+            QtCore.Qt.KeepAspectRatio,
+            QtCore.Qt.SmoothTransformation
+        )
+        scaled.setDevicePixelRatio(self.devicePixelRatioF())
+        return scaled
+
+    def setPixmap(self, pixmap: QtGui.QPixmap) -> None:
+        self._pixmap = pixmap
+        super().setPixmap(pixmap)
+
+    def sizeHint(self) -> QtCore.QSize:
+        width = self.width()
+        return QtCore.QSize(width, self.heightForWidth(width))
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
+        if self._pixmap is not None:
+            super().setPixmap(self.scaledPixmap())
+            self.setAlignment(QtCore.Qt.AlignTop)
 
 
 if __name__ == "__main__":

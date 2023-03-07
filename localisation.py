@@ -33,6 +33,12 @@ local_dict = {
     "target_dir_missing_files": "Указанная папка не содержит все необходимые файлы.",
     "unsupported_exe_version": "Указанная папка содержит не поддерживаемую версию игры",
     "havent_been_chosen": "не указан",
+    "launch_game_button": "Запустить игру",
+    "download_mods": "Скачать моды",
+    "backup_game": "Сделать резервную копию / Восстановить из копии",
+    "our_discord": "Наш Discord",
+    "our_github": "Github проекта",
+    "game_info": "Информация об игре"
 }
 
 

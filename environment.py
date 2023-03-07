@@ -43,6 +43,9 @@ class InstallationContext:
 
         self.current_session = self.Session()
 
+    def new_session(self):
+        self.current_session = self.Session()
+
     @staticmethod
     def validate_distribution_dir(distribution_dir: str) -> bool:
         '''Distribution dir is a location of files to install, need to have at
@@ -417,6 +420,15 @@ class GameCopy:
         if self.exe_version is None:
             raise ExeIsRunning
 
+        if self.exe_version == "Unknown":
+            self.game_name = None
+        elif "M113" in self.exe_version:
+            self.game_name = "Ex Machina: Meridian 113"
+        elif "Arcade" in self.exe_version:
+            self.game_name = "Ex Machina: Arcade"
+        else:
+            self.game_name = "Ex Machina"
+
         if not self.is_compatch_compatible_exe(self.exe_version):
             raise ExeNotSupported(self.exe_version)
 
@@ -432,7 +444,7 @@ class GameCopy:
         #     path_identifier = self.game_root_path
         version_str = self.exe_version.replace("Remaster", "Rem")
         self.display_name = f"[{version_str}] {shorten_path(self.game_root_path, 45)}"
-        
+
         if os.path.exists(self.installed_manifest_path):
             install_manifest = read_yaml(self.installed_manifest_path)
             valid_manifest = self.validate_install_manifest(install_manifest)
@@ -450,7 +462,7 @@ class GameCopy:
             self.patched_version = True
             self.installed_content = None
             self.leftovers = True
-            raise PatchedButDoesntHaveManifest(self.exe_version)        
+            raise PatchedButDoesntHaveManifest(self.exe_version)
 
     def is_modded(self) -> bool:
         if self.installed_content is None:
@@ -467,7 +479,8 @@ class GameCopy:
 
     def load_installed_descriptions(self, additional_manifests: list = [], colourise=False) -> list[str]:
         '''Constructs dict of pretty description strings for list of installed content
-           based on existing manifest inside the game and optionall list of full mod manifests'''
+           based on existing manifest inside the game and optionall list of full mod manifests.
+           Stores in session to separate from static information about context'''
         available_external_manifests = []
 
         if additional_manifests:
@@ -507,8 +520,8 @@ class GameCopy:
 
             if colourise:
                 description = fconsole(f'{name} ({tr("version")} '
-                                          f'{install_manifest["version"]}){build}\n',
-                                          bcolors.OKBLUE)
+                                       f'{install_manifest["version"]}){build}\n',
+                                       bcolors.OKBLUE)
             else:
                 description = f'{name} ({tr("version")} {install_manifest["version"]})\n'
 
@@ -574,6 +587,10 @@ class GameCopy:
                 return "ComRemaster 1.13"
             elif version_identifier[:4] == b'1.13':
                 return "ComPatch 1.13"
+            elif version_identifier[3:7] == b'1.14':
+                return "ComRemaster 1.14"
+            elif version_identifier[:4] == b'1.14':
+                return "ComPatch 1.14"
             elif version_identifier[8:12] == b'1.04':
                 return "KRBDZSKL 1.04"
             elif version_identifier_103_nocd[1:5] == b'1.03':
