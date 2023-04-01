@@ -20,13 +20,13 @@ from localisation import tr, DEM_DISCORD, WIKI_COMPATCH, COMPATCH_GITHUB
 import console_ui
 import data
 import file_ops
-import commod_qt
+import commod_flet
 
 from mod import Mod
 
 
 def main_gui(options: argparse.Namespace) -> None:
-    commod_qt.main(options)
+    commod_flet.start()
 
 
 def main_console(options: argparse.Namespace) -> None:
@@ -442,7 +442,7 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
 
                 description = (console.format_lines(installed_mod_description)
                                + fconsole(tr("installation_finished"),
-                                             bcolors.OKGREEN) + "\n")
+                                          bcolors.OKGREEN) + "\n")
                 console.finilize_manifest(game, session)
                 logger.info(f"Mod {mod.name} has been installed")
                 console.prompt_for(accept_enter=True,
@@ -457,9 +457,9 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                                            session.mod_installation_errors,
                                            session.mod_loading_errors)
     print(tr("demteam_links",
-                     discord_url=fconsole(DEM_DISCORD, bcolors.HEADER),
-                     deuswiki_url=fconsole(WIKI_COMPATCH, bcolors.HEADER),
-                     github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)) + "\n")
+             discord_url=fconsole(DEM_DISCORD, bcolors.HEADER),
+             deuswiki_url=fconsole(WIKI_COMPATCH, bcolors.HEADER),
+             github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)) + "\n")
     logger.info("Finished work")
     input(fconsole(tr("press_enter_to_exit"), bcolors.OKGREEN) + "\n")
     logger.info("Exited normally")
@@ -475,7 +475,7 @@ def _init_input_parser():
                         action="store_true", default=False, required=False)
     parser.add_argument('-console', help='run in console',
                         action="store_true", default=False, required=False)
-    parser.add_argument('-skip_wizard', help='skips quick setup wizzard in GUI mode', 
+    parser.add_argument('-skip_wizard', help='skips quick setup wizzard in GUI mode',
                         default=False, required=False, action="store_true")
     installation_option = parser.add_mutually_exclusive_group()
     installation_option.add_argument('-compatch', help='base ComPatch setup, no console interaction required',

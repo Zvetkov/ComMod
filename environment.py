@@ -26,7 +26,7 @@ class InstallationContext:
     '''
     def __init__(self, distribution_dir: str | None = None,
                  dev_mode: bool = False, can_skip_adding_distro: bool = False) -> None:
-        self.developer_mode = dev_mode
+        self.dev_mode = dev_mode
         self.distribution_dir = None
         self.validated_mod_configs = {}
         self.commod_version = VERSION
@@ -224,7 +224,7 @@ class InstallationContext:
             stream_formatter = logging.Formatter('%(levelname)-7s - %(module)-11s'
                                                  ' - line %(lineno)-3d: %(message)s')
 
-            if self.developer_mode:
+            if self.dev_mode:
                 stream_handler = logging.StreamHandler()
                 stream_handler.setLevel(logging.DEBUG)
                 stream_handler.setFormatter(stream_formatter)
@@ -267,7 +267,7 @@ class InstallationContext:
 
             self.content_in_processing = {}
             self.installed_content_description = []
-            self.steam_game_paths = None
+            self.steam_game_paths = []
 
         def load_steam_game_paths(self) -> tuple[str, str]:
             '''Tries to find the game in default Steam folder, returns path and error message'''
@@ -336,7 +336,8 @@ class GameCopy:
         self.patched_version = False
         self.leftovers = False
         self.target_exe = None
-        self.game_root_path = None  # TODO missed this default initially, check for checks braking because of None
+        # TODO missed this default initially, check for checks breaking because of None
+        self.game_root_path = None
         self.label = ""
 
     @staticmethod
@@ -421,13 +422,17 @@ class GameCopy:
             raise ExeIsRunning
 
         if self.exe_version == "Unknown":
-            self.game_name = None
+            self.game_installment = None
+            self.game_installment_id = 4
         elif "M113" in self.exe_version:
-            self.game_name = "Ex Machina: Meridian 113"
+            self.game_installment = "Ex Machina: Meridian 113"
+            self.game_installment_id = 2
         elif "Arcade" in self.exe_version:
-            self.game_name = "Ex Machina: Arcade"
+            self.game_installment = "Ex Machina: Arcade"
+            self.game_installment_id = 3
         else:
-            self.game_name = "Ex Machina"
+            self.game_installment = "Ex Machina"
+            self.game_installment_id = 1
 
         if not self.is_compatch_compatible_exe(self.exe_version):
             raise ExeNotSupported(self.exe_version)

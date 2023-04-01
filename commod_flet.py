@@ -7,6 +7,9 @@ import sys
 from dataclasses import dataclass, field
 
 from pathlib import Path
+import html
+import markdownify
+import requests
 from commod import _init_input_parser
 
 from file_ops import dump_yaml, get_internal_file_path, read_yaml
@@ -81,11 +84,134 @@ class GameInstallments(Enum):
     ARCADE = 3
     UNKNOWN = 4
 
+
 class SupportedLanguages(Enum):
     SYS = 0
     ENG = 1
     RUS = 2
     UKR = 3
+
+
+class Config:
+    def __init__(self, page) -> None:
+        self.init_width: int = 900
+        self.init_height: int = 700
+        self.init_pos_x: int = 0
+        self.init_pos_y: int = 0
+        self.init_theme: ft.ThemeMode = ft.ThemeMode.SYSTEM
+
+        self.lang: SupportedLanguages = SupportedLanguages.SYS
+
+        self.current_game: str = ""
+        self.known_games: set = set()
+        self.game_names: dict = {}
+
+        self.current_distro: str = ""
+        self.known_distros: set = set()
+
+        self.modder_mode: bool = False
+
+        self.current_section = AppSections.SETTINGS.value
+        self.current_game_filter = GameInstallments.ALL.value
+
+        self.page: ft.Page = page
+
+    @staticmethod
+    def sanitize_config(config: dict) -> bool:
+        # TODO: validate and sanitize config from bad values
+        return True
+
+    def asdict(self):
+        return {
+            "current_game": self.current_game,
+            "game_names": self.game_names,
+            "current_distro": self.current_distro,
+            "modder_mode": self.modder_mode,
+            "current_section": self.current_section,
+            "current_game_filter": self.current_game_filter,
+            "window": {"width": self.page.window_width,
+                       "height": self.page.window_height,
+                       "pos_x":  self.page.window_left,
+                       "pos_y": self.page.window_top},
+            "theme": self.page.theme_mode.value,
+            "lang": self.lang.value
+        }
+
+    def load_from_file(self, abs_path: str | None = None):
+        if abs_path is not None and os.path.exists(abs_path):
+            config = read_yaml(abs_path)
+        else:
+            config = InstallationContext.get_config()
+
+        if self.sanitize_config(config):
+            self.current_game = config["current_game"]
+            self.game_names = config["game_names"]
+            self.known_games = set([game_path.lower() for game_path in config["game_names"]])
+
+            self.current_distro = config["current_distro"]
+            self.known_distros = set([config["current_distro"]])
+
+            self.modder_mode = config["modder_mode"]
+            self.current_section = config["current_section"]
+            self.current_game_filter = config["current_game_filter"]
+
+            window_config = config.get("window")
+            # ignoring broken partial configs for window
+            if window_config is not None:
+                if (window_config.get("width") is not None
+                   and window_config.get("height") is not None
+                   and window_config.get("pos_x") is not None
+                   and window_config.get("pos_y") is not None):
+                    self.init_height = config["window"]["height"]
+                    self.init_width = config["window"]["width"]
+                    self.init_pos_x = config["window"]["pos_x"]
+                    self.init_pos_y = config["window"]["pos_y"]
+
+            self.init_theme = ft.ThemeMode(config["theme"])
+
+    def save_config(self, abs_dir_path: str | None = None):
+        if abs_dir_path is not None and os.path.isdir(abs_dir_path):
+            config_path = os.path.join(abs_dir_path, "commod.yaml")
+        else:
+            config_path = os.path.join(InstallationContext.get_local_path(), "commod.yaml")
+
+        result = dump_yaml(self.asdict(), config_path, sort_keys=False)
+        if not result:
+            print("Couldn't write new config")
+
+
+
+@dataclass
+class App:
+    '''Root level application class storing modding environment'''
+    context: InstallationContext
+    game: GameCopy
+    config: Config | None = None
+
+    def change_page(self, e=None, index: int | AppSections = AppSections.LAUNCH):
+        if e is None:
+            new_index = index
+        else:
+            new_index = e.control.selected_index
+
+        if self.content_column.content:
+            real_index = self.config.current_section
+        else:
+            real_index = -1
+
+        if new_index != real_index:
+            self.rail.selected_index = new_index
+
+            self.content_column.content = self.content_pages[new_index]
+            self.content_column.update()
+            self.content_pages[new_index].update()
+            self.config.current_section = new_index
+        self.rail.update()
+
+    def show_guick_start_wizard(self):
+        self.change_page(index=AppSections.SETTINGS.value)
+        self.content_column.update()
+
 
 class GameCopyListItem(UserControl):
     def __init__(self, game_name, game_path,
@@ -386,7 +512,6 @@ class SettingsScreen(UserControl):
                       color=ft.colors.ON_TERTIARY_CONTAINER)]),
             bgcolor=ft.colors.TERTIARY_CONTAINER, padding=10, border_radius=10,
             animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
-            on_animation_end=lambda e: print("Container animation end:", e.data),
             height=50 if bool(not self.app.config.current_game) else 0, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             col={"sm": 12, "lg": 10, "xxl": 8})
 
@@ -397,7 +522,6 @@ class SettingsScreen(UserControl):
                       color=ft.colors.ON_TERTIARY_CONTAINER)]),
             bgcolor=ft.colors.TERTIARY_CONTAINER, padding=10, border_radius=10,
             animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
-            on_animation_end=lambda e: print("Container animation end:", e.data),
             visible=bool(not self.app.config.current_distro), clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             col={"sm": 12, "lg": 10, "xxl": 8})
 
@@ -593,19 +717,11 @@ class SettingsScreen(UserControl):
         self.icon_expand_add_game_steam = ft.Ref[Icon]()
         self.icon_expand_add_distro = ft.Ref[Icon]()
 
-        # hide all dialogs in overlay
+        # hide dialogs in overlay
         # self.page.overlay.extend([get_directory_dialog])  # pick_files_dialog, save_file_dialog,
         return ft.Container(ft.Column(
             controls=[
-                # ft.Container(ft.ResponsiveRow([self.no_game_warning,
-                                            #    self.no_distro_warning], alignment=ft.MainAxisAlignment.CENTER),
-                            #  visible=self.no_game_warning.visible or self.no_distro_warning.visible,
-                            #  animate=ft.animation.Animation(200, ft.AnimationCurve.DECELERATE),
-                            #  ref=self.env_warnings
-                            #  ),
-                ft.ResponsiveRow(
-                    # controls of game copies
-                    controls=[
+                ft.ResponsiveRow(controls=[
                     self.no_game_warning,
                     self.no_distro_warning,
                     Row([
@@ -690,8 +806,10 @@ class SettingsScreen(UserControl):
                                      col={"sm": 12, "lg": 10, "xxl": 7}
                                      )], alignment=ft.MainAxisAlignment.CENTER
                                  )
-            ], spacing=20, horizontal_alignment=ft.CrossAxisAlignment.CENTER
-        ), margin=ft.margin.only(left=20, right=20, bottom=20, top=10))
+            ], spacing=20,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.ADAPTIVE,
+            alignment=ft.MainAxisAlignment.START
+        ), margin=ft.margin.only(right=20))
 
     # Open directory dialog
     def get_game_dir_result(self, e: ft.FilePickerResultEvent):
@@ -734,7 +852,6 @@ class SettingsScreen(UserControl):
         self.update()
 
     def expand_adding_game_manual(self):
-        print("expanding adding game manual")
         final_height = 104
         if self.add_game_manual_btn.visible:
             final_height += 45
@@ -748,7 +865,6 @@ class SettingsScreen(UserControl):
         self.update()
 
     def minimize_adding_game_manual(self):
-        print("minimizing adding game manual")
         self.game_location_field.value = ""
         self.game_location_field.update()
         self.add_game_manual_btn.visible = False
@@ -961,9 +1077,8 @@ class SettingsScreen(UserControl):
         item.display_as_current()
         self.app.settings_page.no_game_warning.height = 0
         self.app.settings_page.no_game_warning.update()
-        print(f"Game is now: {self.app.game.target_exe}")
-        print(f"Known games: {self.app.config.known_games}")
         self.app.config.current_game = item.game_path
+        print(f"Game is now: {self.app.game.target_exe}")
         self.update()
 
     def remove_game(self, item):
@@ -986,7 +1101,6 @@ class SettingsScreen(UserControl):
             self.filter.update()
             self.view_list_of_games.update()
 
-        # print(self.app.config)
         self.app.config.known_games.discard(item.game_path.lower())
         self.app.config.game_names.pop(item.game_path)
         print(f"Game is now: {self.app.game.target_exe}")
@@ -1034,7 +1148,6 @@ class SettingsScreen(UserControl):
         else:
             status = None
 
-        print(f"{status=}")
         if manual_control:
             self.switch_game_copy_warning(status, additional_info)
             self.switch_add_game_btn(status)
@@ -1075,7 +1188,6 @@ class SettingsScreen(UserControl):
             self.update()
 
     def switch_add_game_btn(self, status: GameStatus = GameStatus.COMPATIBLE):
-        print(f"{status}=")
         if status is None:
             status = GameStatus.NOT_EXISTS
         self.add_game_manual_btn.disabled = status is not GameStatus.COMPATIBLE
@@ -1084,7 +1196,6 @@ class SettingsScreen(UserControl):
         self.update()
 
     def switch_add_from_steam_btn(self, status: GameStatus = GameStatus.COMPATIBLE):
-        print(f"{status}=")
         if status is None:
             status = GameStatus.NOT_EXISTS
         self.add_from_steam_btn.disabled = status is not GameStatus.COMPATIBLE
@@ -1187,9 +1298,95 @@ class DownloadModsScreen(UserControl):
 
 
 class HomeScreen(UserControl):
+    def __init__(self, app: App, **kwargs):
+        super().__init__(self, **kwargs)
+        self.app = app
+
     def build(self):
-        # return Text("HomeScreen")
-        return TodoApp()
+        #TODO: preload md or use placeholder by default
+        with open(get_internal_file_path("assets/placeholder.md"), "r", encoding="utf-8") as fh:
+            md1 = fh.read()
+            r = requests.get('https://raw.githubusercontent.com/DeusExMachinaTeam/EM-CommunityPatch/main/README.md')
+            r = requests.get('https://raw.githubusercontent.com/zatinu322/hta_kazakh_autotranslation/main/README.md')
+            md1 = r.text
+            md1 = html.unescape(md1)
+            md1 = md1.replace('<p align="right">(<a href="#top">перейти наверх</a>)</p>', '')
+            md1 = markdownify.markdownify(md1, convert=['a', 'b', 'img'], escape_asterisks=False)
+
+            if self.app.game.game_installment_id == GameInstallments.EXMACHINA.value:
+                logo_path = "icons/em_logo.png"
+            elif self.app.game.game_installment_id == GameInstallments.M113.value:
+                logo_path = "icons/m113_logo.png"
+            elif self.app.game.game_installment_id == GameInstallments.ARCADE.value:
+                logo_path = "icons/arcade_logo.png"
+            else:
+                logo_path = None
+
+            if logo_path is not None:
+                image = Image(src=get_internal_file_path(logo_path),
+                              fit=ft.ImageFit.FILL)
+            else:
+                image = ft.Stack([Image(src=get_internal_file_path("icons/em_logo.png"),
+                                        fit=ft.ImageFit.FILL, opacity=0.4),
+                                  ft.Container(Icon(ft.icons.QUESTION_MARK_ROUNDED,
+                                                    size=90,
+                                                    color='red'),
+                                               alignment=ft.alignment.center)])
+
+            return ft.Container(
+                ft.ResponsiveRow([
+                    Column(controls=[
+                        ft.Container(Column([
+                            ft.Container(
+                                Column([image],
+                                       horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                margin=ft.margin.only(top=10)),
+                            Row([
+                                Icon(ft.icons.INFO_ROUNDED, color=ft.colors.PRIMARY, size=20),
+                                Text(self.app.game.exe_version,
+                                     color=ft.colors.PRIMARY,
+                                     weight=ft.FontWeight.W_700)]),
+                            Row([
+                                Icon(ft.icons.BADGE_ROUNDED, color=ft.colors.PRIMARY, size=20),
+                                ft.Column([Text(self.app.config.game_names[self.app.config.current_game],
+                                                color=ft.colors.PRIMARY,
+                                                overflow=ft.TextOverflow.ELLIPSIS,
+                                                weight=ft.FontWeight.W_400)], expand=True)
+                                ]),
+                        ]), clip_behavior=ft.ClipBehavior.ANTI_ALIAS),
+                        # Text(self.app.context.distribution_dir),
+                        # Text(self.app.context.commod_version),
+                        # Text(self.app.game.game_root_path),
+                        # Text(self.app.game.display_name),
+                        Column([
+                            Text("Параметры запуска".upper(),
+                                 weight=ft.FontWeight.W_700),
+                            Row([ft.Switch(value=False, scale=0.7), Text("Включить консоль", weight=ft.FontWeight.W_500)], spacing=0),
+                            ft.FloatingActionButton(
+                                content=ft.Row([
+                                    ft.Text(tr("play").capitalize(), size=20, weight=ft.FontWeight.W_700, color=ft.colors.ON_PRIMARY)],
+                                    alignment="center", spacing=5
+                                ),
+                                shape=ft.RoundedRectangleBorder(radius=5),
+                                bgcolor="#FFA500",
+                                aspect_ratio=2.5,
+                            )])
+                        ],
+                        col={"sm": 4, "xl": 3}, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.Container(Column([
+                        ft.Container(ft.Markdown(
+                            md1,
+                            expand=True,
+                            code_theme="atom-one-dark",
+                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                            on_tap_link=lambda e: self.app.page.launch_url(e.data),
+                        ), padding=ft.padding.only(left=10, right=22)),
+                        ],
+                        alignment=ft.MainAxisAlignment.START,
+                        spacing=20,
+                        scroll=ft.ScrollMode.ADAPTIVE), col={"sm": 8, "xl": 9})
+                    ], vertical_alignment=ft.CrossAxisAlignment.START, spacing=30),
+                margin=ft.margin.only(bottom=20), expand=True)
 
 
 class TodoApp(UserControl):
@@ -1283,127 +1480,6 @@ class TodoApp(UserControl):
         super().update()
 
 
-class Config:
-    def __init__(self, page) -> None:
-        self.init_width: int = 900
-        self.init_height: int = 700
-        self.init_pos_x: int = 0
-        self.init_pos_y: int = 0
-        self.init_theme: ft.ThemeMode = ft.ThemeMode.SYSTEM
-
-        self.lang: SupportedLanguages = SupportedLanguages.SYS
-
-        self.current_game: str = ""
-        self.known_games: set = set()
-        self.game_names: dict = {}
-
-        self.current_distro: str = ""
-        self.known_distros: set = set()
-
-        self.modder_mode: bool = False
-
-        self.current_section = AppSections.SETTINGS.value
-        self.current_game_filter = GameInstallments.ALL.value
-
-        self.page: ft.Page = page
-
-    @staticmethod
-    def sanitize_config(config: dict) -> bool:
-        # TODO: validate and sanitize config from bad values
-        return True
-
-    def asdict(self):
-        return {
-            "current_game": self.current_game,
-            "game_names": self.game_names,
-            "current_distro": self.current_distro,
-            "modder_mode": self.modder_mode,
-            "current_section": self.current_section,
-            "current_game_filter": self.current_game_filter,
-            "window": {"width": self.page.window_width,
-                       "height": self.page.window_height,
-                       "pos_x":  self.page.window_left,
-                       "pos_y": self.page.window_top},
-            "theme": self.page.theme_mode.value,
-            "lang": self.lang.value
-        }
-
-    def load_from_file(self, abs_path: str | None = None):
-        if abs_path is not None and os.path.exists(abs_path):
-            config = read_yaml(abs_path)
-        else:
-            config = InstallationContext.get_config()
-
-        if self.sanitize_config(config):
-            self.current_game = config["current_game"]
-            self.game_names = config["game_names"]
-            self.known_games = set([game_path.lower() for game_path in config["game_names"]])
-
-            self.current_distro = config["current_distro"]
-            self.known_distros = set([config["current_distro"]])
-
-            self.modder_mode = config["modder_mode"]
-            self.current_section = config["current_section"]
-            self.current_game_filter = config["current_game_filter"]
-
-            window_config = config.get("window")
-            # ignoring broken partial configs for window
-            if window_config is not None:
-                if (window_config.get("width") is not None
-                   and window_config.get("height") is not None
-                   and window_config.get("pos_x") is not None
-                   and window_config.get("pos_y") is not None):
-                    self.init_height = config["window"]["height"]
-                    self.init_width = config["window"]["width"]
-                    self.init_pos_x = config["window"]["pos_x"]
-                    self.init_pos_y = config["window"]["pos_y"]
-
-            self.init_theme = ft.ThemeMode(config["theme"])
-
-    def save_config(self, abs_dir_path: str | None = None):
-        if abs_dir_path is not None and os.path.isdir(abs_dir_path):
-            config_path = os.path.join(abs_dir_path, "commod.yaml")
-        else:
-            config_path = os.path.join(InstallationContext.get_local_path(), "commod.yaml")
-
-        result = dump_yaml(self.asdict(), config_path, sort_keys=False)
-        if not result:
-            print("Couldn't write new config")
-
-
-@dataclass
-class App:
-    '''Root level application class storing modding environment'''
-    context: InstallationContext
-    game: GameCopy
-    config: Config | None = None
-
-    def change_page(self, e=None, index: int | AppSections = AppSections.LAUNCH):
-        if e is None:
-            new_index = index
-        else:
-            new_index = e.control.selected_index
-
-        if self.content_column.controls:
-            real_index = self.config.current_section
-        else:
-            real_index = -1
-
-        if new_index != real_index:
-            if self.content_column.controls:
-                self.content_column.controls.pop()
-            self.rail.selected_index = new_index
-
-            self.content_column.controls = [self.content_pages[new_index]]
-            self.content_column.update()
-            self.content_pages[new_index].update()
-            self.config.current_section = new_index
-        self.rail.update()
-
-    def show_guick_start_wizard(self):
-        self.change_page(index=AppSections.SETTINGS.value)
-        self.content_column.update()
-
 
 def main(page: Page):
     def maximize(e):
@@ -1429,9 +1505,6 @@ def main(page: Page):
             page.theme_icon_btn.current.icon = ft.icons.BRIGHTNESS_AUTO
             page.theme_icon_btn.current.update()
 
-        # if theme != ft.ThemeMode.SYSTEM:
-            # e.control.selected = not e.control.selected
-            # e.control.update()
         page.update()
 
     def title_btn_style(hover_color: ft.colors = None):
@@ -1450,7 +1523,7 @@ def main(page: Page):
         e.page.update()
 
     def create_sections(app: App):
-        app.home = HomeScreen()
+        app.home = HomeScreen(app)
         app.local_mods = LocalModsScreen()
         app.download_mods = DownloadModsScreen()
         app.settings_page = SettingsScreen(app)
@@ -1649,19 +1722,18 @@ def main(page: Page):
             height=31
         )
     )
-
-    app.content_column = ft.Column([], expand=True,
-                                   horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                   scroll=ft.ScrollMode.ALWAYS)
+    app.content_column = ft.Container(expand=True,
+                                      alignment=ft.alignment.top_center,
+                                      margin=ft.margin.only(left=20, right=0))
 
     # add application's root control to the page
     page.add(ft.Container(ft.Row([
                                   rail,
                                   ft.VerticalDivider(width=1),
                                   app.content_column,
-                                  ], vertical_alignment=ft.CrossAxisAlignment.START,
-                                 ), expand=True,
-                          padding=ft.padding.only(left=10, right=10, bottom=10),
+                                  ]),
+                          expand=True,
+                          padding=ft.padding.only(left=10, right=10, bottom=10)
                           )
              )
 

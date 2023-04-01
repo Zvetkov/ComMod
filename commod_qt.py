@@ -94,7 +94,7 @@ def main(options):
                         and not options.skip_wizard)
 
     if need_quick_start:
-        app.session.load_steam_game_paths()
+        app.context.current_session.load_steam_game_paths()
         window.show_guick_start_wizard()
         window.wizard.destroyed.connect(mw.show)
         window.wizard.destroyed.connect(window.proccess_game_and_distro_setup)
@@ -132,7 +132,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.setup_quick_look()
 
     # def choose_from_steam(self):
-    #     steam_game_selector = QuickStart(self.app.session.steam_game_paths)
+    #     steam_game_selector = QuickStart(self.app.context.current_session.steam_game_paths)
     #     steam_game_selector.show()
 
     # def show_distro_start_wizard(self):
@@ -165,7 +165,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # discard_btn = msg_box.addButton(tr("later"), QtWidgets.QMessageBox.RejectRole)
 
-        # if self.app.session.steam_game_paths:
+        # if self.app.context.current_session.steam_game_paths:
         #     info += fcss(tr("steam_game_found"), css.GREEN, p=True)
         #     choose_from_steam = msg_box.addButton(tr("choose_from_found"), QtWidgets.QMessageBox.ActionRole)
         #     choose_dir_btn = msg_box.addButton(tr("choose_path_manually"), QtWidgets.QMessageBox.ActionRole)
@@ -689,14 +689,14 @@ class GameHomeScreen(QtWidgets.QWidget):
         self.start_game_btn = button_launch_game
 
     def update_game(self, game: GameCopy, context: InstallationContext):
-        if game.game_name == "Ex Machina":
+        if game.game_installment == "Ex Machina":
             if "ComRemaster" in game.exe_version:
                 game_icon = get_internal_file_path("icons/hta_comrem.png")
             else:
                 game_icon = get_internal_file_path("icons/original_hta.png")
-        elif game.game_name == "Ex Machina: Meridian 113":
+        elif game.game_installment == "Ex Machina: Meridian 113":
             game_icon = get_internal_file_path("icons/original_m113.png")
-        elif game.game_name == "Ex Machina: Arcade":
+        elif game.game_installment == "Ex Machina: Arcade":
             game_icon = get_internal_file_path("icons/original_arcade.png")
         else:
             game_icon = None
@@ -710,7 +710,7 @@ class GameHomeScreen(QtWidgets.QWidget):
         self.game_icon_label.setPixmap(game_icon)
         self.game_icon_label.setVisible(True)
 
-        self.game_name_label.setText(game.game_name)
+        self.game_name_label.setText(game.game_installment)
 
         game_version_text = ""
         game_optional_content = ""
@@ -930,9 +930,9 @@ class QuickStart(QtWidgets.QWidget):
         steam_dirs_list.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         steam_dirs_list.setContentsMargins(10, 0, 0, 0)
         self.steam_dirs_list = steam_dirs_list
-        steam_dirs_list.addItems(self.app.session.steam_game_paths)
+        steam_dirs_list.addItems(self.app.context.current_session.steam_game_paths)
         # TODO: potential bug if now steam game copies found in the system?
-        steam_dirs_list.setCurrentIndex(steam_dirs_list.findText(self.app.session.steam_game_paths[0]))
+        steam_dirs_list.setCurrentIndex(steam_dirs_list.findText(self.app.context.current_session.steam_game_paths[0]))
 
         steam_btn_agree = QtWidgets.QPushButton(tr("choose_found"), self)
         steam_btn_agree.setMinimumWidth(130)

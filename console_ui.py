@@ -84,12 +84,12 @@ class ConsoleUX:
                          incompatible: bool = False) -> str:
         if incompatible:
             title = fconsole(f"{tr('cant_be_installed')}: {display_name} - "
-                                f"{tr('version')} {version}\n",
-                                bcolors.RED)
+                             f"{tr('version')} {version}\n",
+                             bcolors.RED)
         else:
             title = fconsole(f"{tr('installation')} {display_name} - "
-                                f"{tr('version')} {version}\n",
-                                bcolors.WARNING)
+                             f"{tr('version')} {version}\n",
+                             bcolors.WARNING)
 
         if option_name:
             title += f'{fconsole(option_name, bcolors.OKGREEN)} ({tr("optional_content")})\n'
@@ -119,7 +119,7 @@ class ConsoleUX:
 
                 if previous_prompt is not None:
                     print(fconsole(f"'{previous_prompt}' - {tr('incorrect_prompt_answer')}\n",
-                                      bcolors.RED))
+                                   bcolors.RED))
 
                 if description is not None and not auto_clear:
                     if previous_prompt is None:
@@ -257,8 +257,8 @@ class ConsoleUX:
 
     def notify_on_mod_with_errors(self, mod: Mod, errors: list[str]) -> None:
         description = self.format_mod_description(mod)
-        description += "\n" + fconsole(tr("cant_be_installed") + ":\n", [bcolors.RED,
-                                                                                    bcolors.BOLD])
+        description += "\n" + fconsole(tr("cant_be_installed") + ":\n",
+                                       [bcolors.RED, bcolors.BOLD])
         description += fconsole("\n".join([line for line in errors]), bcolors.RED) + "\n"
 
         self.logger.info(f"Mod {mod.name} can't be installed, errors: {errors}")

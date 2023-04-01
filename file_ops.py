@@ -187,10 +187,10 @@ def read_yaml(yaml_path: str) -> Any:
     return yaml_config
 
 
-def dump_yaml(data, path) -> bool:
+def dump_yaml(data, path, sort_keys=True) -> bool:
     with open(path, 'w', encoding="utf-8") as stream:
         try:
-            yaml.dump(data, stream, allow_unicode=True, width=1000)
+            yaml.dump(data, stream, allow_unicode=True, width=1000, sort_keys=sort_keys)
         except yaml.YAMLError as exc:
             logger.error(exc)
             return False
