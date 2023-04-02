@@ -74,6 +74,8 @@ def main_console(options: argparse.Namespace) -> None:
 
     try:
         game.process_game_install(target_dir)
+        if game.installed_content:
+            logger.info(f"Installed content: {game.installed_content}")
     except WrongGameDirectoryPath:
         logger.error(f"path doesn't exist: '{target_dir}'")
         console.simple_end("target_game_dir_doesnt_exist")
@@ -230,7 +232,12 @@ def main_console(options: argparse.Namespace) -> None:
             else:
                 console.switch_header("advanced")
                 description = (fconsole(tr("first_choose_base_option"), bcolors.OKBLUE) + "\n\n"
-                               + tr("intro_version_choice") + "\n")
+                               + fconsole("Community Remaster", bcolors.HEADER) + ": "
+                               + tr("comrem_description") + " [remaster]"
+                               + "\n\n"
+                               + fconsole("Community Patch", bcolors.HEADER) + ": "
+                               + tr("compatch_description") + " [patch]"
+                               + "\n")
                 version_choice = console.prompt_for(["remaster", "patch"], accept_enter=False,
                                                     description=description)
             if version_choice == "remaster":
@@ -244,10 +251,12 @@ def main_console(options: argparse.Namespace) -> None:
                                                             "display_name": "Community Patch"}
 
         if version_choice == "patch":
+            logger.info("***")
+            logger.info("Starting installation of ComPatch")
             logger.info(session.content_in_processing)
             console.copy_patch_files(context.distribution_dir, game.game_root_path)
             patch_description = [tr(line) for line in install_base(version_choice, game, context)]
-            patch_description.append("\n")  # separator
+            patch_description.append("")  # separator
             file_ops.rename_effects_bps(game.game_root_path)
             console.final_screen_print(patch_description)
             # session.installed_content_description.append("")  # separator
@@ -267,6 +276,9 @@ def main_console(options: argparse.Namespace) -> None:
 
             console.switch_header("remaster")
             console.copy_patch_files(context.distribution_dir, game.game_root_path)
+            logger.info("***")
+            logger.info(f"Starting {remaster_mod.name} {remaster_mod.version} installation"
+                        f" with config {installed_remaster_settings}")
             # for comrem we don't count what is already installed, we use the current session content
             # to determine if remaster is compatible with the local compatch verison
             status_ok, error_messages = remaster_mod.install(game.data_path,
@@ -281,6 +293,7 @@ def main_console(options: argparse.Namespace) -> None:
             try:
                 patch_description = install_base(version_choice, game, context, exe_options)
                 patch_description = [tr(line) for line in patch_description]
+                patch_description.append("")  # separator
             except DXRenderDllNotFound:
                 console.simple_end("dll_not_found")
                 return
@@ -333,6 +346,8 @@ def main_console(options: argparse.Namespace) -> None:
         input(fconsole(tr("press_enter_to_exit"), bcolors.OKGREEN) + "\n")
     # near-global exception handler
     except Exception as er:
+        logger.exception(f"Encountered unhandled error: {er}")
+        logger.error("Exiting because of an error")
         console.simple_end("failed_and_cleaned", err_msg=er)
 
 
@@ -396,7 +411,8 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
             logger.info("***")
             if console.auto_clear:
                 os.system('cls')
-            logger.info(f"Starting mod {mod.name} installation with config {mod_install_settings}")
+            logger.info(f"Starting mod {mod.name} {mod.version} installation "
+                        f"with config {mod_install_settings}")
 
             try:
                 print(console.header)
