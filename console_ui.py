@@ -2,8 +2,8 @@ import os
 import sys
 import file_ops
 
-from console_color import bcolors, format_text
-from localisation import loc_string
+from color import bcolors, fconsole
+from localisation import tr
 from environment import GameCopy, InstallationContext
 
 from mod import Mod
@@ -27,13 +27,13 @@ class ConsoleUX:
         bold_orange = [bcolors.WARNING, bcolors.BOLD]
         bold_blue = [bcolors.OKBLUE, bcolors.BOLD]
 
-        installation_title = f'{format_text(loc_string("installation_title"), bold_orange)}\n'
+        installation_title = f'{fconsole(tr("installation_title"), bold_orange)}\n'
         if self.dev_mode:
-            installation_title = format_text("DEVELOPER MODE\n", bold_red) + installation_title
-        advanced = f'{format_text(loc_string("advanced"), bold_orange)} '
+            installation_title = fconsole("DEVELOPER MODE\n", bold_red) + installation_title
+        advanced = f'{fconsole(tr("advanced"), bold_orange)} '
 
         if exe_path is not None:
-            exe_info = f"{loc_string('patching_exe')}: {exe_path}\n"
+            exe_info = f"{tr('patching_exe')}: {exe_path}\n"
         else:
             exe_info = ""
 
@@ -41,27 +41,27 @@ class ConsoleUX:
             case "default":
                 self.header = installation_title
             case "leftovers":
-                self.header = (installation_title + format_text(loc_string("install_leftovers"), bold_red)
+                self.header = (installation_title + fconsole(tr("install_leftovers"), bold_red)
                                + "\n")
             case "patching_exe":
                 self.header = installation_title + exe_info
             case "patch":
-                self.header = format_text(loc_string("patch_title"), bold_orange) + '\n'
+                self.header = fconsole(tr("patch_title"), bold_orange) + '\n'
             case "remaster":
-                self.header = format_text(loc_string("remaster_title"), bold_orange) + '\n'
+                self.header = fconsole(tr("remaster_title"), bold_orange) + '\n'
             case "remaster_custom":
                 self.header = additional_string
             case "patch_over_remaster":
-                self.header = (format_text(loc_string("remaster_title"), bold_orange) + '\n'
+                self.header = (fconsole(tr("remaster_title"), bold_orange) + '\n'
                                + exe_info
-                               + format_text(loc_string("cant_install_patch_over_remaster"), bold_blue)
+                               + fconsole(tr("cant_install_patch_over_remaster"), bold_blue)
                                + "\n")
             case "advanced":
                 self.header = advanced + installation_title
             case "mod_manager":
-                self.header = format_text(loc_string("mod_manager_title"), bold_blue) + '\n'
+                self.header = fconsole(tr("mod_manager_title"), bold_blue) + '\n'
             case "mod_install_custom":
-                self.header = (format_text(loc_string("mod_manager_title"), bold_blue) + '\n'
+                self.header = (fconsole(tr("mod_manager_title"), bold_blue) + '\n'
                                + additional_string)
 
     def simple_end(self, message: str, err_msg: str | Exception | None = None, **kwargs) -> None:
@@ -69,10 +69,10 @@ class ConsoleUX:
         by user's choice or as a result of exception'''
         # self.switch_header("default")
         if err_msg is not None:
-            gray_err_msg = format_text(f"Error: {err_msg}", bcolors.GRAY)
-            description = f"{loc_string(message)}\n\n{gray_err_msg}"
+            gray_err_msg = fconsole(f"Error: {err_msg}", bcolors.GRAY)
+            description = f"{tr(message)}\n\n{gray_err_msg}"
         else:
-            description = loc_string(message)
+            description = tr(message)
         if kwargs:
             description = description.format(**kwargs)
         self.prompt_for(accept_enter=True,
@@ -83,16 +83,16 @@ class ConsoleUX:
     def format_mod_title(display_name: str, version: str, option_name: str = "",
                          incompatible: bool = False) -> str:
         if incompatible:
-            title = format_text(f"{loc_string('cant_be_installed')}: {display_name} - "
-                                f"{loc_string('version')} {version}\n",
-                                bcolors.RED)
+            title = fconsole(f"{tr('cant_be_installed')}: {display_name} - "
+                             f"{tr('version')} {version}\n",
+                             bcolors.RED)
         else:
-            title = format_text(f"{loc_string('installation')} {display_name} - "
-                                f"{loc_string('version')} {version}\n",
-                                bcolors.WARNING)
+            title = fconsole(f"{tr('installation')} {display_name} - "
+                             f"{tr('version')} {version}\n",
+                             bcolors.WARNING)
 
         if option_name:
-            title += f'{format_text(option_name, bcolors.OKGREEN)} ({loc_string("optional_content")})\n'
+            title += f'{fconsole(option_name, bcolors.OKGREEN)} ({tr("optional_content")})\n'
         return title
 
     def prompt_for(self,
@@ -118,8 +118,8 @@ class ConsoleUX:
                     print(self.header)
 
                 if previous_prompt is not None:
-                    print(format_text(f"'{previous_prompt}' - {loc_string('incorrect_prompt_answer')}\n",
-                                      bcolors.RED))
+                    print(fconsole(f"'{previous_prompt}' - {tr('incorrect_prompt_answer')}\n",
+                                   bcolors.RED))
 
                 if description is not None and not auto_clear:
                     if previous_prompt is None:
@@ -129,18 +129,18 @@ class ConsoleUX:
 
                 formatted_msg = ""
                 if stopping:
-                    formatted_msg = f"\n{format_text(loc_string('stopping_patching'), bcolors.RED)}"
+                    formatted_msg = f"\n{fconsole(tr('stopping_patching'), bcolors.RED)}"
                 elif no_options and accept_enter:
-                    formatted_msg = f"{format_text(loc_string('press_enter_to_continue'))}"
+                    formatted_msg = f"{fconsole(tr('press_enter_to_continue'))}"
                 elif accept_enter:
-                    formatted_msg = f"{format_text(loc_string('enter_accepted_prompt'), bcolors.OKGREEN)}: "
+                    formatted_msg = f"{fconsole(tr('enter_accepted_prompt'), bcolors.OKGREEN)}: "
                 elif option_list:
-                    formatted_msg = f"{format_text(loc_string('base_prompt'), bcolors.OKGREEN)}: "
+                    formatted_msg = f"{fconsole(tr('base_prompt'), bcolors.OKGREEN)}: "
 
                 if stopping:
                     pass
                 else:
-                    formatted_msg += f"{', '.join([format_text(opt) for opt in option_list])}"
+                    formatted_msg += f"{', '.join([fconsole(opt) for opt in option_list])}"
 
                 print(formatted_msg)
 
@@ -170,7 +170,7 @@ class ConsoleUX:
         if self.auto_clear:
             os.system('cls')
         print(self.header)
-        print(format_text(loc_string("installed_listing"), bcolors.OKBLUE))
+        print(fconsole(tr("installed_listing"), bcolors.OKBLUE))
         for line in installed_description:
             print(line)
 
@@ -179,10 +179,10 @@ class ConsoleUX:
                                        mod_loading_errors: list[str]) -> None:
         if self.auto_clear:
             os.system('cls')
-        print(format_text(f'{loc_string("mod_manager_title")}', bcolors.OKGREEN))
+        print(fconsole(f'{tr("mod_manager_title")}', bcolors.OKGREEN))
 
         if installed_content_description:
-            print("\n" + format_text(loc_string("installed_listing"), bcolors.OKBLUE))
+            print("\n" + fconsole(tr("installed_listing"), bcolors.OKBLUE))
             self.print_lines(installed_content_description)
 
         if mod_installation_errors or mod_loading_errors:
@@ -191,15 +191,15 @@ class ConsoleUX:
             if mod_loading_errors:
                 self.print_lines(mod_loading_errors, color=bcolors.RED)
         elif installed_content_description:
-            print(format_text(loc_string("installation_finished"), bcolors.OKGREEN) + "\n")
+            print(fconsole(tr("installation_finished"), bcolors.OKGREEN) + "\n")
         else:
-            print(format_text(loc_string("nothing_to_install"), bcolors.OKGREEN) + "\n")
+            print(fconsole(tr("nothing_to_install"), bcolors.OKGREEN) + "\n")
 
     def copy_patch_files(self, distribution_dir: str, game_root: str) -> None:
         if self.auto_clear:
             os.system('cls')
         print(self.header)
-        print(format_text(loc_string("copying_patch_files_please_wait"), bcolors.RED) + "\n")
+        print(fconsole(tr("copying_patch_files_please_wait"), bcolors.RED) + "\n")
         try:
             file_ops.copy_from_to([os.path.join(distribution_dir, "patch")], os.path.join(game_root, "data"),
                                   console=True)
@@ -215,7 +215,7 @@ class ConsoleUX:
         text_full = ""
         for text in lines:
             if color is not None:
-                text_full += f"{format_text(text, color)}\n"
+                text_full += f"{fconsole(text, color)}\n"
             else:
                 text_full += f"{text}\n"
         return text_full
@@ -227,7 +227,7 @@ class ConsoleUX:
     def format_mod_description(self, mod: Mod) -> str:
 
         mod_info = self.format_mod_info(mod)
-        return f"{format_text(loc_string('description'), bcolors.OKBLUE)}\n{mod.description}\n{mod_info}"
+        return f"{fconsole(tr('description'), bcolors.OKBLUE)}\n{mod.description}\n{mod_info}"
 
     def finilize_manifest(self, game: GameCopy, session: InstallationContext.Session) -> None:
         er_message = f"Couldn't dump install manifest to '{game.installed_manifest_path}'!"
@@ -250,16 +250,16 @@ class ConsoleUX:
         else:
             developer_title = "author"
 
-        return (f"{format_text(loc_string(developer_title), bcolors.OKBLUE)} "
+        return (f"{fconsole(tr(developer_title), bcolors.OKBLUE)} "
                 f"{mod.authors}\n"
-                f"{format_text(loc_string('mod_url'), bcolors.OKBLUE)} "
-                f"{format_text(mod.url, bcolors.HEADER)}\n")
+                f"{fconsole(tr('mod_url'), bcolors.OKBLUE)} "
+                f"{fconsole(mod.url, bcolors.HEADER)}\n")
 
     def notify_on_mod_with_errors(self, mod: Mod, errors: list[str]) -> None:
         description = self.format_mod_description(mod)
-        description += "\n" + format_text(loc_string("cant_be_installed") + ":\n", [bcolors.RED,
-                                                                                    bcolors.BOLD])
-        description += format_text("\n".join([line for line in errors]), bcolors.RED) + "\n"
+        description += "\n" + fconsole(tr("cant_be_installed") + ":\n",
+                                       [bcolors.RED, bcolors.BOLD])
+        description += fconsole("\n".join([line for line in errors]), bcolors.RED) + "\n"
 
         self.logger.info(f"Mod {mod.name} can't be installed, errors: {errors}")
         self.prompt_for(accept_enter=True,
@@ -298,21 +298,21 @@ class ConsoleUX:
             else:
                 developer_title = "author"
 
-            description = (f"{format_text(loc_string('description'), bcolors.OKBLUE)}\n{mod.description}\n"
-                           f"{format_text(loc_string(developer_title), bcolors.OKBLUE)} "
+            description = (f"{fconsole(tr('description'), bcolors.OKBLUE)}\n{mod.description}\n"
+                           f"{fconsole(tr(developer_title), bcolors.OKBLUE)} "
                            f"{mod.authors}\n"
-                           f"{format_text(loc_string('mod_url'), bcolors.OKBLUE)} "
-                           f"{format_text(mod.url, bcolors.HEADER)}\n\n"
-                           f"{loc_string('install_mod_ask')}")
+                           f"{fconsole(tr('mod_url'), bcolors.OKBLUE)} "
+                           f"{fconsole(mod.url, bcolors.HEADER)}\n\n"
+                           f"{tr('install_mod_ask')}")
 
             if game.installed_content.get(mod.name) is not None:
                 options_to_offer = ["reinstall", "skip"]
-                description = (format_text(loc_string("reinstalling_intro_mods")) + "\n\n"
+                description = (fconsole(tr("reinstalling_intro_mods")) + "\n\n"
                                + description + "\n\n"
-                               + format_text(loc_string("warn_reinstall_mods"), bcolors.OKBLUE) + "\n")
+                               + fconsole(tr("warn_reinstall_mods"), bcolors.OKBLUE) + "\n")
             else:
                 options_to_offer = ["yes", "no"]
-                description += f" ({loc_string('yes_no')})"
+                description += f" ({tr('yes_no')})"
 
             base_install = self.prompt_for(options_to_offer,
                                            accept_enter=False,
@@ -333,24 +333,24 @@ class ConsoleUX:
             if not requres_custom_install:
                 default_options = []
                 for option in mod.optional_content:
-                    description = (format_text(f"* {option.display_name}\n", bcolors.OKBLUE)
+                    description = (fconsole(f"* {option.display_name}\n", bcolors.OKBLUE)
                                    + option.description)
                     if option.install_settings is not None:
                         for setting in option.install_settings:
                             if setting.get("name") == option.default_option:
-                                description += (f"\t** {loc_string('install_setting_title')}: "
+                                description += (f"\t** {tr('install_setting_title')}: "
                                                 f"{setting.get('description')}")
 
                     default_options.append(description)
                 default_options = '\n'.join(default_options)
 
-                description = (f"{format_text(loc_string('description'), bcolors.OKBLUE)}\n"
+                description = (f"{fconsole(tr('description'), bcolors.OKBLUE)}\n"
                                f"{mod.description}\n"
-                               f"{format_text(loc_string('default_options'), bcolors.HEADER)}\n\n"
-                               f"{format_text(loc_string('default_options_prompt'))}\n\n"
+                               f"{fconsole(tr('default_options'), bcolors.HEADER)}\n\n"
+                               f"{fconsole(tr('default_options_prompt'))}\n\n"
                                f"{default_options}\n"
-                               f"{format_text(loc_string('just_enter'), bcolors.HEADER)}\n"
-                               f"{loc_string('or_options')}\n")
+                               f"{fconsole(tr('just_enter'), bcolors.HEADER)}\n"
+                               f"{tr('or_options')}\n")
 
                 custom_install_prompt = self.prompt_for(["options"], accept_enter=True,
                                                         description=description)
@@ -365,10 +365,10 @@ class ConsoleUX:
                         available_settins = [f"* {setting.get('name')} - {setting.get('description')}"
                                              for setting in option.install_settings]
                         available_settins = '\n'.join(available_settins)
-                        description = (f"{format_text(loc_string('description'), bcolors.OKBLUE)}\n"
+                        description = (f"{fconsole(tr('description'), bcolors.OKBLUE)}\n"
                                        f"{option.description}"
-                                       f"\n{loc_string('install_settings')}\n\n{available_settins}\n"
-                                       f"{loc_string('install_setting_ask')} ({loc_string('skip')}) ")
+                                       f"\n{tr('install_settings')}\n\n{available_settins}\n"
+                                       f"{tr('install_setting_ask')} ({tr('skip')}) ")
                         available_options = [setting.get("name") for setting in option.install_settings]
                         available_options.append("skip")
 
@@ -380,9 +380,9 @@ class ConsoleUX:
                                                                  accept_enter=False,
                                                                  description=description)
                     else:
-                        description = (f"{format_text(loc_string('description'), bcolors.OKBLUE)}\n"
+                        description = (f"{fconsole(tr('description'), bcolors.OKBLUE)}\n"
                                        f"{option.description}"
-                                       f"\n{loc_string('install_setting_ask')} ({loc_string('yes_no')}) ")
+                                       f"\n{tr('install_setting_ask')} ({tr('yes_no')}) ")
                         self.switch_header(custom_header,
                                            additional_string=self.format_mod_title(mod.display_name,
                                                                                    mod.version,

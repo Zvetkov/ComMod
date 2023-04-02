@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 import typing
 
-from console_color import bcolors, format_text, remove_colors
-from localisation import loc_string, DEM_DISCORD, COMPATCH_GITHUB, WIKI_COMPATCH
+from color import bcolors, fconsole, remove_colors
+from localisation import tr, DEM_DISCORD, COMPATCH_GITHUB, WIKI_COMPATCH
 from file_ops import copy_from_to
 
 logger = logging.getLogger('dem')
@@ -124,7 +124,7 @@ class Mod:
                         if console:
                             if self.name == "community_remaster":
                                 print("\n")  # separator
-                            print(format_text(loc_string("copying_base_files_please_wait"), bcolors.RED)
+                            print(fconsole(tr("copying_base_files_please_wait"), bcolors.RED)
                                   + "\n")
                         mod_files.append(base_path)
                     else:
@@ -144,7 +144,7 @@ class Mod:
                             mod_files.append(base_work_path)
                             mod_files.append(custom_install_work_path)
                         if console and installation_prompt_result != "skip":
-                            print(format_text(loc_string("copying_options_please_wait"), bcolors.RED) + "\n")
+                            print(fconsole(tr("copying_options_please_wait"), bcolors.RED) + "\n")
                 copy_from_to(mod_files, game_data_path, console)
                 return True, []
             else:
@@ -166,7 +166,7 @@ class Mod:
         if patcher_version:
             if not self.compatible_with_mod_manager(patcher_version):
                 version_validated = False
-                error_msg.append(f"{loc_string('usupported_patcher_version')}: "
+                error_msg.append(f"{tr('usupported_patcher_version')}: "
                                  f"{self.display_name} - {self.patcher_version_requirement}"
                                  f" > {patcher_version}")
 
@@ -190,11 +190,11 @@ class Mod:
                and self.name != "community_remaster"
                and "community_remaster" not in prereq["name"]):
                 name_validated = False
-                error_msg.append(f"{loc_string('compatch_mod_incompatible_with_comrem')}: "
+                error_msg.append(f"{tr('compatch_mod_incompatible_with_comrem')}: "
                                  f"{self.display_name}")
 
-            or_word = f" {loc_string('or')} "
-            and_word = f" {loc_string('and')} "
+            or_word = f" {tr('or')} "
+            and_word = f" {tr('and')} "
 
             name_label = or_word.join(prereq["name"])
             version_label = ""
@@ -202,7 +202,7 @@ class Mod:
 
             prereq_versions = prereq.get("versions")
             if prereq_versions and prereq_versions is not None:
-                version_label = (f', {loc_string("of_version")}: '
+                version_label = (f', {tr("of_version")}: '
                                  f'{and_word.join(prereq.get("versions"))}')
                 if name_validated:
                     for version in prereq_versions:
@@ -233,14 +233,14 @@ class Mod:
 
             optional_content = prereq.get("optional_content")
             if optional_content and optional_content is not None:
-                optional_content_label = (f', {loc_string("including_options").lower()}: '
+                optional_content_label = (f', {tr("including_options").lower()}: '
                                           f'{", ".join(prereq["optional_content"])}')
                 if name_validated and version_validated:
                     for option in optional_content:
                         if existing_content[required_mod_name].get(option) in [None, "skip"]:
                             optional_content_validated = False
-                            requirement_err = f"{loc_string('content_requirement_not_met')}:"
-                            requirement_name = (f"  * '{option}' {loc_string('for_mod')} "
+                            requirement_err = f"{tr('content_requirement_not_met')}:"
+                            requirement_name = (f"  * '{option}' {tr('for_mod')} "
                                                 f"'{required_mod_name}'")
 
                             if requirement_err not in error_msg:
@@ -255,19 +255,19 @@ class Mod:
 
             if not validated:
                 if not name_validated:
-                    warning = f'\n{loc_string("required_mod_not_found")} {loc_string("for_mod")} {self.display_name}:'
+                    warning = f'\n{tr("required_mod_not_found")} {tr("for_mod")} {self.display_name}:'
                 else:
-                    warning = f'\n{loc_string("required_base")} {loc_string("for_mod")} {self.display_name}:'
+                    warning = f'\n{tr("required_base")} {tr("for_mod")} {self.display_name}:'
 
                 if warning not in error_msg:
                     error_msg.append(warning)
 
-                error_msg.append(f'{loc_string("technical_name").capitalize()}: '
+                error_msg.append(f'{tr("technical_name").capitalize()}: '
                                  f'{name_label}{version_label}{optional_content_label}')
                 installed_description = existing_content_descriptions.get(required_mod_name)
                 if installed_description is not None:
                     installed_description = installed_description.strip("\n\n")
-                    error_msg_entry = (f'\n{loc_string("version_available").capitalize()}:\n'
+                    error_msg_entry = (f'\n{tr("version_available").capitalize()}:\n'
                                        f'{remove_colors(installed_description)}')
                     if error_msg_entry not in error_msg:
                         error_msg.append(error_msg_entry)
@@ -277,7 +277,7 @@ class Mod:
                     # it would be nice to tip a user that this is incompatibility in itself
                     if compatch_env and "community_remaster" in prereq["name"]:
                         installed_description = existing_content_descriptions.get("community_patch")
-                        error_msg_entry = (f'\n{loc_string("version_available").capitalize()}:\n'
+                        error_msg_entry = (f'\n{tr("version_available").capitalize()}:\n'
                                            f'{remove_colors(installed_description)}')
                         if error_msg_entry not in error_msg:
                             error_msg.append(error_msg_entry)
@@ -285,7 +285,7 @@ class Mod:
             requirements_met &= validated
 
         if error_msg:
-            error_msg.append(f'\n{loc_string("check_for_a_new_version")}')
+            error_msg.append(f'\n{tr("check_for_a_new_version")}')
 
         return requirements_met, error_msg
 
@@ -307,8 +307,8 @@ class Mod:
             if incomp_mod_name is not None:
                 # if incompatible mod is found we need to check if a tighter conformity check exists
                 name_incompat = True
-                or_word = f" {loc_string('or')} "
-                and_word = f" {loc_string('and')} "
+                or_word = f" {tr('or')} "
+                and_word = f" {tr('and')} "
 
                 name_label = or_word.join(incomp["name"])
 
@@ -318,7 +318,7 @@ class Mod:
                 if incomp_versions and incomp_versions is not None:
                     installed_version = existing_content[incomp_mod_name]["version"]
 
-                    version_label = (f', {loc_string("of_version")}: '
+                    version_label = (f', {tr("of_version")}: '
                                      f'{or_word.join(incomp.get("versions"))}')
                     for version in incomp_versions:
                         if ">=" == version[:2]:
@@ -354,7 +354,7 @@ class Mod:
 
                 if optional_content and optional_content is not None:
 
-                    optional_content_label = (f', {loc_string("including_options").lower()}: '
+                    optional_content_label = (f', {tr("including_options").lower()}: '
                                               f'{or_word.join(incomp.get("optional_content"))}')
 
                     for option in optional_content:
@@ -366,13 +366,13 @@ class Mod:
                 incompatible_with_game_copy = name_incompat and version_incomp and optional_content_incomp
 
                 if incompatible_with_game_copy:
-                    error_msg.append(f'\n{loc_string("found_incompatible")} {loc_string("for_mod")} '
-                                     f'"{self.display_name}":\n{loc_string("technical_name").capitalize()}: '
+                    error_msg.append(f'\n{tr("found_incompatible")} {tr("for_mod")} '
+                                     f'"{self.display_name}":\n{tr("technical_name").capitalize()}: '
                                      f'{name_label}{version_label}{optional_content_label}')
                     installed_description = existing_content_descriptions.get(incomp_mod_name)
                     if installed_description is not None:
                         installed_description = installed_description.strip("\n\n")
-                        error_msg.append(f'\n{loc_string("version_available").capitalize()}:\n'
+                        error_msg.append(f'\n{tr("version_available").capitalize()}:\n'
                                          f'{remove_colors(installed_description)}')
                     else:
                         b = 1
@@ -380,7 +380,7 @@ class Mod:
                 compatible &= (not incompatible_with_game_copy)
 
         if error_msg:
-            error_msg.append(f'\n{loc_string("check_for_a_new_version")}')
+            error_msg.append(f'\n{tr("check_for_a_new_version")}')
             # if self.url is not None:
             #     error_msg.append(f"\n{loc_string('mod_url')} {self.url}")
         return compatible, error_msg
@@ -570,20 +570,20 @@ class Mod:
         if not compatible:
             logger.warning(f"{self.display_name} manifest asks for an other mod manager version. "
                            f"Required: {self.patcher_version_requirement}, available: {patcher_version}")
-            and_word = f" {loc_string('and')} "
+            and_word = f" {tr('and')} "
 
-            error_msg = (loc_string("usupported_patcher_version",
-                                    content_name=format_text(self.display_name, bcolors.WARNING),
+            error_msg = (tr("usupported_patcher_version",
+                                    content_name=fconsole(self.display_name, bcolors.WARNING),
                                     required_version=and_word.join(self.patcher_version_requirement),
                                     current_version=patcher_version,
-                                    github_url=format_text(COMPATCH_GITHUB, bcolors.HEADER)))
+                                    github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)))
 
             if mod_manager_too_new and self.name == "community_remaster":
-                error_msg += f"\n\n{loc_string('check_for_a_new_version')}\n\n"
-                error_msg += loc_string("demteam_links",
-                                        discord_url=format_text(DEM_DISCORD, bcolors.HEADER),
-                                        deuswiki_url=format_text(WIKI_COMPATCH, bcolors.HEADER),
-                                        github_url=format_text(COMPATCH_GITHUB, bcolors.HEADER)) + "\n"
+                error_msg += f"\n\n{tr('check_for_a_new_version')}\n\n"
+                error_msg += tr("demteam_links",
+                                        discord_url=fconsole(DEM_DISCORD, bcolors.HEADER),
+                                        deuswiki_url=fconsole(WIKI_COMPATCH, bcolors.HEADER),
+                                        github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)) + "\n"
 
         return compatible, error_msg
 
@@ -699,26 +699,26 @@ class Mod:
 
         base_part = install_config.pop("base")
         if base_part == 'yes':
-            description = format_text(f"{self.display_name}\n", bcolors.WARNING) + self.description
+            description = fconsole(f"{self.display_name}\n", bcolors.WARNING) + self.description
             descriptions.append(description)
         if len(install_config) > 0:
             ok_to_install = [entry for entry in install_config if install_config[entry] != 'skip']
             if len(ok_to_install) > 0:
-                descriptions.append(f"{loc_string('including_options')}:")
+                descriptions.append(f"{tr('including_options')}:")
         for mod_part in install_config:
             setting_obj = self.options_dict.get(mod_part)
             if install_config[mod_part] == "yes":
-                description = (format_text(f"* {setting_obj.display_name}\n", bcolors.OKBLUE)
+                description = (fconsole(f"* {setting_obj.display_name}\n", bcolors.OKBLUE)
                                + setting_obj.description)
                 descriptions.append(description)
             elif install_config[mod_part] != "skip":
-                description = (format_text(f"* {setting_obj.display_name}\n", bcolors.OKBLUE)
+                description = (fconsole(f"* {setting_obj.display_name}\n", bcolors.OKBLUE)
                                + setting_obj.description)
                 if setting_obj.install_settings is not None:
                     for setting in setting_obj.install_settings:
                         if setting.get("name") == install_config[mod_part]:
                             install_description = setting.get("description")
-                            description += (f"\t** {loc_string('install_setting_title')}: "
+                            description += (f"\t** {tr('install_setting_title')}: "
                                             f"{install_description}")
                 descriptions.append(description)
         return descriptions

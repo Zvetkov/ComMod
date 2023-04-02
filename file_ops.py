@@ -18,6 +18,28 @@ import hd_ui
 logger = logging.getLogger('dem')
 
 
+def shorten_path(path: str | Path, length: int = 60) -> str:
+    if isinstance(path, str):
+        path_to_shorten = Path(path)
+    elif isinstance(path, Path):
+        path_to_shorten = path
+    else:
+        raise TypeError(f"Path is of type {type(path)}: {path}")
+
+    final_str = path_to_shorten.as_posix()
+    if len(final_str) <= length:
+        return final_str
+
+    for i in range(1, len(path_to_shorten.parts)):
+        final_str = path_to_shorten.drive + "/../" + Path(*path_to_shorten.parts[i:]).as_posix()
+        if len(final_str) <= length:
+            return final_str
+
+    if len(path_to_shorten.stem) <= length - 3:
+        return "../" + path_to_shorten.stem
+    else:
+        return "../" + path_to_shorten.stem[:length-4] + "~"
+
 def child_from_xml_node(xml_node: objectify.ObjectifiedElement, child_name: str, do_not_warn: bool = False):
     '''Get child from ObjectifiedElement by name'''
     try:
@@ -165,14 +187,18 @@ def read_yaml(yaml_path: str) -> Any:
     return yaml_config
 
 
-def dump_yaml(data, path) -> bool:
+def dump_yaml(data, path, sort_keys=True) -> bool:
     with open(path, 'w', encoding="utf-8") as stream:
         try:
-            yaml.dump(data, stream, allow_unicode=True, width=1000)
+            yaml.dump(data, stream, allow_unicode=True, width=1000, sort_keys=sort_keys)
         except yaml.YAMLError as exc:
             logger.error(exc)
             return False
     return True
+
+
+def get_internal_file_path(file_name: str) -> str:
+    return os.path.join(os.path.dirname(__file__), file_name)
 
 
 def patch_offsets(f, offsets_dict: dict) -> None:
@@ -255,6 +281,88 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
         changes_description.append("general_compatch_fixes")
 
         if version_choice == "remaster":
+            f.seek(data.size_of_rsrc_offset)
+            old_rsrc_size = int.from_bytes(f.read(4), byteorder='little')
+
+            if old_rsrc_size == 6632:
+                # patching new icon
+                icon_raw: bytes
+                with open(get_internal_file_path("icons/hta_comrem.ico"), 'rb+') as ficon:
+                    ficon.seek(data.new_icon_header_ends)
+                    icon_raw = ficon.read()
+
+                if icon_raw:
+                    size_of_icon = len(icon_raw)
+
+                    block_size_overflow = len(icon_raw) % 0x10
+                    padding_size = 0x10 - block_size_overflow
+
+                    # reading reloc struct to write in at the end of the rsrc latter on
+                    f.seek(data.offset_of_reloc_offset)
+                    reloc_offset = int.from_bytes(f.read(4), byteorder='little') - data.rva_offset
+                    f.seek(data.size_of_reloc_offset)
+                    reloc_size = int.from_bytes(f.read(4), byteorder='little')
+
+                    f.seek(reloc_offset)
+                    reloc = f.read(reloc_size)
+
+                    # writing icon
+                    f.seek(data.em_102_icon_offset)
+                    f.write(icon_raw)
+                    f.write(b"\x00" * padding_size)
+
+                    # writing icon group and saving address to write it to table below
+                    new_icon_group_address = f.tell()
+                    f.write(bytes.fromhex(data.new_icon_group_info))
+                    end_rscr_address = f.tell()
+                    f.write(b"\x00" * 8)  # padding for icon group
+
+                    current_size = f.tell() - data.offset_of_rsrc
+                    block_size_overflow = current_size % 0x1000
+
+                    # padding rsrc to 4Kb block size
+                    padding_size_rsrc = 0x1000 - block_size_overflow
+                    raw_size_of_rsrc = current_size + padding_size_rsrc
+                    f.write(b"\x00" * padding_size_rsrc)
+
+                    # now writing reloc struct and saving its address to write to table below
+                    new_reloc_address_raw = f.tell()
+                    new_reloc_address = new_reloc_address_raw + data.rva_offset
+
+                    # padding reloc to 4Kb block size
+                    block_size_overflow = len(reloc) % 0x1000
+                    padding_size = 0x1000 - block_size_overflow
+                    f.write(reloc)
+                    f.write(b"\x00" * padding_size)
+                    size_of_image = f.tell()
+
+                    # updating pointers in PE header for rsrc struct and reloc struct
+                    f.seek(data.size_of_rsrc_offset)
+                    # old_rsrc_size = int.from_bytes(f.read(4), byteorder='little')
+                    size_of_rscs = end_rscr_address - data.offset_of_rsrc
+                    f.write(size_of_rscs.to_bytes(4, byteorder='little'))
+                    f.seek(data.resource_dir_size)
+                    f.write(size_of_rscs.to_bytes(4, byteorder='little'))
+
+                    f.seek(data.raw_size_of_rsrc_offset)
+                    f.write(raw_size_of_rsrc.to_bytes(4, byteorder='little'))
+
+                    f.seek(data.offset_of_reloc_offset)
+                    f.write(new_reloc_address.to_bytes(4, byteorder='little'))
+
+                    # updating size of resource for icon and pointer to icon group resource
+                    f.seek(data.new_icon_size_offset)
+                    f.write(size_of_icon.to_bytes(4, byteorder='little'))
+
+                    f.seek(data.new_icon_group_offset)
+                    f.write((new_icon_group_address+data.rva_offset).to_bytes(4, byteorder='little'))
+
+                    f.seek(data.offset_of_reloc_raw)
+                    f.write(new_reloc_address_raw.to_bytes(4, byteorder='little'))
+
+                    f.seek(data.size_of_image)
+                    f.write((size_of_image+data.rva_offset).to_bytes(4, byteorder='little'))
+
             if under_windows:
                 if exe_options.get("game_font") is not None:
                     font_alias = exe_options.get("game_font")
@@ -367,8 +475,12 @@ def rename_effects_bps(game_root_path: str) -> None:
     bps_path = os.path.join(game_root_path, "data", "models", "effects.bps")
     new_bps_path = os.path.join(game_root_path, "data", "models", "stock_effects.bps")
     if os.path.exists(bps_path):
-        os.rename(bps_path, new_bps_path)
-        logger.info(f"Renamed effects.bps in path '{bps_path}'")
+        if os.path.exists(new_bps_path):
+            os.remove(bps_path)
+            logger.info(f"Deleted effects.bps in path '{bps_path}' as renamed backup already exists")
+        else:
+            os.rename(bps_path, new_bps_path)
+            logger.info(f"Renamed effects.bps in path '{bps_path}'")
     elif not os.path.exists(new_bps_path):
         logger.warning(f"Can't find effects.bps not in normal path '{bps_path}', "
                        "nor in renamed form, probably was deleted by user")
