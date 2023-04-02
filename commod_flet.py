@@ -1235,24 +1235,31 @@ class HomeScreen(UserControl):
 
     async def did_mount_async(self):
         self.got_news = False
+        self.offline = False
         create_task(self.get_news())
 
     async def get_news(self):
-        dem_news = 'https://raw.githubusercontent.com/DeusExMachinaTeam/EM-CommunityPatch/main/README.md'
-        # pavlik_news = 'https://raw.githubusercontent.com/zatinu322/hta_kazakh_autotranslation/main/README.md'
-        response = await request(
-            url=dem_news,
-            protocol="HTTPS",
-            protocol_info={
-                "request_type": "GET",
-                "timeout": 5
-            }
-        )
+        if not self.offline:
+            dem_news = 'https://raw.githubusercontent.com/DeusExMachinaTeam/EM-CommunityPatch/main/README.md'
+            # pavlik_news = 'https://raw.githubusercontent.com/zatinu322/hta_kazakh_autotranslation/main/README.md'
+            response = await request(
+                url=dem_news,
+                protocol="HTTPS",
+                protocol_info={
+                    "request_type": "GET",
+                    "timeout": 5
+                }
+            )
 
-        md_raw = response["api_response"]["text"]
-        md = self.process_markdown(md_raw)
-        self.markdown_content.current.value = md
-        await self.markdown_content.current.update_async()
+            if response["api_response"]["status_code"] == 200:
+                md_raw = response["api_response"]["text"]
+                md = self.process_markdown(md_raw)
+                self.markdown_content.current.value = md
+                await self.markdown_content.current.update_async()
+                self.got_news = True
+            else:
+                print("Unable to get url content for news")
+                self.offline = True
 
     def process_markdown(self, md_raw):
         md_result = html.unescape(md_raw)
@@ -1267,11 +1274,11 @@ class HomeScreen(UserControl):
             md1 = self.process_markdown(md1)
 
             if self.app.game.game_installment_id == GameInstallments.EXMACHINA.value:
-                logo_path = "icons/em_logo.png"
+                logo_path = "assets/em_logo.png"
             elif self.app.game.game_installment_id == GameInstallments.M113.value:
-                logo_path = "icons/m113_logo.png"
+                logo_path = "assets/m113_logo.png"
             elif self.app.game.game_installment_id == GameInstallments.ARCADE.value:
-                logo_path = "icons/arcade_logo.png"
+                logo_path = "assets/arcade_logo.png"
             else:
                 logo_path = None
 

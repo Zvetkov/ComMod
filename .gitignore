@@ -1,3 +1,6 @@
+# Commod config
+commod.yaml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -9,12 +12,16 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+*.build/
 develop-eggs/
 dist/
+*.dist/
+*.onefile-build/
 downloads/
 eggs/
 .eggs/
 lib/
+test/
 lib64/
 parts/
 sdist/
