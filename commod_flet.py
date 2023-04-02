@@ -1,4 +1,5 @@
 
+from asyncio import create_task, gather
 from collections import OrderedDict
 from enum import Enum
 import logging
@@ -9,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import html
 import markdownify
-import requests
+from asyncio_requests.asyncio_request import request
 from commod import _init_input_parser
 
 from file_ops import dump_yaml, get_internal_file_path, read_yaml
@@ -180,7 +181,6 @@ class Config:
             print("Couldn't write new config")
 
 
-
 @dataclass
 class App:
     '''Root level application class storing modding environment'''
@@ -188,7 +188,7 @@ class App:
     game: GameCopy
     config: Config | None = None
 
-    def change_page(self, e=None, index: int | AppSections = AppSections.LAUNCH):
+    async def change_page(self, e=None, index: int | AppSections = AppSections.LAUNCH):
         if e is None:
             new_index = index
         else:
@@ -203,14 +203,14 @@ class App:
             self.rail.selected_index = new_index
 
             self.content_column.content = self.content_pages[new_index]
-            self.content_column.update()
-            self.content_pages[new_index].update()
+            await self.content_column.update_async()
+            await self.content_pages[new_index].update_async()
             self.config.current_section = new_index
-        self.rail.update()
+        await self.rail.update_async()
 
-    def show_guick_start_wizard(self):
-        self.change_page(index=AppSections.SETTINGS.value)
-        self.content_column.update()
+    async def show_guick_start_wizard(self):
+        await self.change_page(index=AppSections.SETTINGS.value)
+        await self.content_column.update_async()
 
 
 class GameCopyListItem(UserControl):
@@ -318,7 +318,6 @@ class GameCopyListItem(UserControl):
                             wait_duration=300,
                             content=IconButton(
                                 icons.DELETE_OUTLINE,
-                                # tooltip=tr("remove_from_list"),
                                 on_click=self.delete_clicked)
                         ),
                         ft.Tooltip(
@@ -326,7 +325,6 @@ class GameCopyListItem(UserControl):
                             wait_duration=300,
                             content=IconButton(
                                 icon=icons.CREATE_OUTLINED,
-                                # tooltip=tr("edit_name"),
                                 on_click=self.edit_clicked)
                         )], spacing=5
                     )]
@@ -355,130 +353,57 @@ class GameCopyListItem(UserControl):
                             padding=ft.padding.only(right=10),
                             ref=self.item_container)
 
-    def make_current(self, e):
+    async def make_current(self, e):
         if not self.current:
-            self.select_game(self)
-        self.update()
+            await self.select_game(self)
+        await self.update_async()
 
-    def open_clicked(self, e):
+    async def open_clicked(self, e):
         # open game directory in Windows Explorer
         if os.path.isdir(self.game_path):
             os.startfile(self.game_path)
-        self.update()
+        await self.update_async()
 
-    def display_as_current(self):
+    async def display_as_current(self):
         self.current = True
         self.current_icon.current.icon = ft.icons.DONE_OUTLINE_ROUNDED
         self.current_icon.current.icon_color = ft.colors.GREEN
-        self.current_icon.current.update()
+        await self.current_icon.current.update_async()
         self.item_container.current.bgcolor = ft.colors.SECONDARY_CONTAINER
-        self.item_container.current.update()
-        self.update()
+        await self.item_container.current.update_async()
+        await self.update_async()
 
-    def display_as_reserve(self):
+    async def display_as_reserve(self):
         self.current = False
         self.current_icon.current.icon = ft.icons.DONE_OUTLINE
         self.current_icon.current.icon_color = ft.colors.SURFACE_VARIANT
-        self.current_icon.current.update()
+        await self.current_icon.current.update_async()
         self.item_container.current.bgcolor = ft.colors.TRANSPARENT
-        self.item_container.current.update()
-        self.update()
+        await self.item_container.current.update_async()
+        await self.update_async()
 
-    def edit_clicked(self, e):
+    async def edit_clicked(self, e):
         self.edit_name.value = self.game_name_label.current.value
         self.display_view.visible = False
         self.edit_view.visible = True
-        self.update()
+        await self.update_async()
 
-    def save_clicked(self, e):
+    async def save_clicked(self, e):
         self.game_name_label.current.value = self.edit_name.value
         self.game_name = self.edit_name.value
         self.display_view.visible = True
         self.edit_view.visible = False
         self.config.game_names[self.game_path] = self.game_name
-        self.update()
+        await self.update_async()
 
-    def status_changed(self, e):
+    async def status_changed(self, e):
         self.completed = self.current_game.value
         self.task_status_change(self)
-        self.update()
+        await self.update_async()
 
-    def delete_clicked(self, e):
+    async def delete_clicked(self, e):
         self.remove_game(self)
-        self.update()
-
-
-class Task(UserControl):
-    def __init__(self, task_name, task_status_change, task_delete):
-        super().__init__()
-        self.completed = False
-        self.task_name = task_name
-        self.task_status_change = task_status_change
-        self.task_delete = task_delete
-
-    def build(self):
-        self.display_task = Checkbox(
-            value=False, label=self.task_name, on_change=self.status_changed
-        )
-        self.edit_name = TextField(expand=1)
-
-        self.display_view = Row(
-            alignment="spaceBetween",
-            vertical_alignment="center",
-            controls=[
-                self.display_task,
-                Row(
-                    spacing=0,
-                    controls=[
-                        IconButton(
-                            icon=icons.CREATE_OUTLINED,
-                            tooltip="Edit To-Do",
-                            on_click=self.edit_clicked,
-                        ),
-                        IconButton(
-                            icons.DELETE_OUTLINE,
-                            tooltip="Delete To-Do",
-                            on_click=self.delete_clicked,
-                        ),
-                    ],
-                ),
-            ],
-        )
-
-        self.edit_view = Row(
-            visible=False,
-            alignment="spaceBetween",
-            vertical_alignment="center",
-            controls=[
-                self.edit_name,
-                IconButton(
-                    icon=icons.DONE_OUTLINE,
-                    icon_color=colors.GREEN,
-                    tooltip="Update To-Do",
-                    on_click=self.save_clicked,
-                ),
-            ],
-        )
-        return Column(controls=[self.display_view, self.edit_view])
-
-    def edit_clicked(self, e):
-        self.edit_name.value = self.display_task.label
-        self.display_view.visible = False
-        self.edit_view.visible = True
-        self.update()
-
-    def save_clicked(self, e):
-        self.display_task.label = self.edit_name.value
-        self.display_view.visible = True
-        self.edit_view.visible = False
-        self.update()
-
-    def status_changed(self, e):
-        self.completed = self.display_task.value
-        self.task_status_change(self)
-
-    def delete_clicked(self, e):
-        self.task_delete(self)
+        await self.update_async()
 
 
 class SettingsScreen(UserControl):
@@ -512,7 +437,8 @@ class SettingsScreen(UserControl):
                       color=ft.colors.ON_TERTIARY_CONTAINER)]),
             bgcolor=ft.colors.TERTIARY_CONTAINER, padding=10, border_radius=10,
             animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
-            height=50 if bool(not self.app.config.current_game) else 0, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            height=50 if bool(not self.app.config.current_game) else 0,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             col={"sm": 12, "lg": 10, "xxl": 8})
 
         self.no_distro_warning = ft.Container(
@@ -522,7 +448,8 @@ class SettingsScreen(UserControl):
                       color=ft.colors.ON_TERTIARY_CONTAINER)]),
             bgcolor=ft.colors.TERTIARY_CONTAINER, padding=10, border_radius=10,
             animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
-            visible=bool(not self.app.config.current_distro), clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            visible=bool(not self.app.config.current_distro),
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             col={"sm": 12, "lg": 10, "xxl": 8})
 
         self.env_warnings = ft.Ref[Column]()
@@ -533,8 +460,7 @@ class SettingsScreen(UserControl):
             text_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
             border_color=ft.colors.OUTLINE,
             focused_border_color=ft.colors.PRIMARY,
-            on_change=self.check_game,
-            # on_blur=self.check_game,
+            on_change=self.check_game_fields,
             dense=True,
             height=42,
             text_size=13,
@@ -545,11 +471,8 @@ class SettingsScreen(UserControl):
             text_size=13,
             dense=True,
             border_color=ft.colors.OUTLINE,
-            # expand=True,
             hint_text=tr("steam_add_hint"),
             on_change=self.handle_dropdown_onchange,
-            # bgcolor=ft.colors.AMBER,
-            # focused_bgcolor=ft.colors.AMBER,
             label=tr("steam_game_found"),
             label_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
             text_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
@@ -728,8 +651,8 @@ class SettingsScreen(UserControl):
                         Icon(ft.icons.VIDEOGAME_ASSET_ROUNDED, color=ft.colors.ON_BACKGROUND),
                         Text(value=tr("control_game_copies").upper(), style=ft.TextThemeStyle.TITLE_SMALL)
                         ], col={"sm": 12, "xl": 11, "xxl": 9}),
-                     self.view_list_of_games,
-                     ft.Container(content=Column(
+                    self.view_list_of_games,
+                    ft.Container(content=Column(
                         [ft.Container(Row([game_icon,
                                            Text(tr("choose_game_path_manually"), weight=ft.FontWeight.W_500),
                                            Icon(expanded_icon if self.add_game_expanded else collapsed_icon,
@@ -753,7 +676,7 @@ class SettingsScreen(UserControl):
                                   height=104 if self.add_game_expanded else 48,
                                   col={"sm": 12, "lg": 10, "xxl": 7}
                                   ),
-                     ft.Container(content=Column(
+                    ft.Container(content=Column(
                         [ft.Container(Row([steam_icon,
                                            Text(tr("choose_from_steam"), weight=ft.FontWeight.W_500),
                                            Icon(expanded_icon if self.add_steam_expanded else collapsed_icon,
@@ -772,7 +695,7 @@ class SettingsScreen(UserControl):
                              height=104 if self.add_steam_expanded else 48,
                              col={"sm": 12, "lg": 10, "xxl": 7}
                                   )
-                     ], alignment=ft.MainAxisAlignment.CENTER),
+                    ], alignment=ft.MainAxisAlignment.CENTER),
                 ft.ResponsiveRow(
                     # contols of distro/comrem/mods folders
                     controls=[
@@ -812,46 +735,45 @@ class SettingsScreen(UserControl):
         ), margin=ft.margin.only(right=20))
 
     # Open directory dialog
-    def get_game_dir_result(self, e: ft.FilePickerResultEvent):
+    async def get_game_dir_result(self, e: ft.FilePickerResultEvent):
         if e.path:
             self.game_location_field.value = e.path
-            self.game_location_field.update()
-            self.check_game(e)
-            self.expand_adding_game_manual()
-            self.game_location_field.focus()
-        self.update()
+            await self.game_location_field.update_async()
+            await self.check_game_fields(e)
+            await self.expand_adding_game_manual()
+            await self.game_location_field.focus_async()
+        await self.update_async()
 
-    def get_distro_dir_result(self, e: ft.FilePickerResultEvent):
+    async def get_distro_dir_result(self, e: ft.FilePickerResultEvent):
         if e.path:
             self.distro_location_field.value = e.path
-            self.distro_location_field.update()
-            self.check_distro_field(e)
-            # self.expand_adding_distro()
-            self.distro_location_field.focus()
-        self.update()
+            await self.distro_location_field.update_async()
+            await self.check_distro_field(e)
+            await self.distro_location_field.focus_async()
+        await self.update_async()
 
-    def toggle_adding_game_manual(self, e):
+    async def toggle_adding_game_manual(self, e):
         if self.add_game_expanded:
-            self.minimize_adding_game_manual()
+            await self.minimize_adding_game_manual()
         else:
-            self.expand_adding_game_manual()
-        self.update()
+            await self.expand_adding_game_manual()
+        await self.update_async()
 
-    def toggle_adding_game_steam(self, e):
+    async def toggle_adding_game_steam(self, e):
         if self.add_steam_expanded:
-            self.minimize_adding_game_steam()
+            await self.minimize_adding_game_steam()
         else:
-            self.expand_adding_game_steam()
-        self.update()
+            await self.expand_adding_game_steam()
+        await self.update_async()
 
-    def toggle_adding_distro(self, e):
+    async def toggle_adding_distro(self, e):
         if self.add_distro_expanded:
-            self.minimize_adding_distro()
+            await self.minimize_adding_distro()
         else:
-            self.expand_adding_distro()
-        self.update()
+            await self.expand_adding_distro()
+        await self.update_async()
 
-    def expand_adding_game_manual(self):
+    async def expand_adding_game_manual(self):
         final_height = 104
         if self.add_game_manual_btn.visible:
             final_height += 45
@@ -861,23 +783,23 @@ class SettingsScreen(UserControl):
         self.add_game_manual_container.current.height = final_height
         self.add_game_expanded = True
         self.icon_expand_add_game_manual.current.name = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
-        self.add_game_manual_container.current.update()
-        self.update()
+        await self.add_game_manual_container.current.update_async()
+        await self.update_async()
 
-    def minimize_adding_game_manual(self):
+    async def minimize_adding_game_manual(self):
         self.game_location_field.value = ""
-        self.game_location_field.update()
+        await self.game_location_field.update_async()
         self.add_game_manual_btn.visible = False
-        self.add_game_manual_btn.update()
+        await self.add_game_manual_btn.update_async()
         self.game_copy_warning.visible = False
-        self.game_copy_warning.update()
+        await self.game_copy_warning.update_async()
         self.icon_expand_add_game_manual.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
         self.add_game_manual_container.current.height = 48
-        self.add_game_manual_container.current.update()
+        await self.add_game_manual_container.current.update_async()
         self.add_game_expanded = False
-        self.update()
+        await self.update_async()
 
-    def expand_adding_game_steam(self):
+    async def expand_adding_game_steam(self):
         final_height = 104
         if self.add_from_steam_btn.visible:
             final_height += 45
@@ -887,26 +809,26 @@ class SettingsScreen(UserControl):
         self.add_game_steam_container.current.height = final_height
         self.add_steam_expanded = True
         self.icon_expand_add_game_steam.current.name = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
-        self.add_game_steam_container.current.update()
+        await self.add_game_steam_container.current.update_async()
         self.steam_locations_dropdown.visible = True
-        self.steam_locations_dropdown.update()
-        self.update()
+        await self.steam_locations_dropdown.update_async()
+        await self.update_async()
 
-    def minimize_adding_game_steam(self):
+    async def minimize_adding_game_steam(self):
         self.add_game_steam_container.current.height = 48
         self.add_steam_expanded = False
         self.icon_expand_add_game_steam.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
-        self.add_game_steam_container.current.update()
+        await self.add_game_steam_container.current.update_async()
         self.steam_locations_dropdown.visible = False
         self.steam_locations_dropdown.value = ""
-        self.steam_locations_dropdown.update()
+        await self.steam_locations_dropdown.update_async()
         self.add_from_steam_btn.visible = False
         self.steam_game_copy_warning.visible = False
-        self.steam_game_copy_warning.update()
-        self.add_from_steam_btn.update()
-        self.update()
+        await self.steam_game_copy_warning.update_async()
+        await self.add_from_steam_btn.update_async()
+        await self.update_async()
 
-    def expand_adding_distro(self):
+    async def expand_adding_distro(self):
         final_height = 104
         if self.add_distro_btn.visible:
             final_height += 45
@@ -916,55 +838,54 @@ class SettingsScreen(UserControl):
         self.add_distro_container.current.height = final_height
         self.add_distro_expanded = True
         self.icon_expand_add_distro.current.name = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
-        # self.icon_expand_add_game_steam.current.update()
-        self.add_distro_container.current.update()
-        self.update()
+        await self.add_distro_container.current.update_async()
+        await self.update_async()
 
-    def minimize_adding_distro(self):
+    async def minimize_adding_distro(self):
         self.add_distro_container.current.height = 48
         self.add_distro_expanded = False
         self.icon_expand_add_distro.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
-        self.add_distro_container.current.update()
-        self.page.update()
-        self.update()
+        await self.add_distro_container.current.update_async()
+        await self.page.update_async()
+        await self.update_async()
 
-    def add_steam(self, e):
+    async def add_steam(self, e):
         new_path = self.steam_locations_dropdown.value
-        self.add_game_to_list(new_path, from_steam=True)
+        await self.add_game_to_list(new_path, from_steam=True)
 
         self.steam_locations_dropdown.value = ""
-        self.update()
+        await self.update_async()
 
-    def add_game_manual(self, e):
+    async def add_game_manual(self, e):
         new_path = self.game_location_field.value
-        self.add_game_to_list(new_path, from_steam=False)
+        await self.add_game_to_list(new_path, from_steam=False)
 
         self.game_location_field.value = None
-        self.game_location_field.update()
-        self.switch_add_game_btn(GameStatus.NOT_EXISTS)
-        self.update()
+        await self.game_location_field.update_async()
+        await self.switch_add_game_btn(GameStatus.NOT_EXISTS)
+        await self.update_async()
 
-    def add_distro(self, e):
+    async def add_distro(self, e):
         self.distro_display.height = None
-        self.distro_display.update()
+        await self.distro_display.update_async()
         self.distro_location_text.current.value = self.distro_location_field.value.strip()
-        self.distro_location_text.current.update()
+        await self.distro_location_text.current.update_async()
         self.distro_locaiton_open_btn.current.visible = True
-        self.distro_locaiton_open_btn.current.update()
-        self.minimize_adding_distro()
+        await self.distro_locaiton_open_btn.current.update_async()
+        await self.minimize_adding_distro()
         self.no_distro_warning.height = 0
-        self.no_distro_warning.update()
+        await self.no_distro_warning.update_async()
 
         self.app.config.current_distro = self.distro_location_text.current.value
         self.app.config.known_distros = set([self.app.config.current_distro])
         self.distro_location_field.value = None
-        self.update()
+        await self.update_async()
 
-    def handle_dropdown_onchange(self, e):
+    async def handle_dropdown_onchange(self, e):
         if e.data:
-            self.check_game(e)
-            self.expand_adding_game_steam()
-        self.update()
+            await self.check_game_fields(e)
+            await self.expand_adding_game_steam()
+        await self.update_async()
 
     @staticmethod
     def check_compatible_game(game_path):
@@ -989,7 +910,7 @@ class SettingsScreen(UserControl):
             warning = f"{tr('error')}: {ex!r}"
         return can_be_added, warning, test_game
 
-    def add_game_to_list(self, game_path, game_name="", current=True, from_steam=False):
+    async def add_game_to_list(self, game_path, game_name="", current=True, from_steam=False):
         if game_name:
             set_game_name = game_name
         else:
@@ -1001,10 +922,10 @@ class SettingsScreen(UserControl):
             self.view_list_of_games.height = None
             self.filter.height = None
             self.list_of_games.height = None
-            self.view_list_of_games.update()
-            self.filter.update()
+            await self.view_list_of_games.update_async()
+            await self.filter.update_async()
             # deselect all other games if any exist
-            [control.display_as_reserve() for control in self.list_of_games.controls]
+            await gather(*[control.display_as_reserve() for control in self.list_of_games.controls])
 
             visible = not self.is_installment_filtered(game_info.game_installment)
             new_game = GameCopyListItem(set_game_name,
@@ -1016,13 +937,13 @@ class SettingsScreen(UserControl):
                                         self.remove_game,
                                         self.app.config, visible)
             self.list_of_games.controls.append(new_game)
-            self.list_of_games.update()
-            self.select_game(new_game)
+            await self.list_of_games.update_async()
+            await self.select_game(new_game)
 
-            self.minimize_adding_game_manual()
-            self.minimize_adding_game_steam()
+            await self.minimize_adding_game_manual()
+            await self.minimize_adding_game_steam()
             self.no_game_warning.height = 0
-            self.no_game_warning.update()
+            await self.no_game_warning.update_async()
 
             self.app.config.known_games.add(game_path.lower())
             self.app.config.game_names[game_path] = set_game_name
@@ -1032,18 +953,18 @@ class SettingsScreen(UserControl):
 
         else:
             if from_steam:
-                self.switch_steam_game_copy_warning(GameStatus.GENERAL_ERROR, additional_info=warning)
+                await self.switch_steam_game_copy_warning(GameStatus.GENERAL_ERROR, additional_info=warning)
             # automatic addition will explicitly pass game_name, so we can check this for manual addition
             elif not game_name:
-                self.switch_game_copy_warning(GameStatus.GENERAL_ERROR, additional_info=warning)
-        self.update()
+                await self.switch_game_copy_warning(GameStatus.GENERAL_ERROR, additional_info=warning)
+        await self.update_async()
         return can_be_added
 
-    def close_alert(self, e):
+    async def close_alert(self, e):
         self.app.page.dialog.open = False
-        self.app.page.update()
+        await self.app.page.update_async()
 
-    def show_alert(self, text, additional_text):
+    async def show_alert(self, text, additional_text):
         dlg = ft.AlertDialog(
             title=Row([Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR_CONTAINER),
                        Text(tr("error"))]),
@@ -1055,9 +976,9 @@ class SettingsScreen(UserControl):
             )
         self.app.page.dialog = dlg
         dlg.open = True
-        self.app.page.update()
+        await self.app.page.update_async()
 
-    def select_game(self, item):
+    async def select_game(self, item):
         try:
             self.app.game = GameCopy()
             self.app.game.process_game_install(item.game_path)
@@ -1071,47 +992,78 @@ class SettingsScreen(UserControl):
             print(f"[Game loading error] {ex}")
             return
 
+        group = []
         for control in self.list_of_games.controls:
             if control is not item:
-                control.display_as_reserve()
-        item.display_as_current()
+                group.append(control.display_as_reserve())
+        await gather(*group)
+
+        await item.display_as_current()
         self.app.settings_page.no_game_warning.height = 0
-        self.app.settings_page.no_game_warning.update()
+        await self.app.settings_page.no_game_warning.update_async()
         self.app.config.current_game = item.game_path
         print(f"Game is now: {self.app.game.target_exe}")
-        self.update()
+        await self.update_async()
 
-    def remove_game(self, item):
+    async def remove_game(self, item):
         if item.current:
             # if removing current, set dummy game as current
             self.app.game = GameCopy()
             self.app.settings_page.no_game_warning.height = None
-            self.app.settings_page.no_game_warning.update()
+            await self.app.settings_page.no_game_warning.update_async()
             self.app.config.current_game = ""
 
         self.list_of_games.controls.remove(item)
-        self.list_of_games.update()
+        await self.list_of_games.update_async()
 
         # hide list if there are zero games tracked
         if not self.list_of_games.controls:
             self.view_list_of_games.height = 0
             self.filter.height = 0
             self.list_of_games.height = 0
-            self.list_of_games.update()
-            self.filter.update()
-            self.view_list_of_games.update()
+            await self.list_of_games.update_async()
+            await self.filter.update_async()
+            await self.view_list_of_games.update_async()
 
         self.app.config.known_games.discard(item.game_path.lower())
         self.app.config.game_names.pop(item.game_path)
         print(f"Game is now: {self.app.game.target_exe}")
         print(f"Known games: {self.app.config.known_games}")
 
-        self.minimize_adding_game_manual()
-        self.minimize_adding_game_steam()
+        await self.minimize_adding_game_manual()
+        await self.minimize_adding_game_steam()
 
-        self.update()
+        await self.update_async()
 
-    def check_game(self, e):
+    def check_game(self, game_path):
+        status = None
+        additional_info = ""
+
+        if os.path.exists(game_path):
+            if game_path.lower() not in self.app.config.known_games:
+                validated, additional_info = GameCopy.validate_game_dir(game_path)
+                if validated:
+                    exe_name = GameCopy.get_exe_name(game_path)
+                    exe_version = GameCopy.get_exe_version(exe_name)
+                    if exe_version is not None:
+                        validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
+                        if validated_exe:
+                            status = GameStatus.COMPATIBLE
+                        else:
+                            status = GameStatus.BAD_EXE
+                            additional_info = exe_version
+                    else:
+                        status = GameStatus.EXE_RUNNING
+                else:
+                    status = GameStatus.MISSING_FILES
+            else:
+                status = GameStatus.ALREADY_ADDED
+        else:
+            status = GameStatus.NOT_EXISTS
+
+        return status, additional_info
+
+    async def check_game_fields(self, e):
         if e.control is self.game_location_field or e.control is self.get_game_dir_dialog:
             game_path = self.game_location_field.value.strip()
             manual_control = True
@@ -1121,43 +1073,21 @@ class SettingsScreen(UserControl):
             game_path = e.data
             manual_control = False
 
-        additional_info = ""
-
         if game_path:
-            if os.path.exists(game_path):
-                if game_path.lower() not in self.app.config.known_games:
-                    validated, additional_info = GameCopy.validate_game_dir(game_path)
-                    if validated:
-                        exe_name = GameCopy.get_exe_name(game_path)
-                        exe_version = GameCopy.get_exe_version(exe_name)
-                        if exe_version is not None:
-                            validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
-                            if validated_exe:
-                                status = GameStatus.COMPATIBLE
-                            else:
-                                status = GameStatus.BAD_EXE
-                                additional_info = exe_version
-                        else:
-                            status = GameStatus.EXE_RUNNING
-                    else:
-                        status = GameStatus.MISSING_FILES
-                else:
-                    status = GameStatus.ALREADY_ADDED
-            else:
-                status = GameStatus.NOT_EXISTS
+            status, additional_info = self.check_game(game_path)
         else:
-            status = None
+            status, additional_info = None, ""
 
         if manual_control:
-            self.switch_game_copy_warning(status, additional_info)
-            self.switch_add_game_btn(status)
+            await self.switch_game_copy_warning(status, additional_info)
+            await self.switch_add_game_btn(status)
             if game_path:
-                self.expand_adding_game_manual()
+                await self.expand_adding_game_manual()
         else:
-            self.switch_steam_game_copy_warning(status, additional_info)
-            self.switch_add_from_steam_btn(status)
-            self.expand_adding_game_steam()
-        self.update()
+            await self.switch_steam_game_copy_warning(status, additional_info)
+            await self.switch_add_from_steam_btn(status)
+            await self.expand_adding_game_steam()
+        await self.update_async()
 
     def check_distro(self, distro_path):
         if distro_path:
@@ -1177,43 +1107,43 @@ class SettingsScreen(UserControl):
 
         return status
 
-    def check_distro_field(self, e):
+    async def check_distro_field(self, e):
         distro_path = self.distro_location_field.value.strip()
 
         status = self.check_distro(distro_path)
         if status is not None:
-            self.switch_distro_warning(status)
-            self.switch_add_distro_btn(status)
-            self.expand_adding_distro()
-            self.update()
+            await self.switch_distro_warning(status)
+            await self.switch_add_distro_btn(status)
+            await self.expand_adding_distro()
+            await self.update_async()
 
-    def switch_add_game_btn(self, status: GameStatus = GameStatus.COMPATIBLE):
+    async def switch_add_game_btn(self, status: GameStatus = GameStatus.COMPATIBLE):
         if status is None:
             status = GameStatus.NOT_EXISTS
         self.add_game_manual_btn.disabled = status is not GameStatus.COMPATIBLE
         self.add_game_manual_btn.visible = status is GameStatus.COMPATIBLE
-        self.add_game_manual_btn.update()
-        self.update()
+        await self.add_game_manual_btn.update_async()
+        await self.update_async()
 
-    def switch_add_from_steam_btn(self, status: GameStatus = GameStatus.COMPATIBLE):
+    async def switch_add_from_steam_btn(self, status: GameStatus = GameStatus.COMPATIBLE):
         if status is None:
             status = GameStatus.NOT_EXISTS
         self.add_from_steam_btn.disabled = status is not GameStatus.COMPATIBLE
         self.add_from_steam_btn.visible = status is GameStatus.COMPATIBLE
-        self.add_from_steam_btn.update()
-        self.update()
+        await self.add_from_steam_btn.update_async()
+        await self.update_async()
 
-    def switch_add_distro_btn(self, status: DistroStatus = DistroStatus.COMPATIBLE):
+    async def switch_add_distro_btn(self, status: DistroStatus = DistroStatus.COMPATIBLE):
         if status is None:
             status = DistroStatus.NOT_EXISTS
         self.add_distro_btn.disabled = status is not DistroStatus.COMPATIBLE
         self.add_distro_btn.visible = status is DistroStatus.COMPATIBLE
-        self.add_distro_btn.update()
-        self.update()
+        await self.add_distro_btn.update_async()
+        await self.update_async()
 
-    def switch_game_copy_warning(self,
-                                 status: GameStatus = GameStatus.COMPATIBLE,
-                                 additional_info: str = ""):
+    async def switch_game_copy_warning(self,
+                                       status: GameStatus = GameStatus.COMPATIBLE,
+                                       additional_info: str = ""):
         if status is None:
             status = GameStatus.COMPATIBLE
         self.game_copy_warning.visible = status is not GameStatus.COMPATIBLE
@@ -1221,12 +1151,12 @@ class SettingsScreen(UserControl):
         if status is GameStatus.BAD_EXE:
             full_text += f": {additional_info}"
         self.game_copy_warning_text.current.value = full_text
-        self.game_copy_warning.update()
-        self.update()
+        await self.game_copy_warning.update_async()
+        await self.update_async()
 
-    def switch_steam_game_copy_warning(self,
-                                       status: GameStatus = GameStatus.COMPATIBLE,
-                                       additional_info: str = ""):
+    async def switch_steam_game_copy_warning(self,
+                                             status: GameStatus = GameStatus.COMPATIBLE,
+                                             additional_info: str = ""):
         if status is None:
             status = GameStatus.COMPATIBLE
         self.steam_game_copy_warning.visible = status is not GameStatus.COMPATIBLE
@@ -1234,25 +1164,25 @@ class SettingsScreen(UserControl):
         if status is GameStatus.BAD_EXE:
             full_text += f": {additional_info}"
         self.steam_game_copy_warning_text.current.value = full_text
-        self.steam_game_copy_warning.update()
-        self.update()
+        await self.steam_game_copy_warning.update_async()
+        await self.update_async()
 
-    def switch_distro_warning(self,
-                              status: DistroStatus = DistroStatus.COMPATIBLE):
+    async def switch_distro_warning(self,
+                                    status: DistroStatus = DistroStatus.COMPATIBLE):
         if status is None:
             status = DistroStatus.COMPATIBLE
         self.distro_warning.visible = status is not DistroStatus.COMPATIBLE
         self.distro_warning_text.current.value = tr(DistroStatus(status).value)
-        self.distro_warning.update()
-        self.update()
+        await self.distro_warning.update_async()
+        await self.update_async()
 
-    def open_distro_dir(self, e):
+    async def open_distro_dir(self, e):
         # open distro directory in Windows Explorer
         if os.path.isdir(self.distro_location_text.current.value):
             os.startfile(self.distro_location_text.current.value)
-        self.update()
+        await self.update_async()
 
-    def tabs_changed(self, e):
+    async def tabs_changed(self, e):
         filter = "All"
         match int(e.data):
             case GameInstallments.ALL.value:
@@ -1271,9 +1201,9 @@ class SettingsScreen(UserControl):
                     control.visible = True
                 else:
                     control.visible = False
-            control.update()
+            await control.update_async()
         self.app.config.current_game_filter = int(e.data)
-        self.update()
+        await self.update_async()
 
     def is_installment_filtered(self, installment):
         match self.filter.selected_index:
@@ -1301,17 +1231,40 @@ class HomeScreen(UserControl):
     def __init__(self, app: App, **kwargs):
         super().__init__(self, **kwargs)
         self.app = app
+        self.markdown_content = ft.Ref[ft.Markdown]()
+
+    async def did_mount_async(self):
+        self.got_news = False
+        create_task(self.get_news())
+
+    async def get_news(self):
+        dem_news = 'https://raw.githubusercontent.com/DeusExMachinaTeam/EM-CommunityPatch/main/README.md'
+        # pavlik_news = 'https://raw.githubusercontent.com/zatinu322/hta_kazakh_autotranslation/main/README.md'
+        response = await request(
+            url=dem_news,
+            protocol="HTTPS",
+            protocol_info={
+                "request_type": "GET",
+                "timeout": 5
+            }
+        )
+
+        md_raw = response["api_response"]["text"]
+        md = self.process_markdown(md_raw)
+        self.markdown_content.current.value = md
+        await self.markdown_content.current.update_async()
+
+    def process_markdown(self, md_raw):
+        md_result = html.unescape(md_raw)
+        md_result = md_result.replace('<p align="right">(<a href="#top">перейти наверх</a>)</p>', '')
+        md_result = markdownify.markdownify(md_result, convert=['a', 'b', 'img'], escape_asterisks=False)
+        return md_result
 
     def build(self):
-        #TODO: preload md or use placeholder by default
+        # TODO: preload md or use placeholder by default
         with open(get_internal_file_path("assets/placeholder.md"), "r", encoding="utf-8") as fh:
             md1 = fh.read()
-            r = requests.get('https://raw.githubusercontent.com/DeusExMachinaTeam/EM-CommunityPatch/main/README.md')
-            r = requests.get('https://raw.githubusercontent.com/zatinu322/hta_kazakh_autotranslation/main/README.md')
-            md1 = r.text
-            md1 = html.unescape(md1)
-            md1 = md1.replace('<p align="right">(<a href="#top">перейти наверх</a>)</p>', '')
-            md1 = markdownify.markdownify(md1, convert=['a', 'b', 'img'], escape_asterisks=False)
+            md1 = self.process_markdown(md1)
 
             if self.app.game.game_installment_id == GameInstallments.EXMACHINA.value:
                 logo_path = "icons/em_logo.png"
@@ -1380,6 +1333,7 @@ class HomeScreen(UserControl):
                             code_theme="atom-one-dark",
                             extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                             on_tap_link=lambda e: self.app.page.launch_url(e.data),
+                            ref=self.markdown_content,
                         ), padding=ft.padding.only(left=10, right=22)),
                         ],
                         alignment=ft.MainAxisAlignment.START,
@@ -1389,123 +1343,31 @@ class HomeScreen(UserControl):
                 margin=ft.margin.only(bottom=20), expand=True)
 
 
-class TodoApp(UserControl):
-    def build(self):
-        self.tasks = Column()
-
-        self.new_task = TextField(
-            hint_text="What needs to be done?",
-            hint_style=ft.TextStyle(color=ft.colors.ON_SURFACE),
-            border_color=ft.colors.OUTLINE,
-            focused_border_color=ft.colors.PRIMARY,
-            on_submit=self.add_clicked,
-            dense=True,
-            height=42,
-            text_size=13,
-            expand=True)
-
-        self.filter = Tabs(
-            selected_index=0,
-            on_change=self.tabs_changed, height=40,
-            tabs=[Tab(text="all"), Tab(text="active"), Tab(text="completed")],
-        )
-
-        self.items_left = Text("0 items left")
-
-        # application's root control (i.e. "view") containing all other controls
-        return ft.Container(Column(
-            controls=[
-                Row([Text(value="Todos", style="headlineMedium")], alignment="center"),
-                Row(
-                    controls=[
-                        self.new_task,
-                        FloatingActionButton(icon=icons.ADD, on_click=self.add_clicked, mini=True),
-                    ],
-                ),
-                Column(
-                    spacing=25,
-                    controls=[
-                        self.filter,
-                        self.tasks,
-                        Row(
-                            alignment="spaceBetween",
-                            vertical_alignment="center",
-                            controls=[
-                                self.items_left,
-                                OutlinedButton(
-                                    text="Clear completed", on_click=self.clear_clicked
-                                ),
-                            ],
-                        ),
-                    ],
-                ),
-            ]
-        ), margin=20)
-
-    def add_clicked(self, e):
-        if self.new_task.value:
-            task = Task(self.new_task.value, self.task_status_change, self.task_delete)
-            self.tasks.controls.append(task)
-            self.new_task.value = ""
-            self.new_task.focus()
-            self.update()
-
-    def task_status_change(self, task):
-        self.update()
-
-    def task_delete(self, task):
-        self.tasks.controls.remove(task)
-        self.update()
-
-    def tabs_changed(self, e):
-        self.update()
-
-    def clear_clicked(self, e):
-        for task in self.tasks.controls[:]:
-            if task.completed:
-                self.task_delete(task)
-
-    def update(self):
-        status = self.filter.tabs[self.filter.selected_index].text
-        count = 0
-        for task in self.tasks.controls:
-            task.visible = (
-                status == "all"
-                or (status == "active" and not task.completed)
-                or (status == "completed" and task.completed)
-            )
-            if not task.completed:
-                count += 1
-        self.items_left.value = f"{count} active item(s) left"
-        super().update()
-
-
-
-def main(page: Page):
-    def maximize(e):
+async def main(page: Page):
+    async def maximize(e):
         page.window_maximized = not page.window_maximized
-        page.update()
+        await page.update_async()
 
-    def minimize(e):
+    async def minimize(e):
         page.window_minimized = True
-        page.update()
+        await page.update_async()
 
-    def change_theme_mode(e):
+    async def change_theme_mode(e):
         theme = page._Page__theme_mode
         if theme == ft.ThemeMode.SYSTEM:
             page.theme_mode = ft.ThemeMode.DARK
             page.theme_icon_btn.current.icon = ft.icons.WB_SUNNY_OUTLINED
-            page.theme_icon_btn.current.update()
+            await page.theme_icon_btn.current.update_async()
         elif theme == ft.ThemeMode.DARK:
             page.theme_mode = ft.ThemeMode.LIGHT
             page.theme_icon_btn.current.icon = ft.icons.NIGHTLIGHT_OUTLINED
-            page.theme_icon_btn.current.update()
+            await page.theme_icon_btn.current.update_async()
         else:
             page.theme_mode = ft.ThemeMode.SYSTEM
             page.theme_icon_btn.current.icon = ft.icons.BRIGHTNESS_AUTO
-            page.theme_icon_btn.current.update()
+            await page.theme_icon_btn.current.update_async()
 
-        page.update()
+        await page.update_async()
 
     def title_btn_style(hover_color: ft.colors = None):
         color_dict = {ft.MaterialState.DEFAULT: ft.colors.ON_BACKGROUND}
@@ -1517,10 +1379,10 @@ def main(page: Page):
             shape={ft.MaterialState.DEFAULT: ft.buttons.RoundedRectangleBorder(radius=2)}
         )
 
-    def extend_rail(e):
+    async def extend_rail(e):
         e.page.rail.extended = not e.page.rail.extended
         e.control.selected = not e.control.selected
-        e.page.update()
+        await e.page.update_async()
 
     def create_sections(app: App):
         app.home = HomeScreen(app)
@@ -1533,9 +1395,9 @@ def main(page: Page):
     def proccess_game_and_distro_setup():
         pass
 
-    def wrap_on_window_event(e):
+    async def wrap_on_window_event(e):
         if e.data == "close":
-            finalize(e)
+            await finalize(e)
         elif e.data == "unmaximize" or e.data == "maximize":
             if page.window_maximized:
                 page.icon_maximize.current.icon = ft.icons.FILTER_NONE
@@ -1543,12 +1405,12 @@ def main(page: Page):
             else:
                 page.icon_maximize.current.icon = ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED
                 page.icon_maximize.current.icon_size = 17
-            page.icon_maximize.current.update()
+            await page.icon_maximize.current.update_async()
 
-    def finalize(e):
+    async def finalize(e):
         print("closing")
         app.config.save_config()
-        page.window_close()
+        await page.window_close_async()
 
     options = _init_input_parser().parse_args()
 
@@ -1698,7 +1560,7 @@ def main(page: Page):
 
     page.icon_maximize = ft.Ref[IconButton]()
     # title bar to replace system one
-    page.add(
+    await page.add_async(
         ft.Row(
             [ft.WindowDragArea(ft.Container(
                  ft.Row([
@@ -1727,25 +1589,26 @@ def main(page: Page):
                                       margin=ft.margin.only(left=20, right=0))
 
     # add application's root control to the page
-    page.add(ft.Container(ft.Row([
-                                  rail,
-                                  ft.VerticalDivider(width=1),
-                                  app.content_column,
-                                  ]),
-                          expand=True,
-                          padding=ft.padding.only(left=10, right=10, bottom=10)
-                          )
-             )
+    await page.add_async(
+        ft.Container(ft.Row([
+                             rail,
+                             ft.VerticalDivider(width=1),
+                             app.content_column,
+                             ]),
+                     expand=True,
+                     padding=ft.padding.only(left=10, right=10, bottom=10)
+                     )
+    )
 
     app.context.current_session.load_steam_game_paths()
     if need_quick_start:
         print("showing quick start")
-        app.show_guick_start_wizard()
+        await app.show_guick_start_wizard()
     else:
         proccess_game_and_distro_setup()
-        app.change_page(index=app.config.current_section)
+        await app.change_page(index=app.config.current_section)
 
-    page.update()
+    await page.update_async()
 
 
 def start():
