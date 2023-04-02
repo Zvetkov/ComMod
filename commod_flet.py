@@ -1232,6 +1232,7 @@ class HomeScreen(UserControl):
         super().__init__(self, **kwargs)
         self.app = app
         self.markdown_content = ft.Ref[ft.Markdown]()
+        self.news_text = None
 
     async def did_mount_async(self):
         self.got_news = False
@@ -1240,6 +1241,10 @@ class HomeScreen(UserControl):
 
     async def get_news(self):
         if not self.offline:
+            if self.news_text is not None:
+                self.markdown_content.current.value = self.news_text
+                await self.markdown_content.current.update_async()
+                return
             dem_news = 'https://raw.githubusercontent.com/DeusExMachinaTeam/EM-CommunityPatch/main/README.md'
             # pavlik_news = 'https://raw.githubusercontent.com/zatinu322/hta_kazakh_autotranslation/main/README.md'
             response = await request(
@@ -1256,10 +1261,11 @@ class HomeScreen(UserControl):
                 md = self.process_markdown(md_raw)
                 self.markdown_content.current.value = md
                 await self.markdown_content.current.update_async()
+                self.news_text = md
                 self.got_news = True
-            else:
-                print("Unable to get url content for news")
-                self.offline = True
+        else:
+            print("Unable to get url content for news")
+            self.offline = True
 
     def process_markdown(self, md_raw):
         md_result = html.unescape(md_raw)
