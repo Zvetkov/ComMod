@@ -250,10 +250,12 @@ class ConsoleUX:
         else:
             developer_title = "author"
 
-        return (f"{fconsole(tr(developer_title), bcolors.OKBLUE)} "
-                f"{mod.authors}\n"
-                f"{fconsole(tr('mod_url'), bcolors.OKBLUE)} "
-                f"{fconsole(mod.url, bcolors.HEADER)}\n")
+        mod_info = (f"{fconsole(tr(developer_title), bcolors.OKBLUE)} "
+                    f"{mod.authors}\n")
+        if mod.url:
+            mod_info += (f"{fconsole(tr('mod_url'), bcolors.OKBLUE)} "
+                         f"{fconsole(mod.url, bcolors.HEADER)}\n")
+        return mod_info
 
     def notify_on_mod_with_errors(self, mod: Mod, errors: list[str]) -> None:
         description = self.format_mod_description(mod)

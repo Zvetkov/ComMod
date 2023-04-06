@@ -7,11 +7,15 @@ import os
 from pathlib import Path
 import typing
 
+from enum import Enum
+
 from color import bcolors, fconsole, remove_colors
 from localisation import tr, DEM_DISCORD, COMPATCH_GITHUB, WIKI_COMPATCH
-from file_ops import copy_from_to
+from file_ops import copy_from_to, read_yaml
 
 logger = logging.getLogger('dem')
+
+
 
 
 class Mod:
@@ -26,9 +30,51 @@ class Mod:
             self.authors = str(yaml_config.get("authors"))[:128]
             self.version = str(yaml_config.get("version"))[:64]
             self.build = str(yaml_config.get("build"))[:7]
-            self.url = str(yaml_config.get("link"))[:256]
+            url = str(yaml_config.get("link"))
+            self.url = url[:256].strip() if url is not None else ""
             self.prerequisites = yaml_config.get("prerequisites")
             self.incompatible = yaml_config.get("incompatible")
+            self.tags = yaml_config.get("tags")
+            self.logo = yaml_config.get("logo")
+            self.language = yaml_config.get("language")
+            self.screenshots = yaml_config.get("screenshots")
+            self.change_log = yaml_config.get("change_log")
+            self.other_info = yaml_config.get("other_info")
+
+            translations = yaml_config.get("translations")
+            self.translations = {}
+            self.translations_loaded = {}
+            if translations is not None:
+                for translation in translations:
+                    self.translations[translation] = Mod.is_known_lang(translation)
+
+            if self.tags is None:
+                self.tags = [Mod.Tags.UNCATEGORIZED.name]
+            else:
+                # removing unknown values
+                self.tags = list(set([tag.upper() for tag in self.tags]) & set(Mod.Tags.list_names()))
+
+            if self.screenshots is None:
+                self.screenshots = []
+            elif isinstance(self.screenshots, list):
+                for screenshot in self.screenshots:
+                    if not isinstance(screenshot.get("img"), str):
+                        next
+
+                    if isinstance(screenshot.get("text"), str):
+                        screenshot["text"] = screenshot["text"].strip()
+                    else:
+                        screenshot["text"] = ""
+                    if isinstance(screenshot.get("compare"), str):
+                        pass
+                    else:
+                        screenshot["compare"] = ""
+
+            if self.change_log is None:
+                self.change_log = ""
+
+            if self.other_info is None:
+                self.other_info = ""
 
             # to simplify hadling of incomps and reqs
             # we always work with them as if they are list of choices
@@ -96,6 +142,23 @@ class Mod:
             self.logger.error(ex)
             self.logger.error(er_message)
             raise ValueError(er_message)
+
+    @staticmethod
+    def is_known_lang(lang: str):
+        return lang in ["eng", "ru", "ua", "de", "pl", "tr"]
+
+    def load_translations(self):
+        self.translations_loaded[self.language] = self
+        if self.translations:
+            for lang, _ in self.translations.items():
+                lang_manifest_path = Path(self.distibution_dir, f"manifest_{lang}.yaml")
+                if not lang_manifest_path.exists():
+                    raise ValueError(f"Lang {lang} specified but manifest for it is missing")
+                yaml_config = read_yaml(lang_manifest_path)
+                config_validated = Mod.validate_install_config(yaml_config, lang_manifest_path)
+                if config_validated:
+                    mod_tr = Mod(yaml_config, self.distibution_dir)
+                    self.translations_loaded[lang] = mod_tr
 
     def install(self, game_data_path: str,
                 install_settings: dict,
@@ -375,6 +438,7 @@ class Mod:
                         error_msg.append(f'\n{tr("version_available").capitalize()}:\n'
                                          f'{remove_colors(installed_description)}')
                     else:
+                        # TODO: check if this path even possible
                         b = 1
 
                 compatible &= (not incompatible_with_game_copy)
@@ -404,12 +468,19 @@ class Mod:
                 "patcher_version_requirement": [[str, float, int, list[str | float | int]], True],
 
                 "release_date": [[str], False],
-                "language": [[str], False],
+                "language": [[str], True],
+                "translations": [[list[str]], False],
                 "link": [[str], False],
+                "tags": [[list[str]], False],
+                "logo": [[str], False],
+                "screenshots": [[list], False],
+                "change_log": [[str], False],
+                "other_info": [[str], False],
                 "patcher_options": [[dict], False],
                 "optional_content": [[list], False],
                 "no_base_content": [[bool, str], False],
             }
+
             schema_prereqs = {
                 "name": [[str, list[str]], True],
                 "versions": [[list[str | int | float]], False],
@@ -722,6 +793,27 @@ class Mod:
                                             f"{install_description}")
                 descriptions.append(description)
         return descriptions
+
+    class Tags(Enum):
+        BUGFIX = 0
+        GAMEPLAY = 1
+        STORY = 2
+        VISUAL = 3
+        AUDIO = 4
+        WEAPONS = 5
+        VEHICLES = 6
+        UI = 7
+        BALANCE = 8
+        HUMOR = 9
+        UNCATEGORIZED = 10
+
+        @classmethod
+        def list_values(cls):
+            return list(map(lambda c: c.value, cls))
+
+        @classmethod
+        def list_names(cls):
+            return list(map(lambda c: c.name, cls))
 
     @total_ordering
     class Version:

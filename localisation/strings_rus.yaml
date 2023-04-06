@@ -118,7 +118,7 @@ missing_distribution: 'Файлы Community Patch / Remaster не найдены
   Поместите установщик в одну папку с остальными файлами ComPatch.'
 mm_inserts_patched: '* Замена менеджера памяти, 4GB патч'
 mod_manager_title: Mod Manager {VERSION} - установка модов для ComPatch/ComRem
-mod_url: 'Домашняя страница:'
+mod_url: 'Домашняя мода:'
 not_validated_mod_manifest: Не удалось начать установку для мода, возможно файлы повреждены или манифест установки имеет некорректный формат
 nothing_to_install: Нечего устанавливать, работа закончена.
 numeric_fixes_patched: '* Улучшения физики и поведения авто

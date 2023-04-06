@@ -124,7 +124,7 @@ def main_console(options: argparse.Namespace) -> None:
     try:
         game.load_installed_descriptions(context.validated_mod_configs, colourise=True)
 
-        remaster_mod = Mod(context.remaster_config, context.remaster_path,)
+        remaster_mod = Mod(context.remaster_config, context.remaster_path)
 
         commod_compatible, commod_compat_err = remaster_mod.compatible_with_mod_manager(
             context.commod_version)
@@ -505,9 +505,9 @@ def _init_input_parser():
 
 if __name__ == '__main__':
     options = _init_input_parser().parse_args()
+    if "Windows" in platform.system():
+        windll.shcore.SetProcessDpiAwareness(2)
     if options.console:
-        if "Windows" in platform.system():
-            windll.shcore.SetProcessDpiAwareness(2)
         sys.exit(main_console(options))
     else:
         sys.exit(main_gui(options))

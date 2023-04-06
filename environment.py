@@ -86,9 +86,6 @@ class InstallationContext:
                                        "Couldn't find all required files in given distribuion dir")
 
     def load_system_info(self):
-        self.os = platform.system()
-        self.os_version = platform.release()
-
         self.under_windows = "Windows" in self.os
         self.monitor_res = self.get_monitor_resolution()
 
@@ -268,6 +265,9 @@ class InstallationContext:
             self.content_in_processing = {}
             self.installed_content_description = []
             self.steam_game_paths = []
+            self.tracked_mods = set()
+            self.mods = {}
+            self.mods_validation_info = {}
 
         def load_steam_game_paths(self) -> tuple[str, str]:
             '''Tries to find the game in default Steam folder, returns path and error message'''
