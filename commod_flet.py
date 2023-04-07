@@ -1,44 +1,36 @@
 
 from asyncio import create_task, gather
-import asyncio
-from collections import OrderedDict
-from enum import Enum
 import logging
 import os
-import sys
-from dataclasses import dataclass, field
 
+from dataclasses import dataclass  # , field
+from enum import Enum
 from pathlib import Path
-import html
-import markdownify
+
 from asyncio_requests.asyncio_request import request
-from commod import _init_input_parser
 
-from file_ops import dump_yaml, get_internal_file_path, read_yaml
-
-from data import get_title
-from environment import InstallationContext, GameCopy
-
-from localisation import tr
 import localisation
-from mod import Mod
-# from color import br, fcss, css
 
-logging.basicConfig(level=logging.DEBUG)
+from commod import _init_input_parser
+from data import get_title
+from environment import InstallationContext, GameCopy, GameInstallments, GameStatus, DistroStatus
+from file_ops import dump_yaml, get_internal_file_path, read_yaml, process_markdown
+from localisation import tr, SupportedLanguages
+from mod import Mod
+
+# logging.basicConfig(level=logging.DEBUG)
 
 from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory,\
                    PatchedButDoesntHaveManifest, WrongGameDirectoryPath,\
                    DistributionNotFound, FileLoggingSetupError, InvalidExistingManifest, ModsDirMissing,\
                    NoModsFound, CorruptedRemasterFiles, DXRenderDllNotFound
 
+
 import flet as ft
 from flet import (
-    Checkbox,
     Column,
     FloatingActionButton,
     IconButton,
-    OutlinedButton,
-    ElevatedButton,
     Page,
     Row,
     Tab,
@@ -48,7 +40,6 @@ from flet import (
     UserControl,
     colors,
     icons,
-    TextAlign,
     ThemeVisualDensity,
     Theme,
     Image,
@@ -56,45 +47,11 @@ from flet import (
 )
 
 
-class GameStatus(Enum):
-    COMPATIBLE = ""
-    NOT_EXISTS = "not_a_valid_path"
-    BAD_EXE = "unsupported_exe_version"
-    EXE_RUNNING = "exe_is_running"
-    MISSING_FILES = "target_dir_missing_files"
-    LEFTOVERS = "install_leftovers"
-    ALREADY_ADDED = "already_in_list"
-    GENERAL_ERROR = "error"
-
-
-class DistroStatus(Enum):
-    COMPATIBLE = ""
-    NOT_EXISTS = "not_a_valid_path"
-    MISSING_FILES = "target_dir_missing_files"
-    ALREADY_ADDED = "already_chosen"
-    GENERAL_ERROR = "error"
-
-
 class AppSections(Enum):
     LAUNCH = 0
     LOCAL_MODS = 1
     DOWNLOAD_MODS = 2
     SETTINGS = 3
-
-
-class GameInstallments(Enum):
-    ALL = 0
-    EXMACHINA = 1
-    M113 = 2
-    ARCADE = 3
-    UNKNOWN = 4
-
-
-class SupportedLanguages(Enum):
-    SYS = 0
-    ENG = 1
-    RUS = 2
-    UKR = 3
 
 
 class LangFlags(Enum):
@@ -106,13 +63,6 @@ class LangFlags(Enum):
     tr = "assets\\flags\\openmoji_tr.svg"
     pl = "assets\\flags\\openmoji_pl.svg"
     other = "assets\\flags\\openmoji_triangle.svg"
-
-
-def process_markdown(md_raw):
-    md_result = html.unescape(md_raw)
-    md_result = md_result.replace('<p align="right">(<a href="#top">перейти наверх</a>)</p>', '')
-    md_result = markdownify.markdownify(md_result, convert=['a', 'b', 'img'], escape_asterisks=False)
-    return md_result
 
 
 class Config:
@@ -1244,27 +1194,35 @@ class SettingsScreen(UserControl):
 
 
 class ModInfo(UserControl):
-    def __init__(self, app: App, mod: Mod, **kwargs):
+    def __init__(self, app: App, mod: Mod, mod_item, **kwargs):
         super().__init__(self, **kwargs)
         self.app = app
         self.mod = mod
         self.main_mod = mod
+        self.mod_item = mod_item
         self.tabs = ft.Ref[ft.Tabs]()
         self.tab_index = 0
         self.expanded = False
-        self.screenshot_index = 0
-        self.max_screenshot_index = len(self.mod.screenshots) - 1
         self.container = ft.Ref[ft.Container]()
+
         self.main_info = ft.Ref[ft.Container]()
-        self.screenshots = ft.Ref[ft.Container]()
-        self.change_log = ft.Ref[ft.Container]()
-        self.other_info = ft.Ref[ft.Container]()
         self.compatibility = ft.Ref[ft.Container]()
-        self.screenshot_view = ft.Ref[Image]()
-        self.screenshot_text = ft.Ref[Text]()
-        self.tab_info = [self.main_info]
         self.lang_list = ft.Ref[Row]()
         self.mod_description_text = ft.Ref[Text]()
+
+        self.screenshot_index = 0
+        self.max_screenshot_index = len(self.mod.screenshots) - 1
+        self.screenshots = ft.Ref[ft.Container]()
+        self.screenshot_view = ft.Ref[Image]()
+        self.screenshot_text = ft.Ref[Text]()
+
+        self.change_log = ft.Ref[ft.Container]()
+        self.change_log_text = ft.Ref[ft.Markdown]()
+
+        self.other_info = ft.Ref[ft.Container]()
+        self.other_info_text = ft.Ref[ft.Markdown]()
+
+        self.tab_info = [self.main_info]
 
     async def toggle(self):
         self.expanded = not self.expanded
@@ -1272,7 +1230,6 @@ class ModInfo(UserControl):
         await self.update_async()
 
     async def switch_tab(self, e):
-        print("Switch tab")
         self.tab_index = e.data
         for index, widget in enumerate(self.tab_info):
             widget.current.visible = str(index) == self.tab_index
@@ -1361,9 +1318,26 @@ class ModInfo(UserControl):
         await self.app.page.launch_url_async(self.mod.url)
 
     async def change_lang(self, e):
+        # TODO: All of this is bullshit and doesn't take into account that translations can have different
+        # sets of screenshots and info views. Need to fully rebuild widgets on lang change ideally.
+        # Or say to users not to make completely different translation manifests
         self.mod = self.main_mod.translations_loaded[e.control.data]
+        await self.mod_item.change_lang(e)
         self.mod_description_text.current.value = self.mod.description
         await self.mod_description_text.current.update_async()
+        if self.mod.screenshots:
+            self.screenshot_text.current.value = self.mod.screenshots[self.screenshot_index]["text"]
+            self.screenshot_text.current.visible = bool(self.mod.screenshots[self.screenshot_index]["text"])
+            self.screenshot_view.current.src = self.mod.screenshots[self.screenshot_index]["path"]
+            self.screenshot_view.current.data = self.mod.screenshots[self.screenshot_index]
+            await self.screenshot_text.current.update_async()
+            await self.screenshot_view.current.update_async()
+        if self.mod.change_log:
+            self.change_log_text.current.value = self.mod.change_log_content
+            await self.change_log_text.current.update_async()
+        if self.mod.other_info_content:
+            self.other_info_text.current.value = self.mod.other_info_content
+            await self.other_info_text.current.update_async()
 
     def build(self):
         return ft.Container(
@@ -1442,9 +1416,10 @@ class ModInfo(UserControl):
                                 padding=ft.padding.only(bottom=15)),
                             ft.Container(
                                 ft.Column([ft.Markdown(self.mod.change_log_content,
+                                                       ref=self.change_log_text,
                                                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                                                        on_tap_link=self.launch_url)],
-                                          scroll=ft.ScrollMode.AUTO),
+                                          scroll=ft.ScrollMode.ADAPTIVE),
                                 ref=self.change_log,
                                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
                                 height=300,
@@ -1452,6 +1427,7 @@ class ModInfo(UserControl):
                                 padding=ft.padding.only(bottom=15)),
                             ft.Container(
                                 ft.Column([ft.Markdown(self.mod.other_info_content,
+                                                       ref=self.other_info_text,
                                                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                                                        on_tap_link=self.launch_url)],
                                           scroll=ft.ScrollMode.AUTO),
@@ -1472,76 +1448,13 @@ class ModItem(UserControl):
     def __init__(self, app: App, mod: Mod, **kwargs):
         super().__init__(self, **kwargs)
         self.app = app
+        self.main_mod = mod
         self.mod = mod
-        supported_img_extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]
 
         self.info_container = ft.Ref[ModInfo]()
-
-        self.mod.change_log_content = ""
-        if self.mod.change_log:
-            changelog_path = Path(self.mod.distibution_dir, self.mod.change_log)
-            if changelog_path.exists() and changelog_path.suffix.lower() == ".md":
-                with open(changelog_path, "r", encoding="utf-8") as fh:
-                    md = fh.read()
-                    md = process_markdown(md)
-                    self.mod.change_log_content = md
-
-        self.mod.other_info_content = ""
-        if self.mod.other_info:
-            other_info_path = Path(self.mod.distibution_dir, self.mod.other_info)
-            if other_info_path.exists() and other_info_path.suffix.lower() == ".md":
-                with open(other_info_path, "r", encoding="utf-8") as fh:
-                    md = fh.read()
-                    md = process_markdown(md)
-                    self.mod.other_info_content = md
-
-        self.logo_path = get_internal_file_path("assets/no_logo.png")
-        if mod.logo is not None:
-            logo_path = Path(mod.distibution_dir, mod.logo)
-            if logo_path.exists() and logo_path.suffix.lower() in supported_img_extensions:
-                self.logo_path = str(logo_path)
-
-        for screen in self.mod.screenshots:
-            screen_path = Path(mod.distibution_dir, screen["img"])
-            if logo_path.exists() and logo_path.suffix.lower() in supported_img_extensions:
-                screen["path"] = str(screen_path)
-            else:
-                screen["path"] = ""
-            compare_path = Path(mod.distibution_dir, screen["compare"])
-            if compare_path.exists() and compare_path.suffix.lower() in supported_img_extensions:
-                screen["compare_path"] = str(compare_path)
-            else:
-                screen["compare_path"] = ""
-
-        compat_info = self.app.session.mods_validation_info[str(Path(self.mod.distibution_dir,
-                                                                     "manifest.yaml"))]
-        self.mod.commod_compatible = compat_info["compatible_with_commod"]
-        self.mod.commod_compatible_err = "\n".join(compat_info["compatible_with_commod_err"]).strip()
-
-        compatible = compat_info.get("compatible")
-        if compatible is not None:
-            self.mod.compatible = compatible
-            self.mod.compatible_err = "\n".join(compat_info["compatible_err"]).strip()
-        else:
-            self.mod.compatible = True
-            self.mod.compatible_err = ""
-
-        prevalidated = compat_info.get("prevalidated")
-        if prevalidated is not None:
-            self.mod.prevalidated = prevalidated
-            self.mod.prevalidated_err = "\n".join(compat_info["prevalidated_err"]).strip()
-        else:
-            self.mod.prevalidated = True
-            self.mod.prevalidated_err = ""
-
-        self.mod.can_install = (self.mod.commod_compatible
-                                and self.mod.compatible
-                                and self.mod.prevalidated)
-
-        if ", " in self.mod.authors:
-            self.developer_title = "authors"
-        else:
-            self.developer_title = "author"
+        self.mod_name_text = ft.Ref[Text]()
+        self.author_text = ft.Ref[Text]()
+        self.mod_logo_img = ft.Ref[Image]()
 
     async def install_mod(self, e):
         self.app.logger.debug("Pressed install mod")
@@ -1550,6 +1463,15 @@ class ModItem(UserControl):
         self.app.logger.debug("Pressed toggle info")
         await self.info_container.current.toggle()
 
+    async def change_lang(self, e):
+        self.mod = self.main_mod.translations_loaded[e.control.data]
+        self.mod_name_text.current.value = self.mod.display_name
+        await self.mod_name_text.current.update_async()
+        self.author_text.current.value = f"{tr(self.mod.developer_title)} {self.mod.authors}"
+        await self.author_text.current.update_async()
+        self.mod_logo_img.current.src = self.mod.logo_path
+        await self.mod_logo_img.current.update_async()
+
     def build(self):
         tr_tags = [tr(tag.lower()).capitalize() for tag in self.mod.tags]
         # return ft.GestureDetector(
@@ -1557,12 +1479,19 @@ class ModItem(UserControl):
             ft.Container(
                 Column([
                     ft.ResponsiveRow([
-                        Image(src=self.logo_path, col={"sm": 4, "xl": 3}, border_radius=5),
+                        Image(src=self.mod.logo_path,
+                              ref=self.mod_logo_img,
+                              gapless_playback=True,
+                              col={"sm": 4, "xl": 3}, border_radius=5),
                         Column([
-                            Text(f'{self.mod.display_name}',
+                            Text(self.mod.display_name,
+                                 ref=self.mod_name_text,
                                  weight=ft.FontWeight.W_700,
                                  size=18),
-                            Text(f"{tr(self.developer_title)} {self.mod.authors}",
+                            Text(f"{tr(self.mod.developer_title)} {self.mod.authors}",
+                                 ref=self.author_text,
+                                 max_lines=2,
+                                 overflow=ft.TextOverflow.ELLIPSIS,
                                  size=13,
                                  weight=ft.FontWeight.W_200),
                             Row([*[ft.Container(Text(tag, color=ft.colors.ON_TERTIARY_CONTAINER, size=12),
@@ -1621,7 +1550,7 @@ class ModItem(UserControl):
                                               on_click=self.toggle_info)
                             ], col={"sm": 3, "xl": 2}, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
                         ], spacing=15, columns=13),
-                    ModInfo(self.app, self.mod, ref=self.info_container)
+                    ModInfo(self.app, self.mod, self, ref=self.info_container)
                 ], spacing=0, scroll=ft.ScrollMode.HIDDEN),
                 margin=15),
             margin=ft.margin.symmetric(vertical=1), elevation=3,
@@ -1873,14 +1802,17 @@ async def main(page: Page):
             app.logger.info("Prevalidating Community Patch and Remaster state")
             app.context.validate_remaster()
             remaster_mod = Mod(app.context.remaster_config, app.context.remaster_path)
-            remaster_mod.load_translations()
+            # TODO: maybe check if remaster translation manifest is corrupted
+            remaster_mod.load_translations(load_gui_info=True)
+            remaster_mod.load_gui_info()
 
             app.session.mods[app.context.remaster_path] = remaster_mod
             commod_compatible, commod_compat_err = \
                 remaster_mod.compatible_with_mod_manager(app.context.commod_version)
-            app.session.mods_validation_info[str(Path(app.context.remaster_path, "manifest.yaml"))] = {
+            compat_info = {
                 "compatible_with_commod": commod_compatible,
                 "compatible_with_commod_err": commod_compat_err}
+            remaster_mod.load_session_compatibility(compat_info)
             manifest = app.context.remaster_config
             mod_identifier = f'{manifest["name"]}{manifest["version"]}{manifest["build"]}'
             app.session.tracked_mods.add(app.context.remaster_path)
@@ -1902,11 +1834,15 @@ async def main(page: Page):
                 mod_identifier = f'{manifest["name"]}{manifest["version"]}{manifest["build"]}'
                 if mod_identifier not in app.session.tracked_mods:
                     mod = Mod(manifest, Path(manifest_path).parent)
+
                     try:
-                        mod.load_translations()
+                        mod.load_translations(load_gui_info=True)
                     except Exception as ex:
                         app.logger.error(ex)
                         continue
+
+                    mod.load_gui_info()
+
                     compatible_with_commod, commod_compat_error = \
                         mod.compatible_with_mod_manager(app.context.commod_version)
 
@@ -1914,14 +1850,14 @@ async def main(page: Page):
                                                                            app.game.installed_descriptions)
                     compatible, incompatible_errors = mod.check_incompatibles(app.game.installed_content,
                                                                               app.game.installed_descriptions)
-                    app.session.mods_validation_info[manifest_path] = {
+                    compat_info = {
                         "compatible_with_commod": compatible_with_commod,
                         "compatible_with_commod_err": commod_compat_error,
                         "prevalidated": prevalidated,
                         "prevalidated_err": prevalid_errors,
                         "compatible": compatible,
                         "compatible_err": incompatible_errors}
-
+                    mod.load_session_compatibility(compat_info)
                     app.session.mods[manifest_path] = mod
                     app.session.tracked_mods.add(mod_identifier)
 

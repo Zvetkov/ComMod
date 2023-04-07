@@ -4,6 +4,7 @@ import os
 import platform
 import subprocess
 import sys
+from enum import Enum
 
 from pathlib import Path
 from datetime import datetime
@@ -17,6 +18,33 @@ from data import VERSION, VERSION_BYTES_100_STAR, VERSION_BYTES_102_NOCD, VERSIO
                  VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR, VERSION_BYTES_DEM_LNCH
 from localisation import tr
 from file_ops import running_in_venv, read_yaml, makedirs, shorten_path
+
+
+class GameStatus(Enum):
+    COMPATIBLE = ""
+    NOT_EXISTS = "not_a_valid_path"
+    BAD_EXE = "unsupported_exe_version"
+    EXE_RUNNING = "exe_is_running"
+    MISSING_FILES = "target_dir_missing_files"
+    LEFTOVERS = "install_leftovers"
+    ALREADY_ADDED = "already_in_list"
+    GENERAL_ERROR = "error"
+
+
+class DistroStatus(Enum):
+    COMPATIBLE = ""
+    NOT_EXISTS = "not_a_valid_path"
+    MISSING_FILES = "target_dir_missing_files"
+    ALREADY_ADDED = "already_chosen"
+    GENERAL_ERROR = "error"
+
+
+class GameInstallments(Enum):
+    ALL = 0
+    EXMACHINA = 1
+    M113 = 2
+    ARCADE = 3
+    UNKNOWN = 4
 
 
 class InstallationContext:

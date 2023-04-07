@@ -1,3 +1,4 @@
+from enum import Enum
 import locale
 import logging
 
@@ -9,6 +10,14 @@ logger = logging.getLogger('dem')
 DEM_DISCORD = "https://discord.gg/jZHxYdF"
 COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
 WIKI_COMPATCH = "https://deuswiki.com/w/Community_Patch"
+
+
+class SupportedLanguages(Enum):
+    SYS = 0
+    ENG = 1
+    RUS = 2
+    UKR = 3
+
 
 local_dict = {
     "settings": "настройки",

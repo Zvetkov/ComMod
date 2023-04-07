@@ -8,9 +8,11 @@ import shutil
 import logging
 import yaml
 import struct
+import html
 from pathlib import Path
 
 from lxml import etree, objectify
+import markdownify
 
 import progbar
 import hd_ui
@@ -199,6 +201,13 @@ def dump_yaml(data, path, sort_keys=True) -> bool:
 
 def get_internal_file_path(file_name: str) -> str:
     return os.path.join(os.path.dirname(__file__), file_name)
+
+
+def process_markdown(md_raw):
+    md_result = html.unescape(md_raw)
+    md_result = md_result.replace('<p align="right">(<a href="#top">перейти наверх</a>)</p>', '')
+    md_result = markdownify.markdownify(md_result, convert=['a', 'b', 'img'], escape_asterisks=False)
+    return md_result
 
 
 def patch_offsets(f, offsets_dict: dict) -> None:

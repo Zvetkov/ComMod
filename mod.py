@@ -11,11 +11,9 @@ from enum import Enum
 
 from color import bcolors, fconsole, remove_colors
 from localisation import tr, DEM_DISCORD, COMPATCH_GITHUB, WIKI_COMPATCH
-from file_ops import copy_from_to, read_yaml
+from file_ops import copy_from_to, read_yaml, process_markdown, get_internal_file_path
 
 logger = logging.getLogger('dem')
-
-
 
 
 class Mod:
@@ -147,7 +145,7 @@ class Mod:
     def is_known_lang(lang: str):
         return lang in ["eng", "ru", "ua", "de", "pl", "tr"]
 
-    def load_translations(self):
+    def load_translations(self, load_gui_info: bool = False):
         self.translations_loaded[self.language] = self
         if self.translations:
             for lang, _ in self.translations.items():
@@ -159,6 +157,75 @@ class Mod:
                 if config_validated:
                     mod_tr = Mod(yaml_config, self.distibution_dir)
                     self.translations_loaded[lang] = mod_tr
+                    if load_gui_info:
+                        mod_tr.load_gui_info()
+
+    def load_gui_info(self):
+        supported_img_extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]
+        self.change_log_content = ""
+        if self.change_log:
+            changelog_path = Path(self.distibution_dir, self.change_log)
+            if changelog_path.exists() and changelog_path.suffix.lower() == ".md":
+                with open(changelog_path, "r", encoding="utf-8") as fh:
+                    md = fh.read()
+                    md = process_markdown(md)
+                    self.change_log_content = md
+
+        self.other_info_content = ""
+        if self.other_info:
+            other_info_path = Path(self.distibution_dir, self.other_info)
+            if other_info_path.exists() and other_info_path.suffix.lower() == ".md":
+                with open(other_info_path, "r", encoding="utf-8") as fh:
+                    md = fh.read()
+                    md = process_markdown(md)
+                    self.other_info_content = md
+
+        self.logo_path = get_internal_file_path("assets/no_logo.png")
+        if self.logo is not None:
+            logo_path = Path(self.distibution_dir, self.logo)
+            if logo_path.exists() and logo_path.suffix.lower() in supported_img_extensions:
+                self.logo_path = str(logo_path)
+
+        for screen in self.screenshots:
+            screen_path = Path(self.distibution_dir, screen["img"])
+            if logo_path.exists() and logo_path.suffix.lower() in supported_img_extensions:
+                screen["path"] = str(screen_path)
+            else:
+                screen["path"] = ""
+            compare_path = Path(self.distibution_dir, screen["compare"])
+            if compare_path.exists() and compare_path.suffix.lower() in supported_img_extensions:
+                screen["compare_path"] = str(compare_path)
+            else:
+                screen["compare_path"] = ""
+
+        if ", " in self.authors:
+            self.developer_title = "authors"
+        else:
+            self.developer_title = "author"
+
+    def load_session_compatibility(self, compat_info: dict):
+        self.commod_compatible = compat_info["compatible_with_commod"]
+        self.commod_compatible_err = "\n".join(compat_info["compatible_with_commod_err"]).strip()
+
+        compatible = compat_info.get("compatible")
+        if compatible is not None:
+            self.compatible = compatible
+            self.compatible_err = "\n".join(compat_info["compatible_err"]).strip()
+        else:
+            self.compatible = True
+            self.compatible_err = ""
+
+        prevalidated = compat_info.get("prevalidated")
+        if prevalidated is not None:
+            self.prevalidated = prevalidated
+            self.prevalidated_err = "\n".join(compat_info["prevalidated_err"]).strip()
+        else:
+            self.prevalidated = True
+            self.prevalidated_err = ""
+
+        self.can_install = (self.commod_compatible
+                            and self.compatible
+                            and self.prevalidated)
 
     def install(self, game_data_path: str,
                 install_settings: dict,
