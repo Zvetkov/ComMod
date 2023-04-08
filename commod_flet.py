@@ -1,5 +1,6 @@
 
-from asyncio import create_task, gather
+from asyncio import create_task, gather, create_subprocess_exec
+from datetime import datetime
 import logging
 import os
 
@@ -319,7 +320,7 @@ class GameCopyListItem(UserControl):
                     tooltip="Update game name",
                     on_click=self.save_clicked,
                     width=40, height=40,
-                    icon_size=28
+                    icon_size=24
                 ),
             ],
         )
@@ -1580,6 +1581,8 @@ class LocalModsScreen(UserControl):
         self.mods_list_view = ft.Ref[ft.ListView]()
         self.no_mods_warning = ft.Ref[Text]()
 
+    # TODO: is not working properly when first starting with no distro and then adding it
+    # shows no_local_mods_found warning
     async def did_mount_async(self):
         if self.app.session.mods:
             self.mods_list_view.current.controls.remove(self.no_mods_warning.current)
@@ -1619,6 +1622,7 @@ class HomeScreen(UserControl):
         self.markdown_content = ft.Ref[ft.Markdown]()
         self.checking_online = ft.Ref[Row]()
         self.news_text = None
+        self.game_console_switch = ft.Ref[ft.Switch]()
 
     async def did_mount_async(self):
         self.got_news = False
@@ -1662,6 +1666,30 @@ class HomeScreen(UserControl):
     async def launch_url(self, e):
         await self.app.page.launch_url_async(e.data)
 
+    async def launch_game(self, e):
+        current_time = datetime.now()
+        if self.app.current_game_process is None:
+            print(f"Launching: {self.app.game.target_exe}")
+            # TODO: only should be possible to get there if the game is not already running
+            self.app.current_game_process = await create_subprocess_exec(self.app.game.target_exe,
+                                                                         '-console' if self.game_console_switch.current.value else "",
+                                                                         cwd=self.app.game.game_root_path)
+            self.app.game_launch_time = datetime.now()
+            # TODO: change the button prompt to "stop game" when it's already running
+        else:
+            # will this be 1 if we crash the game?
+            if self.app.current_game_process.returncode == 1:
+                # game exited
+                self.app.current_game_process = None
+            elif (current_time - self.app.game_launch_time).seconds < 1:
+                # do not try to relaunch game immediately
+                pass
+            elif self.app.current_game_process.returncode is None:
+                # stopping game on a next step, needs to be explained with a changing
+                # button prompt
+                self.app.current_game_process.terminate()
+                self.app.current_game_process = None
+
     def build(self):
         # TODO: preload md or use placeholder by default
         with open(get_internal_file_path("assets/placeholder.md"), "r", encoding="utf-8") as fh:
@@ -1687,6 +1715,10 @@ class HomeScreen(UserControl):
                                                     size=90,
                                                     color='red'),
                                                alignment=ft.alignment.center)])
+
+            if self.app.game.target_exe is None:
+                # TODO: create proper placeholder screen when there is no game
+                return ft.Container(Text("No game found"))
 
             return ft.Container(
                 ft.ResponsiveRow([
@@ -1717,7 +1749,9 @@ class HomeScreen(UserControl):
                             Text(tr("launch_params").upper(),
                                  weight=ft.FontWeight.W_700),
                             Row([ft.Switch(value=False, scale=0.7),
-                                 Text(tr("enable_console").capitalize(), weight=ft.FontWeight.W_500)],
+                                 Text(tr("enable_console").capitalize(),
+                                 ref=self.game_console_switch,
+                                 weight=ft.FontWeight.W_500)],
                                 spacing=0),
                             ft.FloatingActionButton(
                                 content=ft.Row([
@@ -1727,6 +1761,7 @@ class HomeScreen(UserControl):
                                 ),
                                 shape=ft.RoundedRectangleBorder(radius=5),
                                 bgcolor="#FFA500",
+                                on_click=self.launch_game,
                                 aspect_ratio=2.5,
                             )])
                         ],
@@ -1814,6 +1849,7 @@ async def main(page: Page):
                 "compatible_with_commod_err": commod_compat_err}
             remaster_mod.load_session_compatibility(compat_info)
             manifest = app.context.remaster_config
+            # TODO: understand if this id really needed and if it's working as intended (prevents dumplication)
             mod_identifier = f'{manifest["name"]}{manifest["version"]}{manifest["build"]}'
             app.session.tracked_mods.add(app.context.remaster_path)
         except CorruptedRemasterFiles as er:
@@ -1898,6 +1934,10 @@ async def main(page: Page):
 
     page.app = app
     app.page = page
+
+    # TODO: move to app init
+    app.current_game_process = None
+
     app.context.setup_loggers(stream_only=True)
     app.logger = app.context.logger
     app.context.load_system_info()
@@ -1962,7 +2002,7 @@ async def main(page: Page):
             # TODO: Handle exceptions properly
             print(f"[Distro loading error] {ex}")
 
-    need_quick_start = (app.config is None
+    need_quick_start = (not app.config.game_names
                         and app.context.distribution_dir is None
                         and app.game.game_root_path is None
                         and not options.skip_wizard)

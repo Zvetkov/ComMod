@@ -152,6 +152,8 @@ class InstallationContext:
         return monitor_res
 
     def validate_remaster(self):
+        if self.distribution_dir is None:
+            raise CorruptedRemasterFiles("", "No ComRem files found")
         yaml_path = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
         yaml_config = read_yaml(yaml_path)
         if yaml_config is None:
@@ -367,6 +369,9 @@ class GameCopy:
         # TODO missed this default initially, check for checks breaking because of None
         self.game_root_path = None
         self.label = ""
+        self.exe_version = "Unknown"
+        self.game_installment = None
+        self.game_installment_id = 4
 
     @staticmethod
     def validate_game_dir(game_root_path: str) -> tuple[bool, str]:
