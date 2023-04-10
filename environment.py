@@ -17,7 +17,7 @@ from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnp
 from data import VERSION, VERSION_BYTES_100_STAR, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
                  VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR, VERSION_BYTES_DEM_LNCH
 from localisation import tr
-from file_ops import running_in_venv, read_yaml, makedirs, shorten_path
+from file_ops import TARGEM_NEGATIVE, TARGEM_POSITIVE, get_config, running_in_venv, read_yaml, makedirs, save_to_file_async, shorten_path
 
 
 class GameStatus(Enum):
@@ -366,6 +366,7 @@ class GameCopy:
         self.patched_version = False
         self.leftovers = False
         self.target_exe = None
+        self.fullscreen_game = True
         # TODO missed this default initially, check for checks breaking because of None
         self.game_root_path = None
         self.label = ""
@@ -475,6 +476,12 @@ class GameCopy:
         self.installed_manifest_path = os.path.join(self.data_path, "mod_manifest.yaml")
 
         patched_version = ("ComRemaster" in self.exe_version) or ("ComPatch" in self.exe_version)
+        
+        if self.exe_version != "Unknown" and self.game_root_path is not None:
+            self.fullscreen_game = self.get_is_fullscreen()
+            if self.fullscreen_game is None:
+                # TODO: is not actually InvalidGameDirectory but more like BrokenGameConfig exception
+                raise InvalidGameDirectory(os.path.join(self.game_root_path, "data", "config.cfg"))
 
         # if len(self.game_root_path) > 60:
         #     path_identifier = f"{Path(self.game_root_path).drive}/.../{Path(self.game_root_path).name}"
@@ -573,6 +580,33 @@ class GameCopy:
 
             # description += "\n"
             self.installed_descriptions[content_piece] = description
+
+    async def switch_windowed(self, enable=True):
+        config = get_config(self.game_root_path)
+        current_value = config.attrib.get("r_fullScreen")
+        if current_value is not None:
+            if enable:
+                if current_value in TARGEM_POSITIVE:
+                    return
+                config.attrib["r_fullScreen"] = "true"
+                self.fullscreen_game = True
+            else:
+                if current_value in TARGEM_NEGATIVE:
+                    return
+                config.attrib["r_fullScreen"] = "false"
+                self.fullscreen_game = False
+            await save_to_file_async(config,
+                                     os.path.join(self.game_root_path, "data", "config.cfg"))
+
+    def get_is_fullscreen(self):
+        config = get_config(self.game_root_path)
+        current_value = config.attrib.get("r_fullScreen")
+        if current_value in TARGEM_POSITIVE:
+            return True
+        elif current_value in TARGEM_NEGATIVE:
+            return False
+        else:
+            return None
 
     @staticmethod
     def is_compatch_compatible_exe(version: str) -> bool:

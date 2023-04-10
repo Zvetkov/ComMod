@@ -1,5 +1,6 @@
 
 from asyncio import create_task, gather, create_subprocess_exec
+import asyncio
 from datetime import datetime
 import logging
 import os
@@ -15,7 +16,7 @@ import localisation
 from commod import _init_input_parser
 from data import get_title
 from environment import InstallationContext, GameCopy, GameInstallments, GameStatus, DistroStatus
-from file_ops import dump_yaml, get_internal_file_path, read_yaml, process_markdown
+from file_ops import dump_yaml, get_internal_file_path, get_proc_by_names, read_yaml, process_markdown
 from localisation import tr, SupportedLanguages
 from mod import Mod
 
@@ -87,6 +88,7 @@ class Config:
 
         self.current_section = AppSections.SETTINGS.value
         self.current_game_filter = GameInstallments.ALL.value
+        self.game_with_console = False
 
         self.page: ft.Page = page
 
@@ -103,6 +105,7 @@ class Config:
             "modder_mode": self.modder_mode,
             "current_section": self.current_section,
             "current_game_filter": self.current_game_filter,
+            "game_with_console": self.game_with_console,
             "window": {"width": self.page.window_width,
                        "height": self.page.window_height,
                        "pos_x":  self.page.window_left,
@@ -128,6 +131,7 @@ class Config:
             self.modder_mode = config["modder_mode"]
             self.current_section = config["current_section"]
             self.current_game_filter = config["current_game_filter"]
+            self.game_with_console = config["game_with_console"]
 
             window_config = config.get("window")
             # ignoring broken partial configs for window
@@ -161,6 +165,7 @@ class App:
     game: GameCopy
     config: Config | None = None
     session: InstallationContext.Session | None = None
+    game_change_time: None | datetime = None
 
     def __post_init__(self):
         self.session = self.context.current_session
@@ -188,6 +193,33 @@ class App:
     async def show_guick_start_wizard(self):
         await self.change_page(index=AppSections.SETTINGS.value)
         await self.content_column.update_async()
+
+    async def close_alert(self, e):
+        self.page.dialog.open = False
+        await self.page.update_async()
+
+    async def show_alert(self, text, additional_text=""):
+        if self.page.dialog is not None:
+            if self.page.dialog.open:
+                return
+
+        dlg = ft.AlertDialog(
+            title=Row([Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR_CONTAINER),
+                       Text(tr("error"))]),
+            shape=ft.buttons.RoundedRectangleBorder(radius=10),
+            content=Column([Text(text),
+                            Text(additional_text,
+                                 visible=bool(additional_text),
+                                 color=ft.colors.ON_ERROR_CONTAINER)],
+                           spacing=5,
+                           tight=True),
+            actions=[
+                ft.TextButton("Ok", on_click=self.close_alert)],
+            actions_padding=ft.padding.only(left=20, bottom=20, right=20)
+            )
+        self.page.dialog = dlg
+        dlg.open = True
+        await self.page.update_async()
 
 
 class GameCopyListItem(UserControl):
@@ -937,24 +969,6 @@ class SettingsScreen(UserControl):
         await self.update_async()
         return can_be_added
 
-    async def close_alert(self, e):
-        self.app.page.dialog.open = False
-        await self.app.page.update_async()
-
-    async def show_alert(self, text, additional_text):
-        dlg = ft.AlertDialog(
-            title=Row([Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR_CONTAINER),
-                       Text(tr("error"))]),
-            shape=ft.buttons.RoundedRectangleBorder(radius=10),
-            content=Column([Text(text), Text(additional_text, color=ft.colors.ON_ERROR_CONTAINER)],
-                           width=550, height=80),
-            actions=[
-                ft.TextButton("Ok", on_click=self.close_alert)]
-            )
-        self.app.page.dialog = dlg
-        dlg.open = True
-        await self.app.page.update_async()
-
     async def select_game(self, item):
         try:
             self.app.game = GameCopy()
@@ -965,7 +979,7 @@ class SettingsScreen(UserControl):
             pass
         except Exception as ex:
             # TODO: Handle exceptions properly
-            self.show_alert(tr('broken_game'), ex)
+            await self.app.show_alert(tr('broken_game'), ex)
             print(f"[Game loading error] {ex}")
             return
 
@@ -1623,6 +1637,9 @@ class HomeScreen(UserControl):
         self.checking_online = ft.Ref[Row]()
         self.news_text = None
         self.game_console_switch = ft.Ref[ft.Switch]()
+        self.launch_game_btn = ft.Ref[ft.FloatingActionButton]()
+        self.launch_game_btn_text = ft.Ref[Text]()
+        self.checkbox_windowed_game = ft.Ref[ft.PopupMenuItem]()
 
     async def did_mount_async(self):
         self.got_news = False
@@ -1666,29 +1683,88 @@ class HomeScreen(UserControl):
     async def launch_url(self, e):
         await self.app.page.launch_url_async(e.data)
 
+    async def check_for_game(self):
+        if self.app.current_game_process is None:
+            proc = get_proc_by_names(("hta.exe", "ExMachina.exe"))
+            return proc is not None
+
+        if self.app.current_game_process.returncode is None:
+            pass
+
+    async def switch_to_windowed(self, e):
+        # temporarily disabling game launch
+        self.launch_game_btn.current.disabled = True
+        await self.launch_game_btn.current.update_async()
+
+        self.checkbox_windowed_game.current.checked = not self.checkbox_windowed_game.current.checked
+        await self.checkbox_windowed_game.current.update_async()
+        if self.app.game.game_root_path is not None:
+            # just an additional safeguard, all actions on game are delayed by 1 second after game_change_time
+            self.app.game_change_time = datetime.now()
+            await self.app.game.switch_windowed(enable=not self.checkbox_windowed_game.current.checked)
+
+        self.launch_game_btn.current.disabled = False
+        await self.launch_game_btn.current.update_async()
+
     async def launch_game(self, e):
         current_time = datetime.now()
+        if self.app.game_change_time is not None:
+            if (current_time - self.app.game_change_time).seconds < 1:
+                # do not try to relaunch game immediately after a change
+                return
         if self.app.current_game_process is None:
+            other_game_running = await self.check_for_game()
+            if other_game_running:
+                await self.app.show_alert(tr('game_is_running'))
+                return
             print(f"Launching: {self.app.game.target_exe}")
             # TODO: only should be possible to get there if the game is not already running
-            self.app.current_game_process = await create_subprocess_exec(self.app.game.target_exe,
-                                                                         '-console' if self.game_console_switch.current.value else "",
-                                                                         cwd=self.app.game.game_root_path)
-            self.app.game_launch_time = datetime.now()
+            print(f"{self.game_console_switch.current.value=}")
+            self.app.current_game_process = \
+                await create_subprocess_exec(self.app.game.target_exe,
+                                             '-console' if self.app.config.game_with_console else "",
+                                             cwd=self.app.game.game_root_path)
+            self.app.game_change_time = datetime.now()
+            await self.synchronise_launch_btn_prompt(starting=True)
+            await self.keep_track_of_game_proc()
             # TODO: change the button prompt to "stop game" when it's already running
         else:
             # will this be 1 if we crash the game?
             if self.app.current_game_process.returncode == 1:
                 # game exited
                 self.app.current_game_process = None
-            elif (current_time - self.app.game_launch_time).seconds < 1:
-                # do not try to relaunch game immediately
-                pass
+                await self.synchronise_launch_btn_prompt(starting=False)
             elif self.app.current_game_process.returncode is None:
                 # stopping game on a next step, needs to be explained with a changing
                 # button prompt
                 self.app.current_game_process.terminate()
                 self.app.current_game_process = None
+                await self.synchronise_launch_btn_prompt(starting=False)
+
+    async def keep_track_of_game_proc(self):
+        while True:
+            if self.app.current_game_process is None:
+                break
+            if self.app.current_game_process.returncode is None:
+                pass
+            else:
+                await self.synchronise_launch_btn_prompt(starting=False)
+                break
+            await asyncio.sleep(3)
+
+    async def synchronise_launch_btn_prompt(self, starting=True):
+        if starting:
+            self.launch_game_btn_text.current.value = "Launching..."
+            await self.launch_game_btn_text.current.update_async()
+            await asyncio.sleep(1)
+            self.launch_game_btn_text.current.value = "Stop game"
+            await self.launch_game_btn_text.current.update_async()
+        else:
+            self.launch_game_btn_text.current.value = tr("play").capitalize()
+            await self.launch_game_btn_text.current.update_async()
+
+    async def game_console_mode_change(self, e):
+        self.app.config.game_with_console = e.data == 'true'
 
     def build(self):
         # TODO: preload md or use placeholder by default
@@ -1746,21 +1822,35 @@ class HomeScreen(UserControl):
                         # Text(self.app.game.game_root_path),
                         # Text(self.app.game.display_name),
                         Column([
-                            Text(tr("launch_params").upper(),
-                                 weight=ft.FontWeight.W_700),
-                            Row([ft.Switch(value=False, scale=0.7),
+                            Row([Text(tr("launch_params").upper(),
+                                      weight=ft.FontWeight.W_700),
+                                 ft.PopupMenuButton(items=[
+                                    ft.PopupMenuItem(
+                                        content=Text(tr("windowed_mode").capitalize(), size=14),
+                                        checked=not self.app.game.fullscreen_game,
+                                        on_click=self.switch_to_windowed,
+                                        ref=self.checkbox_windowed_game)],
+                                    # TODO: is this working as intended?
+                                    disabled=self.app.game.exe_version == "Unknown")
+                                 ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
+                            Row([ft.Switch(value=self.app.config.game_with_console,
+                                           scale=0.7,
+                                           on_change=self.game_console_mode_change,
+                                           ref=self.game_console_switch),
                                  Text(tr("enable_console").capitalize(),
-                                 ref=self.game_console_switch,
                                  weight=ft.FontWeight.W_500)],
                                 spacing=0),
                             ft.FloatingActionButton(
                                 content=ft.Row([
                                     ft.Text(tr("play").capitalize(), size=20,
-                                            weight=ft.FontWeight.W_700, color=ft.colors.ON_PRIMARY)],
+                                            weight=ft.FontWeight.W_700,
+                                            ref=self.launch_game_btn_text,
+                                            color=ft.colors.ON_PRIMARY)],
                                     alignment="center", spacing=5
                                 ),
                                 shape=ft.RoundedRectangleBorder(radius=5),
                                 bgcolor="#FFA500",
+                                ref=self.launch_game_btn,
                                 on_click=self.launch_game,
                                 aspect_ratio=2.5,
                             )])

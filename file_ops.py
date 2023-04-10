@@ -1,8 +1,11 @@
 from typing import Any
+
+import aiofiles
 import data
 import os
 import sys
 import shutil
+import psutil
 
 # import winreg
 import logging
@@ -18,6 +21,9 @@ import progbar
 import hd_ui
 
 logger = logging.getLogger('dem')
+
+TARGEM_POSITIVE = ["yes", "yeah", "yep", "true"]
+TARGEM_NEGATIVE = ["no", "nope", "none", "false"]
 
 
 def shorten_path(path: str | Path, length: int = 60) -> str:
@@ -41,6 +47,7 @@ def shorten_path(path: str | Path, length: int = 60) -> str:
         return "../" + path_to_shorten.stem
     else:
         return "../" + path_to_shorten.stem[:length-4] + "~"
+
 
 def child_from_xml_node(xml_node: objectify.ObjectifiedElement, child_name: str, do_not_warn: bool = False):
     '''Get child from ObjectifiedElement by name'''
@@ -134,11 +141,29 @@ def save_to_file(objectify_tree: objectify.ObjectifiedElement, path,
                                 pretty_print=True,
                                 doctype='<?xml version="1.0" encoding="windows-1251" standalone="yes" ?>',
                                 encoding="windows-1251")
-    with open(path, "wb") as writer:
+    with open(path, "wb") as fh:
         if machina_beautify:
-            writer.write(machina_xml_beautify(xml_string))
+            fh.write(machina_xml_beautify(xml_string))
         else:
-            writer.write(xml_string)
+            fh.write(xml_string)
+
+
+async def save_to_file_async(objectify_tree: objectify.ObjectifiedElement, path,
+                             machina_beautify: bool = True) -> None:
+    ''' Asynchronously writes (not generates) ObjectifiedElement tree to file at path,will format and
+    beautify file in the style very similar to original EM dynamicscene.xml
+    files by default. Can skip beautifier and save raw
+    lxml formated file.
+    '''
+    xml_string = etree.tostring(objectify_tree,
+                                pretty_print=True,
+                                doctype='<?xml version="1.0" encoding="windows-1251" standalone="yes" ?>',
+                                encoding="windows-1251")
+    async with aiofiles.open(path, "wb") as fh:
+        if machina_beautify:
+            await fh.write(machina_xml_beautify(xml_string))
+        else:
+            await fh.write(xml_string)
 
 
 def makedirs(dest: str) -> None:
@@ -239,6 +264,21 @@ def get_glob_props_path(root_dir: str) -> str:
     if config.attrib.get("pathToGlobProps") is not None:
         glob_props_path = config.attrib.get("pathToGlobProps")
     return glob_props_path
+
+
+def get_proc_by_names(proc_names):
+    '''Returns one proccess matching given list of names or None'''
+    for p in psutil.process_iter():
+        name = ""
+        try:
+            name = p.name()
+        except (psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+        except psutil.NoSuchProcess:
+            continue
+        if name in proc_names:
+            return p
+    return None
 
 
 def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
