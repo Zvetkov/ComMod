@@ -84,7 +84,7 @@ install_setting_ask: Install option?
 install_setting_title: Installation setting
 install_settings: 'Available install variants:'
 installation: Installation
-installation_aborted: Installation aborted by the user.
+installation_aborted_by_user: Installation aborted by the user.
 installation_error: Installation error has occured, installation hasn't been finished
 installation_finished: Installation is complete!
 installation_title: Community Remaster & Community Patch installation - installer version {VERSION}
@@ -157,7 +157,7 @@ reinstalling_intro_no_mods: 'Installer detected that Community Patch or Communit
 remaster_title: Community Remaster installation - installer version {VERSION}
 required_base: Required base
 required_mod_not_found: Required base mod(s) is not installed
-requirements_not_met: Mod requirements for installation are not met, installation is interrupted.
+requirements_not_met: Mod requirements for installation are not met
 simple_intro: 'Default installation includes all the available improvements, such as:
 
   * HD 16:9 interface

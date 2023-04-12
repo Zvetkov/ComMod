@@ -22,16 +22,23 @@ class Mod:
     def __init__(self, yaml_config: dict, distribution_dir: str) -> None:
         self.logger = logging.getLogger('dem')
         try:
-            self.name = str(yaml_config.get("name"))[:64]
+            self.name = str(yaml_config.get("name"))[:64].replace("/", "").replace("\\", "").replace(".", "")
             self.display_name = str(yaml_config.get("display_name"))[:64]
-            self.description = str(yaml_config.get("description"))[:2048]
+            self.description = str(yaml_config.get("description"))[:2048].strip()
             self.authors = str(yaml_config.get("authors"))[:128]
             self.version = str(yaml_config.get("version"))[:64]
             self.build = str(yaml_config.get("build"))[:7]
-            url = str(yaml_config.get("link"))
-            self.url = url[:256].strip() if url is not None else ""
+            url = yaml_config.get("link")
+            trailer_url = yaml_config.get("trailer_link")
+            self.url = url[:128].strip() if url is not None else ""
+            self.trailer_url = trailer_url[:128].strip() if trailer_url is not None else ""
             self.prerequisites = yaml_config.get("prerequisites")
             self.incompatible = yaml_config.get("incompatible")
+            self.individual_require_status = []
+            self.individual_incomp_status = []
+            self.requirements_style = "mixed"
+            self.incompatibles_style = "mixed"
+            self.release_date = yaml_config.get("release_date")
             self.tags = yaml_config.get("tags")
             self.logo = yaml_config.get("logo")
             self.language = yaml_config.get("language")
@@ -45,6 +52,9 @@ class Mod:
             if translations is not None:
                 for translation in translations:
                     self.translations[translation] = Mod.is_known_lang(translation)
+
+            if self.release_date is None:
+                self.release_date = ""
 
             if self.tags is None:
                 self.tags = [Mod.Tags.UNCATEGORIZED.name]
@@ -156,6 +166,30 @@ class Mod:
                 config_validated = Mod.validate_install_config(yaml_config, lang_manifest_path)
                 if config_validated:
                     mod_tr = Mod(yaml_config, self.distibution_dir)
+                    if mod_tr.name != self.name:
+                        raise ValueError("Service name missmatch in translation: "
+                                         f"{mod_tr.name} specified for translation, "
+                                         f"but main mod version is {self.name}! "
+                                         f"(Mod: {mod_tr.name}) (Translation: {mod_tr.language})")
+                    if mod_tr.version != self.version:
+                        raise ValueError("Version missmatch: "
+                                         f"{mod_tr.version} specified for translation, "
+                                         f"but main mod version is {self.version}! "
+                                         f"(Mod: {mod_tr.name}) (Translation: {mod_tr.language})")
+                    if sorted(mod_tr.tags) != sorted(self.tags):
+                        raise ValueError("Tags missmatch: "
+                                         f"{mod_tr.tags} specified for translation, "
+                                         f"but main mod tags are {self.tags}! "
+                                         f"(Mod: {mod_tr.name}) (Translation: {mod_tr.language})")
+                    if mod_tr.language != lang:
+                        raise ValueError("Language missmatch for translation manifest name and info: "
+                                         f"{mod_tr.language} in manifest, {lang} in manifest name! "
+                                         f"(Mod: {mod_tr.name})")
+                    if mod_tr.language == self.language:
+                        raise ValueError("Language duplication for translation manifest: "
+                                         f"{lang} in manifest, but {lang} is main lang already! "
+                                         f"(Mod: {mod_tr.name})")
+
                     self.translations_loaded[lang] = mod_tr
                     if load_gui_info:
                         mod_tr.load_gui_info()
@@ -188,15 +222,24 @@ class Mod:
 
         for screen in self.screenshots:
             screen_path = Path(self.distibution_dir, screen["img"])
-            if logo_path.exists() and logo_path.suffix.lower() in supported_img_extensions:
+            if screen_path.exists() and screen_path.suffix.lower() in supported_img_extensions:
                 screen["path"] = str(screen_path)
             else:
                 screen["path"] = ""
+                self.logger.warning(f"Missing path for screenshot ({screen['img']}) "
+                                    f"in mod {self.name}-{self.language}")
+
             compare_path = Path(self.distibution_dir, screen["compare"])
             if compare_path.exists() and compare_path.suffix.lower() in supported_img_extensions:
                 screen["compare_path"] = str(compare_path)
+                if screen["text"]:
+                    screen["text"] += "\n"
+                screen["text"] = screen["text"] + f'({tr("click_screen_to_compare")})'
             else:
                 screen["compare_path"] = ""
+
+        # we ignore screens which do not exist
+        self.screenshots = [screen for screen in self.screenshots if screen["path"]]
 
         if ", " in self.authors:
             self.developer_title = "authors"
@@ -205,7 +248,7 @@ class Mod:
 
     def load_session_compatibility(self, compat_info: dict):
         self.commod_compatible = compat_info["compatible_with_commod"]
-        self.commod_compatible_err = "\n".join(compat_info["compatible_with_commod_err"]).strip()
+        self.commod_compatible_err = remove_colors(compat_info["compatible_with_commod_err"].strip())
 
         compatible = compat_info.get("compatible")
         if compatible is not None:
@@ -283,135 +326,177 @@ class Mod:
             self.logger.error(ex)
             return False, []
 
+    def check_requirement(self, prereq: dict, existing_content: dict,
+                          existing_content_descriptions: dict,
+                          is_compatch_env: bool) -> tuple[bool, str]:
+        error_msg = []
+        required_mod_name = None
+
+        name_validated = True
+        version_validated = True
+        optional_content_validated = True
+
+        for possible_prereq_mod in prereq['name']:
+            existing_mod = existing_content.get(possible_prereq_mod)
+            if existing_mod is not None:
+                required_mod_name = possible_prereq_mod
+
+        if required_mod_name is None:
+            name_validated = False
+
+        # if trying to install compatch-only mod on comrem
+        if (required_mod_name == "community_patch"
+           and existing_content.get("community_remaster") is not None
+           and self.name != "community_remaster"
+           and "community_remaster" not in prereq["name"]):
+            name_validated = False
+            error_msg.append(f"{tr('compatch_mod_incompatible_with_comrem')}")
+
+        or_word = f" {tr('or')} "
+        and_word = f" {tr('and')} "
+        only_technical_name_available = False
+
+        name_label = []
+        # TODO: need a better way to fetch display names for prereqs and incompats
+        for service_name in prereq["name"]:
+            existing_mod = existing_content.get(service_name)
+            if existing_mod is not None:
+                name_label.append(existing_mod["display_name"])
+            else:
+                name_label.append(service_name)
+                only_technical_name_available = True
+
+        name_label = or_word.join(name_label)
+        version_label = ""
+        optional_content_label = ""
+
+        prereq_versions = prereq.get("versions")
+        if prereq_versions and prereq_versions is not None:
+            version_label = (f', {tr("of_version")}: '
+                             f'{and_word.join(prereq.get("versions"))}')
+            if name_validated:
+                compare_ops = set([])
+                for version in prereq_versions:
+                    if ">=" == version[:2]:
+                        compare_operation = operator.ge
+                    elif "<=" == version[:2]:
+                        compare_operation = operator.le
+                    elif ">" == version[:1]:
+                        compare_operation = operator.gt
+                    elif "<" == version[:1]:
+                        compare_operation = operator.lt
+                    else:  # default "version" treated the same as "==version":
+                        compare_operation = operator.eq
+
+                    for sign in (">", "<", "="):
+                        version = version.replace(sign, '')
+
+                    installed_version = existing_content[required_mod_name]["version"]
+                    parsed_existing_ver = Mod.Version(installed_version)
+                    parsed_required_ver = Mod.Version(version)
+
+                    version_validated = compare_operation(parsed_existing_ver, parsed_required_ver)
+                    compare_ops.add(compare_operation)
+                    if compare_operation is operator.eq:
+                        if parsed_required_ver.identifier:
+                            if parsed_existing_ver.identifier != parsed_required_ver.identifier:
+                                version_validated = False
+
+                compare_ops = list(compare_ops)
+                len_ops = len(compare_ops)
+                if len_ops == 1 and operator.eq in compare_ops:
+                    self.requirements_style = "strict"
+                elif len_ops == 2 and operator.eq not in compare_ops:
+                    if (compare_ops[0] in (operator.ge, operator.gt)
+                       and compare_ops[1] in (operator.le, operator.lt)):
+                        self.requirements_style = "range"
+                    elif (compare_ops[0] in (operator.lt, operator.lt)
+                          and compare_ops[1] in (operator.ge, operator.gt)):
+                        self.requirements_style = "range"
+                    else:
+                        self.requirements_style = "mixed"
+                else:
+                    self.requirements_style = "mixed"
+
+        optional_content = prereq.get("optional_content")
+        if optional_content and optional_content is not None:
+            optional_content_label = (f', {tr("including_options").lower()}: '
+                                      f'{", ".join(prereq["optional_content"])}')
+            if name_validated and version_validated:
+                for option in optional_content:
+                    if existing_content[required_mod_name].get(option) in [None, "skip"]:
+                        optional_content_validated = False
+                        requirement_err = f"{tr('content_requirement_not_met')}:"
+                        requirement_name = (f"  * '{option}' {tr('for_mod')} "
+                                            f"{name_label}")
+
+                        if requirement_err not in error_msg:
+                            error_msg.append(requirement_err)
+
+                        error_msg.append(requirement_name)
+                    else:
+                        self.logger.info(f"content validated: {option} - "
+                                         f"for mod: {name_label}")
+
+        validated = name_validated and version_validated and optional_content_validated
+
+        if not validated:
+            if not name_validated:
+                warning = f'\n{tr("required_mod_not_found")}:'
+            else:
+                warning = f'\n{tr("required_base")}:'
+
+            if warning not in error_msg:
+                error_msg.append(warning)
+
+            if only_technical_name_available:
+                name_label_tr = tr("technical_name")
+            else:
+                name_label_tr = tr("mod_name")
+            error_msg.append(f'{name_label_tr.capitalize()}: '
+                             f'{name_label}{version_label}{optional_content_label}')
+            installed_description = existing_content_descriptions.get(required_mod_name)
+            if installed_description is not None:
+                installed_description = installed_description.strip("\n\n")
+                error_msg_entry = (f'\n{tr("version_available").capitalize()}:\n'
+                                   f'{remove_colors(installed_description)}')
+                if error_msg_entry not in error_msg:
+                    error_msg.append(error_msg_entry)
+
+            else:
+                # in case when we working with compatched game but mod requires comrem
+                # it would be nice to tip a user that this is incompatibility in itself
+                if is_compatch_env and "community_remaster" in prereq["name"]:
+                    installed_description = existing_content_descriptions.get("community_patch")
+                    error_msg_entry = (f'\n{tr("version_available").capitalize()}:\n'
+                                       f'{remove_colors(installed_description)}')
+                    if error_msg_entry not in error_msg:
+                        error_msg.append(error_msg_entry)
+        prereq["name_label"] = name_label
+        return validated, error_msg
+
     def check_requirements(self, existing_content: dict, existing_content_descriptions: dict,
                            patcher_version: str | float = '') -> tuple[bool, list]:
         error_msg = []
 
-        notified_on_installed_content = False
-
         requirements_met = True
-        compatch_env = ("community_remaster" not in existing_content.keys() and
-                        "community_patch" in existing_content.keys())
+        is_compatch_env = ("community_remaster" not in existing_content.keys() and
+                           "community_patch" in existing_content.keys())
 
         if patcher_version:
             if not self.compatible_with_mod_manager(patcher_version):
-                version_validated = False
+                requirements_met &= False
                 error_msg.append(f"{tr('usupported_patcher_version')}: "
                                  f"{self.display_name} - {self.patcher_version_requirement}"
                                  f" > {patcher_version}")
 
         for prereq in self.prerequisites:
-            required_mod_name = None
-
-            name_validated = True
-            version_validated = True
-            optional_content_validated = True
-
-            for possible_prereq_mod in prereq['name']:
-                if existing_content.get(possible_prereq_mod):
-                    required_mod_name = possible_prereq_mod
-
-            if required_mod_name is None:
-                name_validated = False
-
-            # if trying to install compatch-only mod on comrem
-            if (required_mod_name == "community_patch"
-               and existing_content.get("community_remaster") is not None
-               and self.name != "community_remaster"
-               and "community_remaster" not in prereq["name"]):
-                name_validated = False
-                error_msg.append(f"{tr('compatch_mod_incompatible_with_comrem')}: "
-                                 f"{self.display_name}")
-
-            or_word = f" {tr('or')} "
-            and_word = f" {tr('and')} "
-
-            name_label = or_word.join(prereq["name"])
-            version_label = ""
-            optional_content_label = ""
-
-            prereq_versions = prereq.get("versions")
-            if prereq_versions and prereq_versions is not None:
-                version_label = (f', {tr("of_version")}: '
-                                 f'{and_word.join(prereq.get("versions"))}')
-                if name_validated:
-                    for version in prereq_versions:
-                        if ">=" == version[:2]:
-                            compare_operation = operator.ge
-                        elif "<=" == version[:2]:
-                            compare_operation = operator.le
-                        elif ">" == version[:1]:
-                            compare_operation = operator.gt
-                        elif "<" == version[:1]:
-                            compare_operation = operator.lt
-                        else:  # default "version" treated the same as "==version":
-                            compare_operation = operator.eq
-
-                        for sign in (">", "<", "="):
-                            version = version.replace(sign, '')
-
-                        installed_version = existing_content[required_mod_name]["version"]
-                        parsed_existing_ver = Mod.Version(installed_version)
-                        parsed_required_ver = Mod.Version(version)
-
-                        version_validated = compare_operation(parsed_existing_ver, parsed_required_ver)
-
-                        if compare_operation is operator.eq:
-                            if parsed_required_ver.identifier:
-                                if parsed_existing_ver.identifier != parsed_required_ver.identifier:
-                                    version_validated = False
-
-            optional_content = prereq.get("optional_content")
-            if optional_content and optional_content is not None:
-                optional_content_label = (f', {tr("including_options").lower()}: '
-                                          f'{", ".join(prereq["optional_content"])}')
-                if name_validated and version_validated:
-                    for option in optional_content:
-                        if existing_content[required_mod_name].get(option) in [None, "skip"]:
-                            optional_content_validated = False
-                            requirement_err = f"{tr('content_requirement_not_met')}:"
-                            requirement_name = (f"  * '{option}' {tr('for_mod')} "
-                                                f"'{required_mod_name}'")
-
-                            if requirement_err not in error_msg:
-                                error_msg.append(requirement_err)
-
-                            error_msg.append(requirement_name)
-                        else:
-                            self.logger.info(f"content validated: {option} - "
-                                             f"for mod: {required_mod_name}")
-
-            validated = name_validated and version_validated and optional_content_validated
-
-            if not validated:
-                if not name_validated:
-                    warning = f'\n{tr("required_mod_not_found")} {tr("for_mod")} {self.display_name}:'
-                else:
-                    warning = f'\n{tr("required_base")} {tr("for_mod")} {self.display_name}:'
-
-                if warning not in error_msg:
-                    error_msg.append(warning)
-
-                error_msg.append(f'{tr("technical_name").capitalize()}: '
-                                 f'{name_label}{version_label}{optional_content_label}')
-                installed_description = existing_content_descriptions.get(required_mod_name)
-                if installed_description is not None:
-                    installed_description = installed_description.strip("\n\n")
-                    error_msg_entry = (f'\n{tr("version_available").capitalize()}:\n'
-                                       f'{remove_colors(installed_description)}')
-                    if error_msg_entry not in error_msg:
-                        error_msg.append(error_msg_entry)
-
-                else:
-                    # in case when we working with compatched game but mod requires comrem
-                    # it would be nice to tip a user that this is incompatibility in itself
-                    if compatch_env and "community_remaster" in prereq["name"]:
-                        installed_description = existing_content_descriptions.get("community_patch")
-                        error_msg_entry = (f'\n{tr("version_available").capitalize()}:\n'
-                                           f'{remove_colors(installed_description)}')
-                        if error_msg_entry not in error_msg:
-                            error_msg.append(error_msg_entry)
-
+            validated, mod_error = self.check_requirement(prereq,
+                                                          existing_content, existing_content_descriptions,
+                                                          is_compatch_env)
+            self.individual_require_status.append((prereq, validated, mod_error))
+            if mod_error:
+                error_msg.extend(mod_error)
             requirements_met &= validated
 
         if error_msg:
@@ -419,96 +504,146 @@ class Mod:
 
         return requirements_met, error_msg
 
+    def check_incompatible(self, incomp: dict, existing_content: dict,
+                           existing_content_descriptions: dict) -> tuple[bool, list]:
+        error_msg = []
+        name_incompat = False
+        version_incomp = False
+        optional_content_incomp = False
+
+        incomp_mod_name = None
+        for possible_incomp_mod in incomp['name']:
+            existing_mod = existing_content.get(possible_incomp_mod)
+            if existing_mod is not None:
+                incomp_mod_name = possible_incomp_mod
+
+        or_word = f" {tr('or')} "
+        # and_word = f" {tr('and')} "
+        only_technical_name_available = False
+
+        name_label = []
+        # TODO: need a better way to fetch display names for prereqs and incompats
+        for service_name in incomp["name"]:
+            existing_mod = existing_content.get(service_name)
+            if existing_mod is not None:
+                name_label.append(existing_mod["display_name"])
+            else:
+                name_label.append(service_name)
+                only_technical_name_available = True
+
+        name_label = or_word.join(name_label)
+        version_label = ""
+        optional_content_label = ""
+
+        if incomp_mod_name is not None:
+            # if incompatible mod is found we need to check if a tighter conformity check exists
+            name_incompat = True
+
+            incomp_versions = incomp.get("versions")
+            if incomp_versions and incomp_versions is not None:
+                installed_version = existing_content[incomp_mod_name]["version"]
+
+                version_label = (f', {tr("of_version")}: '
+                                 f'{or_word.join(incomp.get("versions"))}')
+                compare_ops = set([])
+                for version in incomp_versions:
+                    if ">=" == version[:2]:
+                        compare_operation = operator.ge
+                    elif "<=" == version[:2]:
+                        compare_operation = operator.le
+                    elif ">" == version[:1]:
+                        compare_operation = operator.gt
+                    elif "<" == version[:1]:
+                        compare_operation = operator.lt
+                    else:  # default "version" treated the same as "==version":
+                        compare_operation = operator.eq
+
+                    for sign in (">", "<", "="):
+                        version = version.replace(sign, '')
+
+                    parsed_existing_ver = Mod.Version(installed_version)
+                    parsed_incompat_ver = Mod.Version(version)
+
+                    version_incomp = compare_operation(parsed_existing_ver, parsed_incompat_ver)
+
+                    compare_ops.add(compare_operation)
+                    # while we ignore postfix for less/greater ops, we want to have an ability
+                    # to make a specifix version with postfix incompatible
+                    if compare_operation is operator.eq:
+                        if parsed_incompat_ver.identifier:
+                            if parsed_existing_ver.identifier != parsed_incompat_ver.identifier:
+                                version_incomp = True
+
+                compare_ops = list(compare_ops)
+                len_ops = len(compare_ops)
+                if len_ops == 1 and operator.eq in compare_ops:
+                    self.incompatibles_style = "strict"
+                elif len_ops == 2 and operator.eq not in compare_ops:
+                    if (compare_ops[0] in (operator.ge, operator.gt)
+                       and compare_ops[1] in (operator.le, operator.lt)):
+                        self.incompatibles_style = "range"
+                    elif (compare_ops[0] in (operator.lt, operator.lt)
+                          and compare_ops[1] in (operator.ge, operator.gt)):
+                        self.incompatibles_style = "range"
+                    else:
+                        self.incompatibles_style = "mixed"
+                else:
+                    self.incompatibles_style = "mixed"
+
+            else:
+                version_incomp = True
+
+            optional_content = incomp.get("optional_content")
+
+            if optional_content and optional_content is not None:
+
+                optional_content_label = (f', {tr("including_options").lower()}: '
+                                          f'{or_word.join(incomp.get("optional_content"))}')
+
+                for option in optional_content:
+                    if existing_content[incomp_mod_name].get(option) not in [None, "skip"]:
+                        optional_content_incomp = True
+            else:
+                optional_content_incomp = True
+
+            incompatible_with_game_copy = name_incompat and version_incomp and optional_content_incomp
+
+            if only_technical_name_available:
+                name_label_tr = tr("technical_name")
+            else:
+                name_label_tr = tr("mod_name")
+
+            if incompatible_with_game_copy:
+                error_msg.append(f'\n{tr("found_incompatible")}:\n'
+                                 f'{name_label_tr.capitalize()}: '
+                                 f'{name_label}{version_label}{optional_content_label}')
+                installed_description = existing_content_descriptions.get(incomp_mod_name)
+                if installed_description is not None:
+                    installed_description = installed_description.strip("\n\n")
+                    error_msg.append(f'\n{tr("version_available").capitalize()}:\n'
+                                     f'{remove_colors(installed_description)}')
+                else:
+                    # TODO: check if this path even possible
+                    raise NotImplementedError
+            incomp["name_label"] = name_label
+            return incompatible_with_game_copy, error_msg
+
+        incomp["name_label"] = name_label
+        return False, ""
+
     def check_incompatibles(self, existing_content: dict,
                             existing_content_descriptions: dict) -> tuple[bool, list]:
         error_msg = []
         compatible = True
 
         for incomp in self.incompatible:
-            name_incompat = False
-            version_incomp = False
-            optional_content_incomp = False
-
-            incomp_mod_name = None
-            for possible_incomp_mod in incomp['name']:
-                if existing_content.get(possible_incomp_mod):
-                    incomp_mod_name = possible_incomp_mod
-
-            if incomp_mod_name is not None:
-                # if incompatible mod is found we need to check if a tighter conformity check exists
-                name_incompat = True
-                or_word = f" {tr('or')} "
-                and_word = f" {tr('and')} "
-
-                name_label = or_word.join(incomp["name"])
-
-                version_label = ""
-
-                incomp_versions = incomp.get("versions")
-                if incomp_versions and incomp_versions is not None:
-                    installed_version = existing_content[incomp_mod_name]["version"]
-
-                    version_label = (f', {tr("of_version")}: '
-                                     f'{or_word.join(incomp.get("versions"))}')
-                    for version in incomp_versions:
-                        if ">=" == version[:2]:
-                            compare_operation = operator.ge
-                        elif "<=" == version[:2]:
-                            compare_operation = operator.le
-                        elif ">" == version[:1]:
-                            compare_operation = operator.gt
-                        elif "<" == version[:1]:
-                            compare_operation = operator.lt
-                        else:  # default "version" treated the same as "==version":
-                            compare_operation = operator.eq
-
-                        for sign in (">", "<", "="):
-                            version = version.replace(sign, '')
-
-                        parsed_existing_ver = Mod.Version(installed_version)
-                        parsed_incompat_ver = Mod.Version(version)
-
-                        version_incomp = compare_operation(parsed_existing_ver, parsed_incompat_ver)
-
-                        # while we ignore postfix for less/greater ops, we want to have an ability
-                        # to make a specifix version with postfix incompatible
-                        if compare_operation is operator.eq:
-                            if parsed_incompat_ver.identifier:
-                                if parsed_existing_ver.identifier != parsed_incompat_ver.identifier:
-                                    version_incomp = True
-                else:
-                    version_incomp = True
-
-                optional_content_label = ""
-                optional_content = incomp.get("optional_content")
-
-                if optional_content and optional_content is not None:
-
-                    optional_content_label = (f', {tr("including_options").lower()}: '
-                                              f'{or_word.join(incomp.get("optional_content"))}')
-
-                    for option in optional_content:
-                        if existing_content[incomp_mod_name].get(option) not in [None, "skip"]:
-                            optional_content_incomp = True
-                else:
-                    optional_content_incomp = True
-
-                incompatible_with_game_copy = name_incompat and version_incomp and optional_content_incomp
-
-                if incompatible_with_game_copy:
-                    error_msg.append(f'\n{tr("found_incompatible")} {tr("for_mod")} '
-                                     f'"{self.display_name}":\n{tr("technical_name").capitalize()}: '
-                                     f'{name_label}{version_label}{optional_content_label}')
-                    installed_description = existing_content_descriptions.get(incomp_mod_name)
-                    if installed_description is not None:
-                        installed_description = installed_description.strip("\n\n")
-                        error_msg.append(f'\n{tr("version_available").capitalize()}:\n'
-                                         f'{remove_colors(installed_description)}')
-                    else:
-                        # TODO: check if this path even possible
-                        b = 1
-
-                compatible &= (not incompatible_with_game_copy)
+            incompatible_with_game_copy, mod_error = self.check_incompatible(
+                incomp, existing_content, existing_content_descriptions)
+            self.individual_incomp_status.append((incomp, not incompatible_with_game_copy,
+                                                 mod_error))
+            if mod_error:
+                error_msg.extend(mod_error)
+            compatible &= (not incompatible_with_game_copy)
 
         if error_msg:
             error_msg.append(f'\n{tr("check_for_a_new_version")}')
@@ -650,6 +785,9 @@ class Mod:
                     if not install_config.get("no_base_content"):
                         validated &= os.path.isdir(os.path.join(mod_path, mod_identifier, "data"))
                         logger.info(f"Mod '{display_name}' data folder validation result: {validated}")
+                        if not validated:
+                            logger.error('Expected path not exists: '
+                                         f'{os.path.join(mod_path, mod_identifier, "data")}')
                     if optional_content is not None:
                         for option in optional_content:
                             validated &= os.path.isdir(os.path.join(mod_path,
@@ -711,17 +849,17 @@ class Mod:
             and_word = f" {tr('and')} "
 
             error_msg = (tr("usupported_patcher_version",
-                                    content_name=fconsole(self.display_name, bcolors.WARNING),
-                                    required_version=and_word.join(self.patcher_version_requirement),
-                                    current_version=patcher_version,
-                                    github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)))
+                            content_name=fconsole(self.display_name, bcolors.WARNING),
+                            required_version=and_word.join(self.patcher_version_requirement),
+                            current_version=patcher_version,
+                            github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)))
 
             if mod_manager_too_new and self.name == "community_remaster":
                 error_msg += f"\n\n{tr('check_for_a_new_version')}\n\n"
                 error_msg += tr("demteam_links",
-                                        discord_url=fconsole(DEM_DISCORD, bcolors.HEADER),
-                                        deuswiki_url=fconsole(WIKI_COMPATCH, bcolors.HEADER),
-                                        github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)) + "\n"
+                                discord_url=fconsole(DEM_DISCORD, bcolors.HEADER),
+                                deuswiki_url=fconsole(WIKI_COMPATCH, bcolors.HEADER),
+                                github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)) + "\n"
 
         return compatible, error_msg
 
@@ -730,7 +868,7 @@ class Mod:
         '''Validates dictionary based on scheme in a format
            {name: [list of possible types, required(bool)]}.
            Supports generics for type checking in schemes'''
-        logger.debug(f"Validating dict with scheme {scheme.keys()}")
+        # logger.debug(f"Validating dict with scheme {scheme.keys()}")
         if not isinstance(validating_dict, dict):
             logger.error(f"Validated part of scheme is not a dict: {validating_dict}")
             return False
@@ -770,7 +908,7 @@ class Mod:
         '''Validates dictionary based on scheme in a format
            {name: [list of possible types, required(bool), int or float value[min, max]]}.
            Doesn't support generics in schemes'''
-        logger.debug(f"Validating constrained dict with scheme {scheme.keys()}")
+        # logger.debug(f"Validating constrained dict with scheme {scheme.keys()}")
         for field in scheme:
             types = scheme[field][0]
             required = scheme[field][1]
@@ -801,7 +939,7 @@ class Mod:
                         logger.error(f"key '{field}' can't be converted to int as supported - "
                                      f"found value '{value}'")
                         return False
-                if ((float in types) or (int in types)) and (not(min_req <= value <= max_req)):
+                if ((float in types) or (int in types)) and (not (min_req <= value <= max_req)):
                     logger.error(f"key '{field}' is not in supported range '{min_req}-{max_req}'")
                     return False
 
@@ -811,10 +949,10 @@ class Mod:
     def validate_list(validating_list: list[dict], scheme: dict) -> bool:
         '''Runs validate_dict for multiple lists with the same scheme
            and returns total validation result for them'''
-        logger.debug(f"Validating list of length: '{len(validating_list)}'")
+        # logger.debug(f"Validating list of length: '{len(validating_list)}'")
         to_validate = [element for element in validating_list if isinstance(element, dict)]
         result = all([Mod.validate_dict(element, scheme) for element in to_validate])
-        logger.debug(f"Result: {result}")
+        # logger.debug(f"Result: {result}")
         return result
 
     def get_full_install_settings(self) -> dict:
@@ -960,9 +1098,9 @@ class Mod:
         def __init__(self, description: dict, parent: Mod) -> None:
             self.logger = logging.getLogger('dem')
 
-            self.name = str(description.get("name"))
-            self.display_name = description.get("display_name")
-            self.description = description.get("description")
+            self.name = str(description.get("name"))[:64].replace("/", "").replace("\\", "").replace(".", "")
+            self.display_name = description.get("display_name")[:64]
+            self.description = description.get("description")[:2048].strip()
 
             self.install_settings = description.get("install_settings")
             self.default_option = None

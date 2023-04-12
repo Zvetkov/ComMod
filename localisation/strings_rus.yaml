@@ -84,7 +84,7 @@ install_setting_ask: Установить опцию?
 install_setting_title: Способ установки
 install_settings: 'Доступные варианты установки:'
 installation: Установка
-installation_aborted: Установка прервана по желанию пользователя.
+installation_aborted_by_user: Установка прервана по желанию пользователя.
 installation_error: При установке возникла ошибка, установка не была закончена
 installation_finished: Установка завершена!
 installation_title: Установка Community Remaster & Community Patch - версия установщика {VERSION}
@@ -118,7 +118,7 @@ missing_distribution: 'Файлы Community Patch / Remaster не найдены
   Поместите установщик в одну папку с остальными файлами ComPatch.'
 mm_inserts_patched: '* Замена менеджера памяти, 4GB патч'
 mod_manager_title: Mod Manager {VERSION} - установка модов для ComPatch/ComRem
-mod_url: 'Домашняя мода:'
+mod_url: 'Домашняя страница:'
 not_validated_mod_manifest: Не удалось начать установку для мода, возможно файлы повреждены или манифест установки имеет некорректный формат
 nothing_to_install: Нечего устанавливать, работа закончена.
 numeric_fixes_patched: '* Улучшения физики и поведения авто
@@ -157,7 +157,7 @@ reinstalling_intro_no_mods: 'Установщик обнаружил, что Com
 remaster_title: Установка Community Remaster - версия установщика {VERSION}
 required_base: Требуемая база
 required_mod_not_found: Не установлен требуемый базовый мод(ы)
-requirements_not_met: Требования мода к игровой копии не удовлетворены, установка была прервана.
+requirements_not_met: Требования мода к игровой копии не удовлетворены
 simple_intro: 'Установка по умолчанию включает в себя все возможные улучшения, такие как:
 
   * HD 16:9 интерфейс

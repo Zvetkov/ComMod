@@ -161,7 +161,7 @@ class ConsoleUX:
                         os.system('cls')
         except KeyboardInterrupt:
             self.switch_header("default")
-            self.simple_end("installation_aborted")
+            self.simple_end("installation_aborted_by_user")
             sys.exit()
 
         return user_choice
@@ -207,7 +207,7 @@ class ConsoleUX:
                                   console=True)
         except KeyboardInterrupt:
             self.switch_header("default")
-            self.simple_end("installation_aborted")
+            self.simple_end("installation_aborted_by_user")
             sys.exit()
 
     @staticmethod

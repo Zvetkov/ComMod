@@ -193,7 +193,7 @@ def main_console(options: argparse.Namespace) -> None:
             if reinstall_prompt == "exit":
                 logger.info("Exited normally")
                 console.switch_header("default")
-                console.simple_end("installation_aborted")
+                console.simple_end("installation_aborted_by_user")
                 return
 
             if reinstall_prompt == "mods":
@@ -423,7 +423,7 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                                                         console=True)
             except KeyboardInterrupt:
                 console.switch_header("mod_manager")
-                console.simple_end("installation_aborted")
+                console.simple_end("installation_aborted_by_user")
                 sys.exit()
 
             if not status_ok:
