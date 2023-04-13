@@ -91,11 +91,6 @@ class Config:
 
         self.page: ft.Page = page
 
-    @staticmethod
-    def sanitize_config(config: dict) -> bool:
-        # TODO: validate and sanitize config from bad values
-        return True
-
     def asdict(self):
         return {
             "current_game": self.current_game,
@@ -119,32 +114,57 @@ class Config:
         else:
             config = InstallationContext.get_config()
 
-        if self.sanitize_config(config):
-            self.current_game = config["current_game"]
-            self.game_names = config["game_names"]
-            self.known_games = set([game_path.lower() for game_path in config["game_names"]])
+        if isinstance(config, dict):
+            current_game = config.get("current_game")
+            if isinstance(current_game, str) and os.path.isdir(current_game):
+                self.current_game = current_game
 
-            self.current_distro = config["current_distro"]
+            game_names = config.get("game_names")
+            if isinstance(game_names, dict):
+                for path, name in game_names.items():
+                    if isinstance(path, str) and os.path.isdir(path) and (name is not None):
+                        self.game_names[path] = str(name)
+
+            self.known_games = set([game_path.lower() for game_path in self.game_names])
+
+            current_distro = config.get("current_distro")
+            if isinstance(current_distro, str) and os.path.isdir(current_distro):
+                self.current_distro = current_distro
+
             self.known_distros = set([config["current_distro"]])
 
-            self.modder_mode = config["modder_mode"]
-            self.current_section = config["current_section"]
-            self.current_game_filter = config["current_game_filter"]
-            self.game_with_console = config["game_with_console"]
+            modder_mode = config.get("modder_mode")
+            if isinstance(modder_mode, bool):
+                self.modder_mode = modder_mode
+
+            current_section = config.get("current_section")
+            if current_section in (0, 1, 2, 3):
+                self.current_section = current_section
+
+            current_game_filter = config.get("current_game_filter")
+            if current_game_filter in (0, 1, 2, 3):
+                self.current_game_filter = current_game_filter
+
+            game_with_console = config.get("game_with_console")
+            if isinstance(game_with_console, bool):
+                self.game_with_console = game_with_console
 
             window_config = config.get("window")
             # ignoring broken partial configs for window
-            if window_config is not None:
-                if (window_config.get("width") is not None
-                   and window_config.get("height") is not None
-                   and window_config.get("pos_x") is not None
-                   and window_config.get("pos_y") is not None):
-                    self.init_height = config["window"]["height"]
-                    self.init_width = config["window"]["width"]
-                    self.init_pos_x = config["window"]["pos_x"]
-                    self.init_pos_y = config["window"]["pos_y"]
+            if isinstance(window_config, dict):
+                if (isinstance(window_config.get("width"), float)
+                   and isinstance(window_config.get("height"), float)
+                   and isinstance(window_config.get("pos_x"), float)
+                   and isinstance(window_config.get("pos_y"), float)):
+                    # TODO: validate that window is not completely outside the screen area
+                    self.init_height = window_config["height"]
+                    self.init_width = window_config["width"]
+                    self.init_pos_x = window_config["pos_x"]
+                    self.init_pos_y = window_config["pos_y"]
 
-            self.init_theme = ft.ThemeMode(config["theme"])
+            theme = config.get("theme")
+            if theme in ("system", "light", "dark"):
+                self.init_theme = ft.ThemeMode(theme)
 
     def save_config(self, abs_dir_path: str | None = None):
         if abs_dir_path is not None and os.path.isdir(abs_dir_path):
@@ -2383,11 +2403,8 @@ async def main(page: Page):
 
     # at the end of each operation, commod tries to create config near itself
     # if we can load it - we will use the data from it, except when overriden from console args
-    temp_config = InstallationContext.get_config()
-    if temp_config is not None:
-        if Config.sanitize_config(temp_config):
-            app.config = Config(page)
-            app.config.load_from_file()
+    app.config = Config(page)
+    app.config.load_from_file()
 
     page.window_width = app.config.init_width
     page.window_height = app.config.init_height
