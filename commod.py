@@ -492,8 +492,8 @@ def _init_input_parser():
                         action="store_true", default=False, required=False)
     parser.add_argument('-console', help='run in console',
                         action="store_true", default=False, required=False)
-    parser.add_argument('-skip_wizard', help='skips quick setup wizzard in GUI mode',
-                        default=False, required=False, action="store_true")
+    # parser.add_argument('-skip_wizard', help='skips quick setup wizzard in GUI mode',
+                        # default=False, required=False, action="store_true")
     installation_option = parser.add_mutually_exclusive_group()
     installation_option.add_argument('-compatch', help='base ComPatch setup, no console interaction required',
                                      action="store_true", default=False)

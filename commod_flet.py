@@ -1776,20 +1776,14 @@ class ModItem(UserControl):
             bg = ft.Container(Row([Column(
                 controls=[], alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER)]),
-                bgcolor=ft.colors.BLACK54,
-                opacity=0,
-                animate_opacity=500)
+                bgcolor=ft.colors.BLACK54)
 
             fg = ModInstallWizard(self, self.app, self.main_mod)
 
             self.app.page.overlay.clear()
             self.app.page.overlay.append(bg)
-            await self.app.page.update_async()
-            bg.opacity = 1.0
-            await bg.update_async()
             self.app.page.overlay.append(fg)
-
-        await self.app.page.update_async()
+            await self.app.page.update_async()
 
     async def toggle_info(self, e):
         self.app.logger.debug("Pressed toggle info")
@@ -1917,7 +1911,9 @@ class ModInstallWizard(UserControl):
         self.main_row = ft.Ref[ft.ResponsiveRow]()
         self.screen = ft.Ref[ft.Container]()
 
-    async def close_overlay(self, e):
+    async def close_wizard(self, e):
+        # self.visible = False
+        # await self.update_async()
         self.app.page.overlay.clear()
         await self.app.page.update_async()
 
@@ -1929,13 +1925,16 @@ class ModInstallWizard(UserControl):
 
         num_valid_translations = len(validated_translations)
         if num_valid_translations == 0:
-            # TODO: handle gracefully
+            # TODO: handle gracefully or remove entirely
             raise NoModsFound("No available for installation versions")
         elif num_valid_translations == 1:
             self.mod = validated_translations[0]
             await self.show_welcome_mod_screen()
         else:
             await self.show_lang_select_screen()
+
+    async def show_install_progress(self, e):
+        print("Pressed yes when asked to start install or not")
 
     async def show_welcome_mod_screen(self):
         install_settings = {}
@@ -1958,8 +1957,7 @@ class ModInstallWizard(UserControl):
             custom_header = "remaster_custom"
 
         description = (f"{tr('description')}\n{mod.description}\n\n"
-                       f"{tr(mod.developer_title)} {mod.authors}\n"
-                       f"{tr('mod_url')} {mod.url}")
+                       f"{tr(mod.developer_title)} {mod.authors}\n")
 
         if self.app.game.installed_content.get(mod.name) is not None:
             options_to_offer = ["reinstall", "skip"]
@@ -1967,21 +1965,34 @@ class ModInstallWizard(UserControl):
                            + description + "\n\n"
                            + tr("warn_reinstall_mods"))
         else:
-            options_to_offer = ["yes", "no"]
+            buttons = [ft.FilledTonalButton(tr("no").capitalize(),
+                                            width=100,
+                                            on_click=self.close_wizard),
+                       ft.ElevatedButton(tr("yes").capitalize(),
+                                       width=100,
+                                       on_click=self.show_install_progress,
+                                       style=ft.ButtonStyle(
+                                                color={
+                                                    ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
+                                                    ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY,
+                                                    ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                                    },
+                                                bgcolor={
+                                                    ft.MaterialState.HOVERED: ft.colors.SECONDARY,
+                                                    ft.MaterialState.DEFAULT: ft.colors.PRIMARY,
+                                                    ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+                                                })
+                                        )]
 
         self.screen.current.content = ft.Column([
             Image(src=self.mod.banner_path, visible=self.mod.banner_path is not None),
             Text(description, no_wrap=False),
             ft.Divider(),
             Text(f"{tr('install_mod_ask')}"),
-            Row([ft.FilledButton(content=ft.Container(
-                    Text(tr(opt).capitalize())
-                 ), width=100) for opt in options_to_offer],
+            Row(controls=buttons,
                 alignment=ft.MainAxisAlignment.CENTER)
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-        self.main_row.current.width = None
-        await self.main_row.current.update_async()
         await self.screen.current.update_async()
 
     async def show_lang_select_screen(self):
@@ -1996,24 +2007,27 @@ class ModInstallWizard(UserControl):
             Column(controls=[
                 ft.Card(ft.Container(
                     ft.Column(
-                        [ft.WindowDragArea(ft.Container(
-                            Row([
-                                Row([Text(mod_title, color=ft.colors.PRIMARY, weight=ft.FontWeight.BOLD)],
-                                    alignment=ft.MainAxisAlignment.CENTER, expand=True),
-                                ft.Tooltip(
+                        [Row([
+                            ft.WindowDragArea(ft.Container(
+                                Row([
+                                    Text(mod_title, color=ft.colors.PRIMARY,
+                                         weight=ft.FontWeight.BOLD)],
+                                    alignment=ft.MainAxisAlignment.CENTER),
+                                    padding=8), expand=True),
+                              ft.Tooltip(
                                     message=tr("cancel_install").capitalize(),
                                     wait_duration=50,
                                     content=ft.IconButton(ft.icons.CLOSE_ROUNDED,
-                                                          on_click=self.close_overlay,
+                                                          on_click=self.close_wizard,
                                                           icon_color=ft.colors.RED,
                                                           icon_size=22))
-                                 ], expand=True, alignment=ft.MainAxisAlignment.SPACE_BETWEEN))),
+                                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.START),
                          ft.Container(ref=self.screen,
                                       padding=ft.padding.only(bottom=20, left=40, right=40)),
                          ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
                     ))
                 ], alignment=ft.MainAxisAlignment.CENTER, col={"xs": 10, "xl": 9, "xxl": 8}),
-            ], alignment=ft.MainAxisAlignment.CENTER, width=0, ref=self.main_row, animate_size=500)
+            ], alignment=ft.MainAxisAlignment.CENTER)
 
 
 class LocalModsScreen(UserControl):
@@ -2532,8 +2546,7 @@ async def main(page: Page):
 
     need_quick_start = (not app.config.game_names
                         and app.context.distribution_dir is None
-                        and app.game.game_root_path is None
-                        and not options.skip_wizard)
+                        and app.game.game_root_path is None)
 
     create_sections(app)
 
