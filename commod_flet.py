@@ -468,7 +468,7 @@ class SettingsScreen(UserControl):
             animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
             height=50 if bool(not self.app.config.current_game) else 0,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            col={"sm": 12, "lg": 10, "xxl": 8})
+            col={"xs": 12, "lg": 10, "xxl": 8})
 
         self.no_distro_warning = ft.Container(
             Row([Icon(ft.icons.INFO_OUTLINE_ROUNDED, color=ft.colors.ON_TERTIARY_CONTAINER, ),
@@ -479,7 +479,7 @@ class SettingsScreen(UserControl):
             animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
             visible=bool(not self.app.config.current_distro),
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            col={"sm": 12, "lg": 10, "xxl": 8})
+            col={"xs": 12, "lg": 10, "xxl": 8})
 
         self.env_warnings = ft.Ref[Column]()
 
@@ -607,7 +607,7 @@ class SettingsScreen(UserControl):
             height=None if bool(self.app.config.known_games) else 0,
             controls=[
                 self.filter,
-                self.list_of_games], col={"sm": 12, "lg": 10, "xxl": 8}
+                self.list_of_games], col={"xs": 12, "lg": 10, "xxl": 8}
         )
         if self.app.config.game_names:
             for game_path in self.app.config.game_names:
@@ -654,7 +654,7 @@ class SettingsScreen(UserControl):
            animate_size=ft.animation.Animation(500, ft.AnimationCurve.EASE_IN_OUT),
            bgcolor=ft.colors.SECONDARY_CONTAINER, border_radius=20,
            padding=ft.padding.symmetric(horizontal=10),
-           col={"sm": 12, "lg": 10, "xxl": 8})
+           col={"xs": 12, "lg": 10, "xxl": 8})
 
         expanded_icon = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
         collapsed_icon = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
@@ -679,7 +679,7 @@ class SettingsScreen(UserControl):
                     Row([
                         Icon(ft.icons.VIDEOGAME_ASSET_ROUNDED, color=ft.colors.ON_BACKGROUND),
                         Text(value=tr("control_game_copies").upper(), style=ft.TextThemeStyle.TITLE_SMALL)
-                        ], col={"sm": 12, "xl": 11, "xxl": 9}),
+                        ], col={"xs": 12, "xl": 11, "xxl": 9}),
                     self.view_list_of_games,
                     ft.Container(content=Column(
                         [ft.Container(Row([game_icon,
@@ -703,7 +703,7 @@ class SettingsScreen(UserControl):
                                   animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
                                   ref=self.add_game_manual_container,
                                   height=104 if self.add_game_expanded else 48,
-                                  col={"sm": 12, "lg": 10, "xxl": 7}
+                                  col={"xs": 12, "lg": 10, "xxl": 7}
                                   ),
                     ft.Container(content=Column(
                         [ft.Container(Row([steam_icon,
@@ -722,7 +722,7 @@ class SettingsScreen(UserControl):
                              animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
                              ref=self.add_game_steam_container,
                              height=104 if self.add_steam_expanded else 48,
-                             col={"sm": 12, "lg": 10, "xxl": 7}
+                             col={"xs": 12, "lg": 10, "xxl": 7}
                                   )
                     ], alignment=ft.MainAxisAlignment.CENTER),
                 ft.ResponsiveRow(
@@ -731,7 +731,7 @@ class SettingsScreen(UserControl):
                         Row([
                             ft.Icon(ft.icons.CREATE_NEW_FOLDER, color=ft.colors.ON_BACKGROUND),
                             Text(value=tr("control_mod_folders").upper(), style=ft.TextThemeStyle.TITLE_SMALL)
-                             ], col={"sm": 12, "xl": 11, "xxl": 9}),
+                             ], col={"xs": 12, "xl": 11, "xxl": 9}),
                         self.distro_display,
                         ft.Container(content=Column(
                             [ft.Container(Row([dem_icon,
@@ -755,7 +755,7 @@ class SettingsScreen(UserControl):
                                      animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
                                      ref=self.add_distro_container,
                                      height=104 if self.add_distro_expanded else 48,
-                                     col={"sm": 12, "lg": 10, "xxl": 7}
+                                     col={"xs": 12, "lg": 10, "xxl": 7}
                                      )], alignment=ft.MainAxisAlignment.CENTER
                                  )
             ], spacing=20,
@@ -1642,7 +1642,8 @@ class ModInfo(UserControl):
                         tabs=[]),
                     Column([ft.Container(
                                 ft.ResponsiveRow([
-                                    Column([], ref=self.mod_info_column, col=11, opacity=0.9),
+                                    Column([], ref=self.mod_info_column, col={"xs": 11, "xl": 12},
+                                           opacity=0.9),
                                     ft.Container(
                                         Column([
                                             Row([ft.Container(Text(f'{tr("language").capitalize()}:'),
@@ -1658,47 +1659,52 @@ class ModInfo(UserControl):
                                                 ], spacing=5),
                                                 visible=bool(self.mod.release_date),
                                                 margin=ft.margin.only(left=10, top=3, bottom=6)),
-                                            ft.TextButton(content=ft.Row([
-                                                                ft.Container(
-                                                                    ft.Icon(
-                                                                        name=ft.icons.HOME_ROUNDED,
-                                                                        color=ft.colors.TERTIARY, size=20),
-                                                                    margin=2),
-                                                                ft.Container(
-                                                                    Text(tr("mod_url").replace(":", ""),
-                                                                         size=14,
-                                                                         weight=ft.FontWeight.NORMAL),
-                                                                    margin=ft.margin.only(bottom=2))
-                                                                ],
-                                                                alignment=ft.MainAxisAlignment.SPACE_EVENLY),
-                                                          ref=self.home_url_btn,
-                                                          on_click=self.open_home_url,
-                                                          visible=bool(self.mod.url),
-                                                          tooltip=f'{tr("warn_external_address")}\n'
-                                                                  f'{self.mod.url}'),
-                                            ft.TextButton(content=ft.Row([
-                                                                ft.Container(
-                                                                    ft.Icon(
-                                                                        name=ft.icons.ONDEMAND_VIDEO_OUTLINED,
-                                                                        color=ft.colors.TERTIARY, size=17),
-                                                                    margin=3),
-                                                                ft.Container(
-                                                                    ft.Text(tr("trailer_watch").capitalize(),
-                                                                            size=14,
-                                                                            weight=ft.FontWeight.NORMAL),
-                                                                    margin=ft.margin.only(bottom=2))
-                                                                ],
-                                                                alignment=ft.MainAxisAlignment.SPACE_EVENLY),
-                                                          ref=self.trailer_btn,
-                                                          on_click=self.open_trailer_url,
-                                                          visible=bool(self.mod.trailer_url),
-                                                          tooltip=f'{tr("warn_external_address")}\n'
-                                                                  f'{self.mod.trailer_url}')
+                                            ft.TextButton(content=ft.Row(
+                                                [
+                                                 ft.Container(
+                                                    ft.Icon(
+                                                        name=ft.icons.HOME_ROUNDED,
+                                                        color=ft.colors.PRIMARY, size=20),
+                                                    padding=ft.padding.symmetric(horizontal=6)),
+                                                 ft.Container(
+                                                     Row([Text(tr("mod_url").replace(":", ""),
+                                                               size=14,
+                                                               weight=ft.FontWeight.NORMAL)],
+                                                         alignment=ft.MainAxisAlignment.CENTER),
+                                                     margin=ft.margin.only(bottom=2), expand=True)
+                                                ],
+                                                alignment=ft.MainAxisAlignment.SPACE_AROUND),
+                                             ref=self.home_url_btn,
+                                             on_click=self.open_home_url,
+                                             visible=bool(self.mod.url),
+                                             tooltip=f'{tr("warn_external_address")}\n'
+                                                     f'{self.mod.url}'),
+                                            ft.TextButton(content=ft.Row(
+                                                [
+                                                 ft.Container(
+                                                     ft.Icon(name=ft.icons.ONDEMAND_VIDEO_OUTLINED,
+                                                             color=ft.colors.PRIMARY, size=17),
+                                                     padding=ft.padding.only(left=8, right=8, top=2)),
+                                                 ft.Container(
+                                                     Row([ft.Text(tr("trailer_watch").capitalize(),
+                                                                  size=14,
+                                                                  weight=ft.FontWeight.NORMAL)],
+                                                         alignment=ft.MainAxisAlignment.CENTER),
+                                                     margin=ft.margin.only(bottom=2), expand=True)
+                                                ],
+                                                # vertical_alignment=ft.MainAxisAlignment.CENTER,
+                                                alignment=ft.MainAxisAlignment.SPACE_AROUND),
+                                             ref=self.trailer_btn,
+                                             on_click=self.open_trailer_url,
+                                             visible=bool(self.mod.trailer_url),
+                                             tooltip=f'{tr("warn_external_address")}\n'
+                                                     f'{self.mod.trailer_url}')
                                             ],
                                             spacing=2,
                                             alignment=ft.MainAxisAlignment.START,
                                             horizontal_alignment=ft.CrossAxisAlignment.START),
-                                        col=4, padding=ft.padding.only(left=5))
+                                        col={"xs": 4, "xl": 3}, padding=ft.padding.only(left=5),
+                                        clip_behavior=ft.ClipBehavior.HARD_EDGE)
                                     ],
                                     vertical_alignment=ft.CrossAxisAlignment.START,
                                     spacing=0, columns=15),
@@ -1715,22 +1721,28 @@ class ModInfo(UserControl):
                                 visible=False,
                                 padding=ft.padding.only(bottom=15)),
                             ft.Container(
-                                ft.Column([ft.Markdown(self.mod.change_log_content,
-                                                       ref=self.change_log_text,
-                                                       extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                                                       on_tap_link=self.launch_url)],
-                                          scroll=ft.ScrollMode.ADAPTIVE),
+                                Column([
+                                    ft.Container(
+                                        ft.Markdown(self.mod.change_log_content,
+                                                    ref=self.change_log_text,
+                                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                                                    on_tap_link=self.launch_url),
+                                        padding=ft.padding.only(right=22))],
+                                       scroll=ft.ScrollMode.ADAPTIVE),
                                 ref=self.change_log,
                                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
                                 height=400,
                                 visible=False,
                                 padding=ft.padding.only(bottom=15)),
                             ft.Container(
-                                ft.Column([ft.Markdown(self.mod.other_info_content,
-                                                       ref=self.other_info_text,
-                                                       extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                                                       on_tap_link=self.launch_url)],
-                                          scroll=ft.ScrollMode.ADAPTIVE),
+                                Column([
+                                    ft.Container(
+                                        ft.Markdown(self.mod.other_info_content,
+                                                    ref=self.other_info_text,
+                                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                                                    on_tap_link=self.launch_url),
+                                        padding=ft.padding.only(right=22))],
+                                       scroll=ft.ScrollMode.ADAPTIVE),
                                 ref=self.other_info,
                                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
                                 height=400,
@@ -1751,7 +1763,7 @@ class ModItem(UserControl):
         super().__init__(self, **kwargs)
         self.app = app
         self.main_mod = mod
-        self.mod = mod
+        self.mod = self.main_mod
 
         self.info_container = ft.Ref[ModInfo]()
         self.mod_name_text = ft.Ref[Text]()
@@ -1762,14 +1774,19 @@ class ModItem(UserControl):
         self.app.logger.debug("Pressed install mod")
         if not self.app.page.overlay:
             bg = ft.Container(Row([Column(
-                controls=[], expand=True, alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER)], expand=True),
-                bgcolor=ft.colors.BLACK54, expand=True)
+                controls=[], alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER)]),
+                bgcolor=ft.colors.BLACK54,
+                opacity=0,
+                animate_opacity=500)
 
-            fg = ModInstallWizard(self, self.app, self.mod)
+            fg = ModInstallWizard(self, self.app, self.main_mod)
 
             self.app.page.overlay.clear()
             self.app.page.overlay.append(bg)
+            await self.app.page.update_async()
+            bg.opacity = 1.0
+            await bg.update_async()
             self.app.page.overlay.append(fg)
 
         await self.app.page.update_async()
@@ -1797,8 +1814,10 @@ class ModItem(UserControl):
                     ft.ResponsiveRow([
                         Image(src=self.mod.logo_path,
                               ref=self.mod_logo_img,
+                              fit=ft.ImageFit.FILL,
                               gapless_playback=True,
-                              col={"sm": 4, "xl": 3}, border_radius=5),
+                              col={"xs": 8, "xl": 6}, border_radius=5),
+                        ft.Container(col={"xs": 0, "xl": 1}),
                         Column([
                             Text(self.mod.display_name,
                                  ref=self.mod_name_text,
@@ -1821,7 +1840,7 @@ class ModItem(UserControl):
                                          visible=len(self.mod.tags) > 3)],
                                 wrap=True, spacing=5, run_spacing=5)
                             ],
-                            col={"sm": 6, "xl": 8}),
+                            col={"xs": 11, "xl": 14}),
                         Column([
                             Row([ft.Container(
                                     Text(f"{self.mod.version} [{self.mod.build}]",
@@ -1864,8 +1883,8 @@ class ModItem(UserControl):
                                               on_click=self.install_mod),
                             ft.OutlinedButton(tr("about_mod").capitalize(),
                                               on_click=self.toggle_info)
-                            ], col={"sm": 3, "xl": 2}, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-                        ], spacing=15, columns=13),
+                            ], col={"xs": 7, "xl": 5}, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                        ], spacing=10, columns=26),
                     ModInfo(self.app, self.mod, self, ref=self.info_container)
                 ], spacing=0, scroll=ft.ScrollMode.HIDDEN, alignment=ft.MainAxisAlignment.START),
                 margin=15),
@@ -1895,6 +1914,7 @@ class ModInstallWizard(UserControl):
         self.app = app
         self.main_mod = mod
         self.mod = None
+        self.main_row = ft.Ref[ft.ResponsiveRow]()
         self.screen = ft.Ref[ft.Container]()
 
     async def close_overlay(self, e):
@@ -1918,8 +1938,50 @@ class ModInstallWizard(UserControl):
             await self.show_lang_select_screen()
 
     async def show_welcome_mod_screen(self):
-        self.screen.current.content = ft.Row(
-            [Text(f"Welcome to installation for mod {self.mod.name}")])
+        install_settings = {}
+        requres_custom_install = False
+
+        mod = self.mod
+        full_settings = mod.get_full_install_settings()
+        if mod.optional_content is not None:
+            for option in mod.optional_content:
+                if option.install_settings is not None and option.default_option is None:
+                    # if any option doesn't have a default, we will ask user to make a choice
+                    requres_custom_install = True
+                    break
+
+        if mod.name != "community_remaster":
+            custom_header = "mod_manager_title"
+            mod_title = (f"{tr('installation')} {mod.display_name} - "
+                         f"{tr('version')} {mod.version}")
+        else:
+            custom_header = "remaster_custom"
+
+        description = (f"{tr('description')}\n{mod.description}\n\n"
+                       f"{tr(mod.developer_title)} {mod.authors}\n"
+                       f"{tr('mod_url')} {mod.url}")
+
+        if self.app.game.installed_content.get(mod.name) is not None:
+            options_to_offer = ["reinstall", "skip"]
+            description = (tr("reinstalling_intro_mods") + "\n\n"
+                           + description + "\n\n"
+                           + tr("warn_reinstall_mods"))
+        else:
+            options_to_offer = ["yes", "no"]
+
+        self.screen.current.content = ft.Column([
+            Image(src=self.mod.banner_path, visible=self.mod.banner_path is not None),
+            Text(description, no_wrap=False),
+            ft.Divider(),
+            Text(f"{tr('install_mod_ask')}"),
+            Row([ft.FilledButton(content=ft.Container(
+                    Text(tr(opt).capitalize())
+                 ), width=100) for opt in options_to_offer],
+                alignment=ft.MainAxisAlignment.CENTER)
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+        self.main_row.current.width = None
+        await self.main_row.current.update_async()
         await self.screen.current.update_async()
 
     async def show_lang_select_screen(self):
@@ -1928,19 +1990,30 @@ class ModInstallWizard(UserControl):
         await self.screen.current.update_async()
 
     def build(self):
-        return Row([
+        mod_title = (f"{tr('installation')} {self.main_mod.display_name} - "
+                     f"{tr('version')} {self.main_mod.version}")
+        return ft.ResponsiveRow([
             Column(controls=[
                 ft.Card(ft.Container(
-                    Column([
-                        Text(tr("mod_manager_title"), weight=ft.FontWeight.W_800),
-                        ft.Container(ref=self.screen),
-                        ft.OutlinedButton("Cancel installation", on_click=self.close_overlay)
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    # bgcolor=ft.colors.SECONDARY_CONTAINER,
-                    padding=20,
-                    border_radius=20))
-                ], alignment=ft.MainAxisAlignment.CENTER)
-            ], alignment=ft.MainAxisAlignment.CENTER)
+                    ft.Column(
+                        [ft.WindowDragArea(ft.Container(
+                            Row([
+                                Row([Text(mod_title, color=ft.colors.PRIMARY, weight=ft.FontWeight.BOLD)],
+                                    alignment=ft.MainAxisAlignment.CENTER, expand=True),
+                                ft.Tooltip(
+                                    message=tr("cancel_install").capitalize(),
+                                    wait_duration=50,
+                                    content=ft.IconButton(ft.icons.CLOSE_ROUNDED,
+                                                          on_click=self.close_overlay,
+                                                          icon_color=ft.colors.RED,
+                                                          icon_size=22))
+                                 ], expand=True, alignment=ft.MainAxisAlignment.SPACE_BETWEEN))),
+                         ft.Container(ref=self.screen,
+                                      padding=ft.padding.only(bottom=20, left=40, right=40)),
+                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                    ))
+                ], alignment=ft.MainAxisAlignment.CENTER, col={"xs": 10, "xl": 9, "xxl": 8}),
+            ], alignment=ft.MainAxisAlignment.CENTER, width=0, ref=self.main_row, animate_size=500)
 
 
 class LocalModsScreen(UserControl):
@@ -1967,10 +2040,17 @@ class LocalModsScreen(UserControl):
                 Row([Text(tr("local_mods").capitalize(),
                           style=ft.TextThemeStyle.TITLE_MEDIUM)],
                     alignment=ft.MainAxisAlignment.CENTER),
-                ft.Column([ft.Container(ft.ListView(
-                    [Text(tr("no_local_mods_found").capitalize(), ref=self.no_mods_warning)],
-                    spacing=10, padding=0,
-                    ref=self.mods_list_view), padding=ft.padding.only(right=22))],
+                ft.Column([
+                    ft.Container(
+                        ft.ResponsiveRow([
+                            ft.ListView([
+                                Text(tr("no_local_mods_found").capitalize(), ref=self.no_mods_warning)
+                                ],
+                                spacing=10, padding=0,
+                                ref=self.mods_list_view, col={"md": 12, "lg": 11, "xxl": 10})],
+                            alignment=ft.MainAxisAlignment.CENTER),
+                        padding=ft.padding.only(right=22))
+                    ],
                     expand=True, scroll=ft.ScrollMode.ALWAYS)
             ]),
             margin=ft.margin.only(bottom=5), expand=True)
@@ -2208,7 +2288,7 @@ class HomeScreen(UserControl):
                                 aspect_ratio=2.5,
                             )])
                         ],
-                        col={"sm": 4, "xl": 3}, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        col={"xs": 4, "xl": 3}, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Container(Column([
                         Row([ft.ProgressRing(scale=0.5), Text("Checking online news...")],
                             ref=self.checking_online, visible=self.news_text is None),
@@ -2223,7 +2303,7 @@ class HomeScreen(UserControl):
                         ],
                         alignment=ft.MainAxisAlignment.START,
                         spacing=20,
-                        scroll=ft.ScrollMode.ADAPTIVE), col={"sm": 8, "xl": 9})
+                        scroll=ft.ScrollMode.ADAPTIVE), col={"xs": 8, "xl": 9})
                     ], vertical_alignment=ft.CrossAxisAlignment.START, spacing=30),
                 margin=ft.margin.only(bottom=20), expand=True)
 

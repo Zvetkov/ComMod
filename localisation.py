@@ -20,6 +20,8 @@ class SupportedLanguages(Enum):
 
 
 local_dict = {
+    "yes": "да",
+    "no": "нет",
     "settings": "настройки",
     "launch": "запуск",
     "local_mods": "моды",
@@ -42,6 +44,7 @@ local_dict = {
     "warn_external_address": "Осторожно! Внешняя ссылка от автора модификации!",
     "install": "установить",
     "release": "релиз",
+    "cancel_install": "отменить установку",
     "exe_version": "Версия exe игры",
     "add_to_list": "добавить в список",
     "all_versions": "все версии",

@@ -41,6 +41,7 @@ class Mod:
             self.release_date = yaml_config.get("release_date")
             self.tags = yaml_config.get("tags")
             self.logo = yaml_config.get("logo")
+            self.install_banner = yaml_config.get("install_banner")
             self.language = yaml_config.get("language")
             self.screenshots = yaml_config.get("screenshots")
             self.change_log = yaml_config.get("change_log")
@@ -215,10 +216,16 @@ class Mod:
                     self.other_info_content = md
 
         self.logo_path = get_internal_file_path("assets/no_logo.png")
-        if self.logo is not None:
+        if isinstance(self.logo, str):
             logo_path = Path(self.distibution_dir, self.logo)
             if logo_path.exists() and logo_path.suffix.lower() in supported_img_extensions:
                 self.logo_path = str(logo_path)
+
+        self.banner_path = None
+        if isinstance(self.install_banner, str):
+            banner_path = Path(self.distibution_dir, self.install_banner)
+            if banner_path.exists() and banner_path.suffix.lower() in supported_img_extensions:
+                self.banner_path = str(banner_path)
 
         for screen in self.screenshots:
             screen_path = Path(self.distibution_dir, screen["img"])
@@ -675,6 +682,7 @@ class Mod:
                 "link": [[str], False],
                 "tags": [[list[str]], False],
                 "logo": [[str], False],
+                "install_banner": [[str], False],
                 "screenshots": [[list], False],
                 "change_log": [[str], False],
                 "other_info": [[str], False],
