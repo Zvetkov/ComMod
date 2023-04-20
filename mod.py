@@ -20,14 +20,13 @@ class Mod:
     '''Mod for HTA/EM, contains mod data, installation instructions
        and related functions'''
     def __init__(self, yaml_config: dict, distribution_dir: str) -> None:
-        self.logger = logging.getLogger('dem')
         try:
-            self.name = str(yaml_config.get("name"))[:64].replace("/", "").replace("\\", "").replace(".", "")
-            self.display_name = str(yaml_config.get("display_name"))[:64]
+            self.name = str(yaml_config.get("name"))[:64].replace("/", "").replace("\\", "").replace(".", "").strip()
+            self.display_name = str(yaml_config.get("display_name"))[:64].strip()
             self.description = str(yaml_config.get("description"))[:2048].strip()
-            self.authors = str(yaml_config.get("authors"))[:128]
-            self.version = str(yaml_config.get("version"))[:64]
-            self.build = str(yaml_config.get("build"))[:7]
+            self.authors = str(yaml_config.get("authors"))[:256].strip()
+            self.version = str(yaml_config.get("version"))[:64].strip()
+            self.build = str(yaml_config.get("build"))[:7].strip()
             url = yaml_config.get("link")
             trailer_url = yaml_config.get("trailer_link")
             self.url = url[:128].strip() if url is not None else ""
@@ -148,8 +147,8 @@ class Mod:
 
         except Exception as ex:
             er_message = f"Broken manifest for content '{self.name}'!"
-            self.logger.error(ex)
-            self.logger.error(er_message)
+            logger.error(ex)
+            logger.error(er_message)
             raise ValueError(er_message)
 
     @staticmethod
@@ -169,31 +168,38 @@ class Mod:
                     mod_tr = Mod(yaml_config, self.distibution_dir)
                     if mod_tr.name != self.name:
                         raise ValueError("Service name missmatch in translation: "
-                                         f"{mod_tr.name} specified for translation, "
-                                         f"but main mod version is {self.name}! "
-                                         f"(Mod: {mod_tr.name}) (Translation: {mod_tr.language})")
+                                         f"'{mod_tr.name}' name specified for translation, "
+                                         f"but main mod name is '{self.name}'! "
+                                         f"(Mod: {self.name}) (Translation: {mod_tr.language})")
                     if mod_tr.version != self.version:
                         raise ValueError("Version missmatch: "
-                                         f"{mod_tr.version} specified for translation, "
-                                         f"but main mod version is {self.version}! "
-                                         f"(Mod: {mod_tr.name}) (Translation: {mod_tr.language})")
+                                         f"'{mod_tr.version}' specified for translation, "
+                                         f"but main mod version is '{self.version}'! "
+                                         f"(Mod: {self.name}) (Translation: {mod_tr.language})")
                     if sorted(mod_tr.tags) != sorted(self.tags):
                         raise ValueError("Tags missmatch: "
                                          f"{mod_tr.tags} specified for translation, "
                                          f"but main mod tags are {self.tags}! "
-                                         f"(Mod: {mod_tr.name}) (Translation: {mod_tr.language})")
+                                         f"(Mod: {self.name}) (Translation: {mod_tr.language})")
                     if mod_tr.language != lang:
                         raise ValueError("Language missmatch for translation manifest name and info: "
                                          f"{mod_tr.language} in manifest, {lang} in manifest name! "
-                                         f"(Mod: {mod_tr.name})")
+                                         f"(Mod: {self.name})")
                     if mod_tr.language == self.language:
                         raise ValueError("Language duplication for translation manifest: "
                                          f"{lang} in manifest, but {lang} is main lang already! "
-                                         f"(Mod: {mod_tr.name})")
+                                         f"(Mod: {self.name})")
 
                     self.translations_loaded[lang] = mod_tr
                     if load_gui_info:
                         mod_tr.load_gui_info()
+
+        for lang, mod in self.translations_loaded.items():
+            mod.known_language = self.is_known_lang(lang)
+            if mod.known_language:
+                mod.lang_label = tr(lang)
+            else:
+                mod.lang_label = lang
 
     def load_gui_info(self):
         supported_img_extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]
@@ -233,8 +239,8 @@ class Mod:
                 screen["path"] = str(screen_path)
             else:
                 screen["path"] = ""
-                self.logger.warning(f"Missing path for screenshot ({screen['img']}) "
-                                    f"in mod {self.name}-{self.language}")
+                logger.warning(f"Missing path for screenshot ({screen['img']}) "
+                               f"in mod {self.name}-{self.language}")
 
             compare_path = Path(self.distibution_dir, screen["compare"])
             if compare_path.exists() and compare_path.suffix.lower() in supported_img_extensions:
@@ -284,7 +290,7 @@ class Mod:
                 console: bool = False) -> tuple[bool, list]:
         '''Returns bool success status of install and errors list in case mod requirements are not met'''
         try:
-            self.logger.info(f"Existing content: {existing_content}")
+            logger.info(f"Existing content: {existing_content}")
             mod_files = []
             requirements_met, error_msgs = self.check_requirements(existing_content,
                                                                    existing_content_descriptions)
@@ -330,7 +336,7 @@ class Mod:
             else:
                 return False, error_msgs
         except Exception as ex:
-            self.logger.error(ex)
+            logger.error(ex)
             return False, []
 
     def check_requirement(self, prereq: dict, existing_content: dict,
@@ -442,8 +448,7 @@ class Mod:
 
                         error_msg.append(requirement_name)
                     else:
-                        self.logger.info(f"content validated: {option} - "
-                                         f"for mod: {name_label}")
+                        logger.info(f"content validated: {option} - for mod: {name_label}")
 
         validated = name_validated and version_validated and optional_content_validated
 
@@ -769,8 +774,8 @@ class Mod:
                         for option in optional_content:
                             install_settings = option.get("install_settings")
                             if install_settings is not None:
-                                validated = (len(install_settings) > 1) or validated
-                                logger.info(f"More than one install setting if they exist check for content '"
+                                validated &= (len(install_settings) > 1)
+                                logger.info(f"Complex install settings num > 1 for content '"
                                             f"{option.get('name')}' of mod '{display_name}' "
                                             f"validation result: {validated}")
                                 validated &= Mod.validate_list(install_settings, schema_install_settins)
@@ -791,11 +796,14 @@ class Mod:
                         mod_identifier = install_config.get("name")
 
                     if not install_config.get("no_base_content"):
-                        validated &= os.path.isdir(os.path.join(mod_path, mod_identifier, "data"))
-                        logger.info(f"Mod '{display_name}' data folder validation result: {validated}")
-                        if not validated:
+                        validated_data_dir = os.path.isdir(os.path.join(mod_path, mod_identifier, "data"))
+                        validated &= validated_data_dir
+                        if not validated_data_dir:
                             logger.error('Expected path not exists: '
                                          f'{os.path.join(mod_path, mod_identifier, "data")}')
+                        else:
+                            logger.info(f"Mod '{display_name}' data folder validation result: "
+                                        f"{validated_data_dir}")
                     if optional_content is not None:
                         for option in optional_content:
                             validated &= os.path.isdir(os.path.join(mod_path,
@@ -1104,23 +1112,41 @@ class Mod:
 
     class OptionalContent:
         def __init__(self, description: dict, parent: Mod) -> None:
-            self.logger = logging.getLogger('dem')
-
             self.name = str(description.get("name"))[:64].replace("/", "").replace("\\", "").replace(".", "")
             self.display_name = description.get("display_name")[:64]
-            self.description = description.get("description")[:2048].strip()
+            self.description = description.get("description")[:256].strip()
 
             self.install_settings = description.get("install_settings")
             self.default_option = None
+            default_option = description.get("default_option")
+
             if self.install_settings is not None:
-                default_option = description.get("default_option")
+                for custom_setting in self.install_settings:
+                    custom_setting["name"] = custom_setting["name"][:64].strip()
+                    custom_setting["description"] = custom_setting["description"][:128].strip()
                 if default_option in [opt["name"] for opt in self.install_settings]:
                     self.default_option = default_option
+                elif isinstance(default_option, str):
+                    if default_option.lower() == "skip":
+                        self.default_option = "skip"
+                elif default_option is None:
+                    pass  # default behavior if default option is not specified
                 else:
                     er_message = (f"Incorrect default option '{default_option}' "
-                                  f"for '{self.name}' in content manifest!")
-                    self.logger.error(er_message)
+                                  f"for '{self.name}' in content manifest! "
+                                  f"Only 'skip' or names present in install settings are allowed")
+                    logger.error(er_message)
                     raise KeyError(er_message)
+            else:
+                if isinstance(default_option, str):
+                    if default_option.lower() == "skip":
+                        self.default_option = "skip"
+                    elif default_option.lower() == "install":
+                        pass  # same as default
+                    else:
+                        er_message = (f"Incorrect default option '{default_option}' "
+                                      f"for '{self.name}' in content manifest. "
+                                      f"Only 'skip' or 'install' is allowed for simple options!")
 
             no_base_content = description.get("no_base_content")
             patcher_options = description.get("patcher_options")
@@ -1139,5 +1165,5 @@ class Mod:
                         pass
                     else:
                         er_message = f"Broken manifest for content '{self.name}'!"
-                        self.logger.error(er_message)
+                        logger.error(er_message)
                         raise ValueError(er_message)

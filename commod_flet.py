@@ -1314,39 +1314,20 @@ class ModInfo(UserControl):
         await self.set_mod_screens_row()
         await self.update_screens()
 
-        if self.mod.is_known_lang(self.mod.language):
-            main_lang_flag = get_internal_file_path(LangFlags[self.mod.language].value)
-        else:
-            main_lang_flag = get_internal_file_path(LangFlags.other.value)
-
-        main_icon = ft.Image(main_lang_flag, width=26)
-        if not self.mod.can_install:
-            # make it black and white if can't install
-            main_icon.color = ft.colors.BLACK87,
-            main_icon.color_blend_mode = ft.BlendMode.COLOR
-            main_icon.tooltip = tr("cant_be_installed")
-
-        main_flag_btn = ft.IconButton(content=main_icon,
-                                      data=self.mod.language,
-                                      on_click=self.change_lang)
-        self.lang_list.current.controls.append(main_flag_btn)
-
         if self.main_mod.translations_loaded:
             for lang, mod in self.main_mod.translations_loaded.items():
-                if lang == self.main_mod.language:
-                    continue
-                known_language = self.main_mod.translations[lang]
-
-                if known_language:
+                if mod.known_language:
                     flag = get_internal_file_path(LangFlags[lang].value)
                 else:
                     flag = get_internal_file_path(LangFlags.other.value)
 
                 icon = ft.Image(flag, width=26)
+                icon.tooltip = mod.lang_label.capitalize()
+
                 if not mod.can_install:
                     icon.color = ft.colors.BLACK87
                     icon.color_blend_mode = ft.BlendMode.COLOR
-                    icon.tooltip = tr("cant_be_installed")
+                    icon.tooltip += f' ({tr("cant_be_installed")})'
 
                 flag_btn = ft.IconButton(
                     content=icon,
@@ -1765,18 +1746,18 @@ class ModItem(UserControl):
         self.main_mod = mod
         self.mod = self.main_mod
 
+        self.about_mod_btn = ft.Ref[ft.OutlinedButton]()
         self.info_container = ft.Ref[ModInfo]()
         self.mod_name_text = ft.Ref[Text]()
         self.author_text = ft.Ref[Text]()
         self.mod_logo_img = ft.Ref[Image]()
 
     async def install_mod(self, e):
-        self.app.logger.debug("Pressed install mod")
         if not self.app.page.overlay:
             bg = ft.Container(Row([Column(
                 controls=[], alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER)]),
-                bgcolor=ft.colors.BLACK54)
+                bgcolor=ft.colors.BLACK87)
 
             fg = ModInstallWizard(self, self.app, self.main_mod)
 
@@ -1786,7 +1767,11 @@ class ModItem(UserControl):
             await self.app.page.update_async()
 
     async def toggle_info(self, e):
-        self.app.logger.debug("Pressed toggle info")
+        if self.about_mod_btn.current.text == tr("about_mod").capitalize():
+            self.about_mod_btn.current.text = tr("hide_menu").capitalize()
+        else:
+            self.about_mod_btn.current.text = tr("about_mod").capitalize()
+        await self.about_mod_btn.current.update_async()
         await self.info_container.current.toggle()
 
     async def change_lang(self, e):
@@ -1876,6 +1861,9 @@ class ModItem(UserControl):
                                               disabled=not self.mod.can_install,
                                               on_click=self.install_mod),
                             ft.OutlinedButton(tr("about_mod").capitalize(),
+                                              animate_size=ft.animation.Animation(
+                                                66, ft.AnimationCurve.EASE_IN),
+                                              ref=self.about_mod_btn,
                                               on_click=self.toggle_info)
                             ], col={"xs": 7, "xl": 5}, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
                         ], spacing=10, columns=26),
@@ -1884,21 +1872,6 @@ class ModItem(UserControl):
                 margin=15),
             margin=ft.margin.symmetric(vertical=1), elevation=3,
             )
-            # on_secondary_tap=self.on_right_click
-        # )
-
-    # async def on_right_click(self, e):
-    #     self.app.logger.debug("Right click on mod")
-        # if not self.app.page.overlay:
-        #     pb = ft.Container(Column(
-        #         controls=[
-        #             ft.TextButton("SomeText")
-        #         ]),
-        #         bgcolor=ft.colors.BACKGROUND, height=30,
-        #         border=ft.border.all(2, ft.colors.SECONDARY))
-        #     self.app.page.overlay.append(pb)
-        #     await self.app.page.update_async()
-        # await self.app.page.update_async()
 
 
 class ModInstallWizard(UserControl):
@@ -1908,14 +1881,193 @@ class ModInstallWizard(UserControl):
         self.app = app
         self.main_mod = mod
         self.mod = None
+        self.current_screen = None
+        self.options = []
+
+        self.can_have_custom_install = False
+        self.requires_custom_install = False
+
         self.main_row = ft.Ref[ft.ResponsiveRow]()
         self.screen = ft.Ref[ft.Container]()
+        self.default_install_btn = ft.Ref[ft.FilledButton]()
+        self.status_capsules = Row([])
+        self.status_capsules_container = ft.Container(
+            Column([
+                ft.Container(Text(tr("install_steps").capitalize(), weight=ft.FontWeight.BOLD),
+                             padding=ft.padding.symmetric(horizontal=5)),
+                self.status_capsules
+                ]), padding=ft.padding.symmetric(horizontal=40)
+        )
+
+        self.language_choice_required = False
+
+    class Steps(Enum):
+        WELCOME = 0
+        INSTALLING = 1
+        SETTING_UP = 2
+        RESULTS = 3
+
+    class ModOption(UserControl):
+        def __init__(self, parent, option: Mod.OptionalContent, **kwargs):
+            super().__init__(self, **kwargs)
+            self.option = option
+            self.parent = parent
+            self.active = True
+            self.card = ft.Ref[ft.Card]()
+            self.warning_text = ft.Ref[Text]()
+            self.choice = None
+            self.complex_selector = False
+            self.checkboxes = []
+
+        async def set_active(self):
+            if self.active:
+                return
+            self.card.current.elevation = 5
+            self.card.current.opacity = 1.0
+            self.card.current.scale = 1.0
+            self.warning_text.current.visible = False
+            await self.card.current.update_async()
+            self.active = True
+
+        async def set_inactive(self):
+            if not self.active:
+                return
+            self.card.current.elevation = 0
+            self.card.current.opacity = 0.8
+            self.card.current.scale = 0.99
+            self.warning_text.current.visible = True
+            await self.card.current.update_async()
+            self.active = False
+
+        async def update_state(self):
+            if any([check.value for check in self.checkboxes]):
+                await self.set_active()
+            else:
+                await self.set_inactive()
+
+        async def checkbox_action(self, e):
+            changed_from_default = False
+            if self.option.install_settings is None:
+                if self.option.default_option == "skip":
+                    changed_from_default = e.data == "true"
+                else:
+                    changed_from_default = e.data == "false"
+                self.choice = e.data
+            else:
+                self.choice = e.control.data
+                changed_from_default = e.data != self.option.default_option
+                if e.data != 'false':
+                    for check in self.checkboxes:
+                        if check.data != self.choice:
+                            check.value = False
+                            await check.update_async()
+            await self.update_state()
+
+            if changed_from_default:
+                await self.parent.changed_from_default()
+            else:
+                await self.parent.changed_to_default()
+
+        def build(self):
+            self.active = self.option.default_option != 'skip'
+            if self.option.install_settings is not None:
+                selector = []
+                self.complex_selector = True
+                for setting in self.option.install_settings:
+                    check = ft.Checkbox(data=setting["name"],
+                                        on_change=self.checkbox_action,
+                                        value=setting["name"] == self.option.default_option)
+                    self.checkboxes.append(check)
+                    selector.append(
+                        ft.Row([
+                            check,
+                            # TODO: check that validation for the existance of name and description exists
+                            Text(setting["name"], weight=ft.FontWeight.BOLD),
+                            Text(setting["description"].strip(), no_wrap=False)
+                            ], wrap=True, run_spacing=5))
+            else:
+                selector = ft.Checkbox(data='default',
+                                       value=self.option.default_option is None,
+                                       on_change=self.checkbox_action)
+                self.checkboxes.append(selector)
+
+            if self.complex_selector:
+                return ft.Card(ft.Container(
+                    Column([
+                        Row([
+                            Text(self.option.display_name,
+                                 color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD),
+                            Text(f"[{self.option.name}]", opacity=0.6),
+                            Text(tr("will_not_be_installed").capitalize(),
+                                 color=ft.colors.TERTIARY,
+                                 visible=not self.active,
+                                 ref=self.warning_text,
+                                 opacity=0.8)
+                            ], wrap=True, run_spacing=5),
+                        Column([
+                            Text(self.option.description, no_wrap=False),
+                            Text(f'{tr("choose_one_of_the_options").capitalize()}:',
+                                 color=ft.colors.SECONDARY),
+                            *selector,
+                            ])
+                    ]),
+                    margin=ft.margin.only(left=20, right=15, top=15, bottom=20)
+                ),
+                 animate_opacity=ft.animation.Animation(100, ft.AnimationCurve.EASE_IN),
+                 elevation=5 if self.active else 0,
+                 opacity=1 if self.active else 0.8,
+                 scale=1 if self.active else 0.99,
+                 ref=self.card)
+            else:
+                return ft.Card(ft.Container(
+                    Column([
+                        Row([
+                            selector,
+                            Text(self.option.display_name,
+                                 color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD),
+                            Text(f"[{self.option.name}]", opacity=0.6),
+                            Text(tr("will_not_be_installed").capitalize(),
+                                 color=ft.colors.TERTIARY,
+                                 visible=not self.active,
+                                 ref=self.warning_text,
+                                 opacity=0.8)
+                            ], wrap=True, run_spacing=5),
+                        Row([
+                            Text(self.option.description, no_wrap=False, expand=True)
+                            ]),
+                    ]), margin=ft.margin.only(left=20, right=15, top=15, bottom=20)
+                ),
+                 elevation=5 if self.active else 0,
+                 opacity=1 if self.active else 0.8,
+                 scale=1 if self.active else 0.99,
+                 ref=self.card)
 
     async def close_wizard(self, e):
         # self.visible = False
         # await self.update_async()
         self.app.page.overlay.clear()
         await self.app.page.update_async()
+
+    async def disable(self, container):
+        container.current.bgcolor = ft.colors.SURFACE
+        container.current.on_click = None
+        self.text.current.color = ft.colors.ON_SURFACE
+        await container.current.update_async()
+        await self.text.current.update_async()
+
+    async def select(self, container):
+        container.current.bgcolor = ft.colors.SURFACE
+        container.current.on_click = None
+        self.text.current.color = ft.colors.ON_SURFACE
+        await container.current.update_async()
+        await self.text.current.update_async()
+
+    async def deselect(self, container):
+        container.current.bgcolor = ft.colors.PRIMARY_CONTAINER
+        container.current.on_click = self.on_click_action
+        self.text.current.color = ft.colors.ON_PRIMARY_CONTAINER
+        await container.current.update_async()
+        await self.text.current.update_async()
 
     async def did_mount_async(self):
         validated_translations = []
@@ -1927,83 +2079,416 @@ class ModInstallWizard(UserControl):
         if num_valid_translations == 0:
             # TODO: handle gracefully or remove entirely
             raise NoModsFound("No available for installation versions")
-        elif num_valid_translations == 1:
-            self.mod = validated_translations[0]
-            await self.show_welcome_mod_screen()
+        # elif num_valid_translations == 1:
+        self.mod = validated_translations[0]
+        await self.show_welcome_mod_screen()
+
+    async def agree_to_install(self, e):
+        if self.can_have_custom_install:
+            await self.show_settings_screen(e)
         else:
-            await self.show_lang_select_screen()
+            await self.show_install_progress(e)
 
     async def show_install_progress(self, e):
-        print("Pressed yes when asked to start install or not")
-
-    async def show_welcome_mod_screen(self):
+        await self.update_status_capsules(self.Steps.INSTALLING)
         install_settings = {}
-        requres_custom_install = False
+
+        install_settings["base"] = "yes"
+        for option_card in self.options:
+            option = option_card.option
+            if option_card.complex_selector:
+                pass
+            else:
+                check = option_card.checkboxes[0]
+                install_settings[option.name] = "yes" if check.value else "skip"
+
+        self.app.session.content_in_processing[self.mod.name] = install_settings.copy()
+        self.app.session.content_in_processing[self.mod.name]["version"] = self.mod.version
+        self.app.session.content_in_processing[self.mod.name]["build"] = self.mod.build
+        self.app.session.content_in_processing[self.mod.name]["display_name"] = self.mod.display_name
+        print("Pressed yes when asked to start install or not")
+        print(self.app.game.data_path)
+        print(install_settings)
+        print(self.app.session.content_in_processing)
+        print(self.app.game.installed_descriptions)
+
+        status_ok, error_messages = self.mod.install(
+            self.app.game.data_path,
+            install_settings,
+            self.app.session.content_in_processing,
+            self.app.game.installed_descriptions)
+
+        print(status_ok)
+        print(error_messages)
+
+
+    def get_flag_buttons(self):
+        flag_buttons = []
+        for lang, mod in self.main_mod.translations_loaded.items():
+            if mod.known_language:
+                flag = get_internal_file_path(LangFlags[lang].value)
+            else:
+                flag = get_internal_file_path(LangFlags.other.value)
+
+            icon = ft.Image(flag, fit=ft.ImageFit.FILL)
+
+            flag_tooltip = mod.lang_label.capitalize()
+
+            if not mod.can_install:
+                icon.color = ft.colors.BLACK87
+                icon.color_blend_mode = ft.BlendMode.COLOR
+                flag_tooltip += f' ({tr("cant_be_installed")})'
+
+            flag_btn = ft.IconButton(
+                    content=icon,
+                    data=lang,
+                    tooltip=flag_tooltip,
+                    bgcolor=ft.colors.BLACK12,
+                    aspect_ratio=1,
+                    expand=1)
+
+            if mod.can_install:
+                flag_btn.on_click = self.set_install_lang
+
+            flag_buttons.append(flag_btn)
+
+        num_langs = len(flag_buttons)
+        return ft.ResponsiveRow([
+            ft.Row(flag_buttons, alignment=ft.MainAxisAlignment.CENTER, col=num_langs)
+            ],
+            visible=num_langs > 1,
+            alignment=ft.MainAxisAlignment.CENTER, columns=12 if num_langs <= 12 else num_langs)
+
+    async def changed_from_default(self):
+        self.default_install_btn.current.content = Row([
+            Icon(ft.icons.STAR, color=ft.colors.ON_PRIMARY, size=22),
+            Text(tr("choose_recommended_install").capitalize())
+        ], alignment=ft.MainAxisAlignment.CENTER)
+        self.default_install_btn.current.disabled = False
+
+        await self.default_install_btn.current.update_async()
+
+    async def changed_to_default(self):
+        is_default_install = True
+        for option_card in self.options:
+            option = option_card.option
+            if option.install_settings is None:
+                value = option.default_option
+                if value is None:
+                    value = True
+                if option_card.checkboxes[0].value != value:
+                    is_default_install = False
+
+        if is_default_install:
+            await self.set_to_default(cards_are_set=True)
+
+    async def set_option_cards_default(self):
+        for option_card in self.options:
+            changed = False
+            option = option_card.option
+            default_value = option.default_option
+            if option.install_settings is None:
+                if default_value is None:
+                    default_value = True
+                elif default_value == "skip":
+                    default_value = False
+                if option_card.checkboxes[0].value != default_value:
+                    changed = True
+                    option_card.checkboxes[0].value = default_value
+                    await option_card.checkboxes[0].update_async()
+            else:
+                for check in option_card.checkboxes:
+                    is_default = check.data == default_value
+                    if check.value != is_default:
+                        check.value = is_default
+                        changed = True
+                    await check.update_async()
+            print(f"card: {option.name} changed: {changed}")
+            if changed:
+                await option_card.update_state()
+
+    async def set_to_default(self, e=None, cards_are_set=False):
+        if not cards_are_set:
+            await self.set_option_cards_default()
+
+        self.default_install_btn.current.content = ft.Row([
+                    Icon(ft.icons.RECOMMEND_ROUNDED, color=ft.colors.TERTIARY),
+                    Text(tr("recommended_install_chosen").capitalize())
+        ], alignment=ft.MainAxisAlignment.CENTER)
+        self.default_install_btn.current.disabled = True
+
+        await self.default_install_btn.current.update_async()
+
+    async def show_welcome_mod_screen(self, e=None):
+        # install_settings = {}
+        self.can_have_custom_install = False
+        self.requires_custom_install = False
 
         mod = self.mod
-        full_settings = mod.get_full_install_settings()
+        # full_settings = mod.get_full_install_settings()
         if mod.optional_content is not None:
+            self.can_have_custom_install = True
             for option in mod.optional_content:
                 if option.install_settings is not None and option.default_option is None:
                     # if any option doesn't have a default, we will ask user to make a choice
-                    requres_custom_install = True
+                    self.requires_custom_install = True
                     break
 
-        if mod.name != "community_remaster":
-            custom_header = "mod_manager_title"
-            mod_title = (f"{tr('installation')} {mod.display_name} - "
-                         f"{tr('version')} {mod.version}")
-        else:
-            custom_header = "remaster_custom"
-
         description = (f"{tr('description')}\n{mod.description}\n\n"
-                       f"{tr(mod.developer_title)} {mod.authors}\n")
+                       f"{tr(mod.developer_title)} {mod.authors}")
 
+        reinstall_warning = ""
         if self.app.game.installed_content.get(mod.name) is not None:
-            options_to_offer = ["reinstall", "skip"]
-            description = (tr("reinstalling_intro_mods") + "\n\n"
-                           + description + "\n\n"
-                           + tr("warn_reinstall_mods"))
+            if mod.name == "community_remaster":
+                reinstall_warning = tr("warn_reinstall")
+            else:
+                reinstall_warning = tr("warn_reinstall_mods")
+
+        buttons = [
+            ft.ElevatedButton(tr("yes").capitalize(),
+                              width=100,
+                              on_click=self.agree_to_install,
+                              style=ft.ButtonStyle(
+                                 color={
+                                     ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
+                                     ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY,
+                                     ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                     },
+                                 bgcolor={
+                                     ft.MaterialState.HOVERED: ft.colors.SECONDARY,
+                                     ft.MaterialState.DEFAULT: ft.colors.PRIMARY,
+                                     ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+                                 })),
+            ft.FilledTonalButton(tr("no").capitalize(),
+                                 width=100,
+                                 on_click=self.close_wizard)
+            ]
+
+        if reinstall_warning:
+            welcome_install_prompt = tr("reinstall_mod_ask")
+        elif self.can_have_custom_install:
+            welcome_install_prompt = tr("setup_mod_ask")
         else:
-            buttons = [ft.FilledTonalButton(tr("no").capitalize(),
-                                            width=100,
-                                            on_click=self.close_wizard),
-                       ft.ElevatedButton(tr("yes").capitalize(),
-                                       width=100,
-                                       on_click=self.show_install_progress,
-                                       style=ft.ButtonStyle(
-                                                color={
-                                                    ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
-                                                    ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY,
-                                                    ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
-                                                    },
-                                                bgcolor={
-                                                    ft.MaterialState.HOVERED: ft.colors.SECONDARY,
-                                                    ft.MaterialState.DEFAULT: ft.colors.PRIMARY,
-                                                    ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
-                                                })
-                                        )]
+            welcome_install_prompt = tr('install_mod_ask')
 
         self.screen.current.content = ft.Column([
-            Image(src=self.mod.banner_path, visible=self.mod.banner_path is not None),
-            Text(description, no_wrap=False),
-            ft.Divider(),
-            Text(f"{tr('install_mod_ask')}"),
+            ft.ResponsiveRow([
+                Image(src=self.mod.banner_path, visible=self.mod.banner_path is not None,
+                      col={"xs": 12, "xl": 11, "xxl": 10})
+                ], alignment=ft.MainAxisAlignment.CENTER),
+            ft.ResponsiveRow([
+                ft.Container(Column([
+                    Text(description, no_wrap=False),
+                    ft.Container(Row([
+                        Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
+                        Text(reinstall_warning, no_wrap=False, color=ft.colors.ERROR, expand=True),
+                        ]),
+                        visible=bool(reinstall_warning), border_radius=10, padding=10,
+                        bgcolor=ft.colors.ERROR_CONTAINER)
+                    ]), padding=ft.padding.only(bottom=5),
+                             col={"xs": 12, "xl": 11, "xxl": 10})
+                ], alignment=ft.MainAxisAlignment.CENTER),
+            ft.ResponsiveRow([ft.Container(ft.Divider(height=3), col={"xs": 12, "xl": 11, "xxl": 10})],
+                             alignment=ft.MainAxisAlignment.CENTER),
+            ft.Container(Column([
+                self.get_flag_buttons(),
+                Text(welcome_install_prompt,
+                     text_align=ft.TextAlign.CENTER),
+                Text(f"({tr('mod_install_language').capitalize()}: {mod.lang_label})",
+                     color=ft.colors.SECONDARY)
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5), padding=5),
             Row(controls=buttons,
                 alignment=ft.MainAxisAlignment.CENTER)
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         await self.screen.current.update_async()
+        self.current_screen = self.Steps.WELCOME
+        await self.update_status_capsules(self.Steps.WELCOME)
 
-    async def show_lang_select_screen(self):
-        self.screen.current.content = ft.Row([
-            Text("Lang select for")])
+    async def show_settings_screen(self, e=None):
+        self.options.clear()
+        await self.update_status_capsules(self.Steps.SETTING_UP)
+        mod = self.mod
+
+        if self.requires_custom_install:
+            cancel_label = tr("cancel_install").capitalize()
+        else:
+            cancel_label = tr("no").capitalize()
+        buttons = [
+            ft.ElevatedButton(tr("yes").capitalize(),
+                              width=100,
+                              on_click=self.show_install_progress,
+                              style=ft.ButtonStyle(
+                                 color={
+                                     ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
+                                     ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY,
+                                     ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                     },
+                                 bgcolor={
+                                     ft.MaterialState.HOVERED: ft.colors.SECONDARY,
+                                     ft.MaterialState.DEFAULT: ft.colors.PRIMARY,
+                                     ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+                                 }),
+                              visible=not self.requires_custom_install,
+                              ),
+            ft.FilledTonalButton(cancel_label,
+                                 width=200 if self.requires_custom_install else 100,
+                                 on_click=self.close_wizard),
+        ]
+
+        default_install_btn_row = ft.ResponsiveRow([], alignment=ft.MainAxisAlignment.CENTER)
+
+        if self.requires_custom_install:
+            raise NotImplementedError("requires_custom_install")
+        else:
+            for option in mod.optional_content:
+                self.options.append(self.ModOption(self, option))
+
+            default_install_btn_row.controls.append(ft.ElevatedButton(
+                content=ft.Container(Row([
+                    Icon(ft.icons.RECOMMEND_ROUNDED,
+                         color=ft.colors.TERTIARY),
+                    Text(tr("recommended_install_chosen").capitalize())
+                    ], alignment=ft.MainAxisAlignment.CENTER), clip_behavior=ft.ClipBehavior.HARD_EDGE),
+                col=6,
+                on_click=self.set_to_default,
+                disabled=True,
+                style=ft.ButtonStyle(
+                                 side={
+                                     ft.MaterialState.DISABLED: ft.BorderSide(width=1,
+                                                                              color=ft.colors.TERTIARY)
+                                 },
+                                 color={
+                                     ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY,
+                                     ft.MaterialState.DISABLED: ft.colors.TERTIARY
+                                     },
+                                 bgcolor={
+                                     ft.MaterialState.DEFAULT: ft.colors.PRIMARY,
+                                     ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+                                 }),
+                ref=self.default_install_btn))
+
+        self.screen.current.content = ft.Column([
+            ft.ResponsiveRow([
+                Image(src=self.mod.banner_path, visible=self.mod.banner_path is not None,
+                      col={"xs": 6, "xl": 5, "xxl": 4})
+                ], alignment=ft.MainAxisAlignment.CENTER),
+            ft.ResponsiveRow([
+                ft.Container(Column([
+                    Text(tr('default_options')),
+                    default_install_btn_row,
+                    Column(controls=self.options, scroll=ft.ScrollMode.AUTO, spacing=5),
+                    ]),
+                    padding=ft.padding.only(top=5, bottom=10),
+                    col={"xs": 12, "xl": 11, "xxl": 10})
+                ], alignment=ft.MainAxisAlignment.CENTER),
+            ft.ResponsiveRow([ft.Container(ft.Divider(height=3), col={"xs": 10, "xl": 9, "xxl": 8})],
+                             alignment=ft.MainAxisAlignment.CENTER),
+            ft.Container(Column([
+                Text(f"{tr('install_mod_with_options_ask')}",
+                     text_align=ft.TextAlign.CENTER),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5), padding=5),
+            Row(controls=buttons,
+                alignment=ft.MainAxisAlignment.CENTER)
+            ],
+            spacing=5,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         await self.screen.current.update_async()
+        self.current_screen = self.Steps.SETTING_UP
+
+    async def set_install_lang(self, e):
+        self.mod = self.main_mod.translations_loaded[e.control.data]
+        await self.show_welcome_mod_screen()
+
+    async def update_status_capsules(self, step: Steps):
+        # colors of capsule representing currently active installation step
+        active_clr = ft.colors.ON_PRIMARY_CONTAINER
+        active_cont = ft.colors.PRIMARY_CONTAINER
+
+        # colors of capsule representing step that can't be directly chosen by pressing the capsule
+        bg_clr = ft.colors.ON_SURFACE
+        bg_cont = ft.colors.SURFACE
+
+        # colors of capsule representing step that was already processed but we can go back to it
+        deflt_clr = ft.colors.ON_SECONDARY_CONTAINER
+        deflt_cont = ft.colors.SECONDARY_CONTAINER
+
+        welcome = step == self.Steps.WELCOME
+        setting_up = step == self.Steps.SETTING_UP
+        installing = step == self.Steps.INSTALLING
+        results = step == self.Steps.RESULTS
+
+        if welcome:
+            welcome_clr = active_clr
+            welcome_cont = active_cont
+        else:
+            if setting_up:
+                welcome_clr = deflt_clr
+                welcome_cont = deflt_cont
+            else:
+                welcome_clr = bg_clr
+                welcome_cont = bg_cont
+
+        capsules = [
+                    ft.Container(
+                        Text(tr("welcoming").capitalize(),
+                             weight=ft.FontWeight.W_500 if welcome else ft.FontWeight.W_400,
+                             size=12,
+                             color=welcome_clr,
+                             opacity=0.5 if self.mod is None else 1.0),
+                        bgcolor=welcome_cont,
+                        border_radius=10,
+                        padding=ft.padding.symmetric(horizontal=10, vertical=2),
+                        ink=True,
+                        expand=1,
+                        disabled=self.mod is None,
+                        on_click=self.show_welcome_mod_screen),
+                    ft.Container(
+                        Text(tr("setting_up").capitalize(),
+                             weight=ft.FontWeight.W_500 if setting_up else ft.FontWeight.W_400,
+                             size=12,
+                             color=active_clr if setting_up else bg_clr,
+                             opacity=0.5 if self.mod is None else 1.0),
+                        bgcolor=active_cont if setting_up else bg_cont,
+                        border_radius=10,
+                        padding=ft.padding.symmetric(horizontal=10, vertical=2),
+                        ink=True,
+                        expand=1,
+                        visible=self.can_have_custom_install,
+                        disabled=self.mod is None),
+                    ft.Container(
+                        Text(tr("installation").capitalize(),
+                             weight=ft.FontWeight.W_500 if installing else ft.FontWeight.W_400,
+                             size=12,
+                             color=active_clr if installing else bg_clr,
+                             opacity=0.5 if self.mod is None else 1.0),
+                        bgcolor=active_cont if installing else bg_cont,
+                        border_radius=10,
+                        padding=ft.padding.symmetric(horizontal=10, vertical=2),
+                        ink=True,
+                        expand=1,
+                        disabled=self.mod is None),
+                    ft.Container(
+                        Text(tr("install_results").capitalize(),
+                             weight=ft.FontWeight.W_500 if results else ft.FontWeight.W_400,
+                             size=12,
+                             color=active_clr if results else bg_clr,
+                             opacity=0.5 if self.mod is None else 1.0),
+                        bgcolor=active_cont if results else bg_cont,
+                        border_radius=10,
+                        padding=ft.padding.symmetric(horizontal=10, vertical=2),
+                        disabled=True,
+                        ink=True,
+                        expand=1)
+                    ]
+
+        self.status_capsules.controls = capsules
+        await self.status_capsules.update_async()
 
     def build(self):
         mod_title = (f"{tr('installation')} {self.main_mod.display_name} - "
                      f"{tr('version')} {self.main_mod.version}")
-        return ft.ResponsiveRow([
+        return ft.Container(Column([ft.ResponsiveRow([
             Column(controls=[
                 ft.Card(ft.Container(
                     ft.Column(
@@ -2013,21 +2498,26 @@ class ModInstallWizard(UserControl):
                                     Text(mod_title, color=ft.colors.PRIMARY,
                                          weight=ft.FontWeight.BOLD)],
                                     alignment=ft.MainAxisAlignment.CENTER),
-                                    padding=8), expand=True),
-                              ft.Tooltip(
-                                    message=tr("cancel_install").capitalize(),
-                                    wait_duration=50,
-                                    content=ft.IconButton(ft.icons.CLOSE_ROUNDED,
-                                                          on_click=self.close_wizard,
-                                                          icon_color=ft.colors.RED,
-                                                          icon_size=22))
-                                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.START),
+                                padding=12), expand=True),
+                            ft.Tooltip(
+                                message=tr("cancel_install").capitalize(),
+                                wait_duration=50,
+                                content=ft.IconButton(ft.icons.CLOSE_ROUNDED,
+                                                      on_click=self.close_wizard,
+                                                      icon_color=ft.colors.RED,
+                                                      icon_size=22))
+                              ],
+                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                             vertical_alignment=ft.CrossAxisAlignment.START),
+                         self.status_capsules_container,
                          ft.Container(ref=self.screen,
                                       padding=ft.padding.only(bottom=20, left=40, right=40)),
-                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                         ])
                     ))
-                ], alignment=ft.MainAxisAlignment.CENTER, col={"xs": 10, "xl": 9, "xxl": 8}),
-            ], alignment=ft.MainAxisAlignment.CENTER)
+                ], alignment=ft.MainAxisAlignment.CENTER,
+                col={"xs": 10, "lg": 9, "xl": 8, "xxl": 7}),
+            ], alignment=ft.MainAxisAlignment.CENTER)], scroll=ft.ScrollMode.ADAPTIVE),
+            alignment=ft.alignment.center, padding=ft.padding.symmetric(vertical=15, horizontal=10))
 
 
 class LocalModsScreen(UserControl):

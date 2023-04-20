@@ -10,7 +10,6 @@ logger = logging.getLogger('dem')
 
 
 def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> None:
-    error = ""
     config = file_ops.get_config(root_dir)
     ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
     ui_schema = file_ops.xml_to_objfy(ui_schema_path)

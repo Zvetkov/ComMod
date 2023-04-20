@@ -17,7 +17,8 @@ from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnp
 from data import VERSION, VERSION_BYTES_100_STAR, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
                  VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR, VERSION_BYTES_DEM_LNCH
 from localisation import tr
-from file_ops import TARGEM_NEGATIVE, TARGEM_POSITIVE, get_config, running_in_venv, read_yaml, makedirs, save_to_file_async, shorten_path
+from file_ops import TARGEM_NEGATIVE, TARGEM_POSITIVE,\
+                    get_config, running_in_venv, read_yaml, makedirs, save_to_file_async, shorten_path
 
 
 class GameStatus(Enum):
@@ -245,13 +246,14 @@ class InstallationContext:
         if self.logger.handlers:
             self.logger.debug("Logger already exists, will use it with existing settings")
         else:
+            self.logger.propagate = False
             self.logger.setLevel(logging.DEBUG)
             formatter = logging.Formatter('%(asctime)s: %(levelname)-7s - '
                                           '%(module)-11s - line %(lineno)-3d: %(message)s')
             stream_formatter = logging.Formatter('%(levelname)-7s - %(module)-11s'
                                                  ' - line %(lineno)-3d: %(message)s')
 
-            if self.dev_mode:
+            if self.dev_mode or stream_only:
                 stream_handler = logging.StreamHandler()
                 stream_handler.setLevel(logging.DEBUG)
                 stream_handler.setFormatter(stream_formatter)
@@ -476,7 +478,7 @@ class GameCopy:
         self.installed_manifest_path = os.path.join(self.data_path, "mod_manifest.yaml")
 
         patched_version = ("ComRemaster" in self.exe_version) or ("ComPatch" in self.exe_version)
-        
+
         if self.exe_version != "Unknown" and self.game_root_path is not None:
             self.fullscreen_game = self.get_is_fullscreen()
             if self.fullscreen_game is None:
