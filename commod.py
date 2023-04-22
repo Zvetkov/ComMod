@@ -436,7 +436,7 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                 if mod.patcher_options is not None:
                     file_ops.patch_configurables(game.target_exe, mod.patcher_options)
                     if mod.patcher_options.get('gravity') is not None:
-                        file_ops.correct_damage_coeffs(options.game_root_path,
+                        file_ops.correct_damage_coeffs(game.game_root_path,
                                                        mod.patcher_options.get('gravity'))
             if mod_error_msgs:
                 session.mod_installation_errors.extend(mod_error_msgs)
