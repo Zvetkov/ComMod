@@ -15,7 +15,9 @@ import localisation
 from commod import _init_input_parser
 from data import get_title
 from environment import InstallationContext, GameCopy, GameInstallments, GameStatus, DistroStatus
-from file_ops import dump_yaml, get_internal_file_path, get_proc_by_names, read_yaml, process_markdown
+import file_ops
+from file_ops import dump_yaml, get_internal_file_path, get_proc_by_names, read_yaml,\
+                     process_markdown
 from localisation import tr, SupportedLanguages
 from mod import Mod
 
@@ -1793,9 +1795,11 @@ class ModItem(UserControl):
                     ft.ResponsiveRow([
                         Image(src=self.mod.logo_path,
                               ref=self.mod_logo_img,
-                              fit=ft.ImageFit.FILL,
+                              fit=ft.ImageFit.FIT_WIDTH,
                               gapless_playback=True,
-                              col={"xs": 8, "xl": 6}, border_radius=5),
+                              aspect_ratio=2,
+                              col={"xs": 8, "xl": 6},
+                              border_radius=6),
                         ft.Container(col={"xs": 0, "xl": 1}),
                         Column([
                             Text(self.mod.display_name,
@@ -1879,10 +1883,14 @@ class ModInstallWizard(UserControl):
         super().__init__(self, **kwargs)
         self.mod_item = parent
         self.app = app
-        self.main_mod = mod
-        self.mod = None
+        self.main_mod: Mod | None = mod
+        self.mod: Mod | None = None
         self.current_screen = None
         self.options = []
+
+        self.mod_title = ft.Ref[Text]()
+        self.mod_title_text = (f"{tr('installation')} {self.main_mod.display_name} - "
+                               f"{tr('version')} {self.main_mod.version}")
 
         self.can_have_custom_install = False
         self.requires_custom_install = False
@@ -2084,12 +2092,19 @@ class ModInstallWizard(UserControl):
         await self.show_welcome_mod_screen()
 
     async def agree_to_install(self, e):
-        if self.can_have_custom_install:
+        if self.can_have_custom_install and not e.control.data["is_compatch"]:
             await self.show_settings_screen(e)
         else:
             await self.show_install_progress(e)
 
     async def show_install_progress(self, e):
+        print("Pressed yes when asked to start install or not")
+        is_comrem_or_patch = self.mod.name == "community_remaster"
+        is_compatch = False
+        if isinstance(e.control.data, dict):
+            is_compatch = e.control.data["is_compatch"]
+        is_comrem = is_comrem_or_patch and not is_compatch
+
         await self.update_status_capsules(self.Steps.INSTALLING)
         install_settings = {}
 
@@ -2102,25 +2117,80 @@ class ModInstallWizard(UserControl):
                 check = option_card.checkboxes[0]
                 install_settings[option.name] = "yes" if check.value else "skip"
 
-        self.app.session.content_in_processing[self.mod.name] = install_settings.copy()
-        self.app.session.content_in_processing[self.mod.name]["version"] = self.mod.version
-        self.app.session.content_in_processing[self.mod.name]["build"] = self.mod.build
-        self.app.session.content_in_processing[self.mod.name]["display_name"] = self.mod.display_name
-        print("Pressed yes when asked to start install or not")
-        print(self.app.game.data_path)
-        print(install_settings)
-        print(self.app.session.content_in_processing)
-        print(self.app.game.installed_descriptions)
+        game = self.app.game
+        session = self.app.session
+        mod = self.mod
+        distribution_dir = self.app.context.distribution_dir
+        game_root = game.game_root_path
 
-        status_ok, error_messages = self.mod.install(
-            self.app.game.data_path,
-            install_settings,
-            self.app.session.content_in_processing,
-            self.app.game.installed_descriptions)
+        if is_comrem_or_patch:
+            session.content_in_processing["community_patch"] = {
+                "base": "yes",
+                "version": mod.version,
+                "build": mod.build,
+                "display_name": "Community Patch"
+            }
 
-        print(status_ok)
-        print(error_messages)
+            file_ops.copy_from_to([os.path.join(distribution_dir, "patch")],
+                                  os.path.join(game_root, "data"),
+                                  console=False)
+            file_ops.copy_from_to([os.path.join(distribution_dir, "libs")],
+                                  game_root,
+                                  console=False)
+            file_ops.rename_effects_bps(game_root)
 
+        if not is_compatch:
+            status_ok, error_messages = mod.install(
+                game.data_path,
+                install_settings,
+                session.content_in_processing,
+                game.installed_descriptions)
+            print(status_ok)
+            print(error_messages)
+
+            session.content_in_processing[mod.name] = install_settings.copy()
+            session.content_in_processing[mod.name]["version"] = mod.version
+            session.content_in_processing[mod.name]["build"] = mod.build
+            session.content_in_processing[mod.name]["display_name"] = mod.display_name
+
+        if not is_comrem_or_patch:
+            if mod.patcher_options is not None:
+                file_ops.patch_configurables(game.target_exe, mod.patcher_options)
+                if mod.patcher_options.get('gravity') is not None:
+                    file_ops.correct_damage_coeffs(game.game_root_path,
+                                                   mod.patcher_options.get('gravity'))
+
+        if is_comrem_or_patch:
+            if is_comrem:
+                target_dll = os.path.join(game_root, "dxrender9.dll")
+                if os.path.exists(target_dll):
+                    file_ops.patch_render_dll(target_dll)
+                else:
+                    raise DXRenderDllNotFound
+
+            # TODO: check what is going on with context.remaster_config, why?
+            # build_id = self.app.context.remaster_config["build"]
+            build_id = mod.build
+            file_ops.patch_game_exe(game.target_exe,
+                                    "patch" if is_compatch else "remaster",
+                                    build_id,
+                                    self.app.context.monitor_res,
+                                    mod.exe_options if is_comrem else {},
+                                    self.app.context.under_windows)
+
+        er_message = f"Couldn't dump install manifest to '{game.installed_manifest_path}'!"
+        try:
+            game.installed_content = game.installed_content | session.content_in_processing
+            if game.installed_content:
+                dumped_yaml = file_ops.dump_yaml(game.installed_content, game.installed_manifest_path)
+                installed_mod_description = mod.get_install_description(install_settings)
+                session.installed_content_description.extend(installed_mod_description)
+                if not dumped_yaml:
+                    self.app.logger.error(tr("installation_error"), er_message)
+        except Exception as ex:
+            self.app.logger.error(ex)
+            self.app.logger.error(er_message)
+            return
 
     def get_flag_buttons(self):
         flag_buttons = []
@@ -2219,13 +2289,48 @@ class ModInstallWizard(UserControl):
 
         await self.default_install_btn.current.update_async()
 
-    async def show_welcome_mod_screen(self, e=None):
-        # install_settings = {}
+    async def show_comrem_welcome(self, e):
+        if e.control.data == "compatch":
+            await self.show_welcome_mod_screen(e, is_compatch=True)
+        else:
+            await self.show_welcome_mod_screen(e, is_compatch=False)
+
+    async def show_welcome_mod_screen(self, e=None, is_compatch=False):
+        mod = self.mod
+
+        is_comrem = mod.name == "community_remaster"
         self.can_have_custom_install = False
         self.requires_custom_install = False
 
-        mod = self.mod
-        # full_settings = mod.get_full_install_settings()
+        mod_name = "Community Patch" if is_compatch else self.mod.display_name
+        title = (f"{tr('installation')} {mod_name} - "
+                 f"{tr('version')} {self.mod.version}")
+        await self.switch_title(title)
+
+        remaster_button = ft.FloatingActionButton(
+            content=Row([
+                Icon(ft.icons.CHECK, visible=not is_compatch),
+                Text("ComRemaster")
+            ], alignment=ft.MainAxisAlignment.CENTER),
+            data="comrem",
+            bgcolor=ft.colors.PRIMARY_CONTAINER if not is_compatch else ft.colors.SECONDARY_CONTAINER,
+            on_click=self.show_comrem_welcome,
+            width=170, height=60,
+            scale=1.0 if not is_compatch else 0.95)
+        patch_button = ft.FloatingActionButton(
+            content=Row([
+                Icon(ft.icons.CHECK, visible=is_compatch),
+                Text("ComPatch")
+            ], alignment=ft.MainAxisAlignment.CENTER),
+            bgcolor=ft.colors.PRIMARY_CONTAINER if is_compatch else ft.colors.SECONDARY_CONTAINER,
+            data="compatch",
+            disabled=self.mod.language != "ru",
+            opacity=1.0 if self.mod.language == "ru" else 0.7,
+            tooltip=tr("cant_be_installed") if self.mod.language != "ru" else None,
+            on_click=self.show_comrem_welcome,
+            width=170, height=60,
+            scale=1.0 if is_compatch else 0.95)
+
         if mod.optional_content is not None:
             self.can_have_custom_install = True
             for option in mod.optional_content:
@@ -2243,11 +2348,14 @@ class ModInstallWizard(UserControl):
                 reinstall_warning = tr("warn_reinstall")
             else:
                 reinstall_warning = tr("warn_reinstall_mods")
+        if mod.name == "community_remaster" and self.app.game.patched_version:
+            reinstall_warning = tr("warn_reinstall")
 
-        buttons = [
+        user_answer_buttons = [
             ft.ElevatedButton(tr("yes").capitalize(),
                               width=100,
                               on_click=self.agree_to_install,
+                              data={"is_compatch": is_compatch},
                               style=ft.ButtonStyle(
                                  color={
                                      ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
@@ -2266,19 +2374,29 @@ class ModInstallWizard(UserControl):
 
         if reinstall_warning:
             welcome_install_prompt = tr("reinstall_mod_ask")
-        elif self.can_have_custom_install:
+        elif self.can_have_custom_install and not is_compatch:
             welcome_install_prompt = tr("setup_mod_ask")
         else:
             welcome_install_prompt = tr('install_mod_ask')
 
+        if is_compatch:
+            mod_banner_path = get_internal_file_path("assets/compatch_logo.png")
+        else:
+            mod_banner_path = self.mod.banner_path
+
         self.screen.current.content = ft.Column([
             ft.ResponsiveRow([
-                Image(src=self.mod.banner_path, visible=self.mod.banner_path is not None,
+                Image(src=mod_banner_path,
+                      visible=self.mod.banner_path is not None,
+                      fit=ft.ImageFit.CONTAIN,
                       col={"xs": 12, "xl": 11, "xxl": 10})
                 ], alignment=ft.MainAxisAlignment.CENTER),
             ft.ResponsiveRow([
                 ft.Container(Column([
                     Text(description, no_wrap=False),
+                    ft.Row([remaster_button, patch_button],
+                           visible=is_comrem,
+                           alignment=ft.MainAxisAlignment.CENTER),
                     ft.Container(Row([
                         Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
                         Text(reinstall_warning, no_wrap=False, color=ft.colors.ERROR, expand=True),
@@ -2291,13 +2409,13 @@ class ModInstallWizard(UserControl):
             ft.ResponsiveRow([ft.Container(ft.Divider(height=3), col={"xs": 12, "xl": 11, "xxl": 10})],
                              alignment=ft.MainAxisAlignment.CENTER),
             ft.Container(Column([
-                self.get_flag_buttons(),
+                self.get_flag_buttons() if not is_compatch else ft.Container(visible=False),
                 Text(welcome_install_prompt,
                      text_align=ft.TextAlign.CENTER),
                 Text(f"({tr('mod_install_language').capitalize()}: {mod.lang_label})",
                      color=ft.colors.SECONDARY)
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5), padding=5),
-            Row(controls=buttons,
+            Row(controls=user_answer_buttons,
                 alignment=ft.MainAxisAlignment.CENTER)
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER)
@@ -2314,7 +2432,7 @@ class ModInstallWizard(UserControl):
             cancel_label = tr("cancel_install").capitalize()
         else:
             cancel_label = tr("no").capitalize()
-        buttons = [
+        user_choice_buttons = [
             ft.ElevatedButton(tr("yes").capitalize(),
                               width=100,
                               on_click=self.show_install_progress,
@@ -2388,7 +2506,7 @@ class ModInstallWizard(UserControl):
                 Text(f"{tr('install_mod_with_options_ask')}",
                      text_align=ft.TextAlign.CENTER),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5), padding=5),
-            Row(controls=buttons,
+            Row(controls=user_choice_buttons,
                 alignment=ft.MainAxisAlignment.CENTER)
             ],
             spacing=5,
@@ -2441,7 +2559,7 @@ class ModInstallWizard(UserControl):
                         padding=ft.padding.symmetric(horizontal=10, vertical=2),
                         ink=True,
                         expand=1,
-                        disabled=self.mod is None,
+                        disabled=installing or results,
                         on_click=self.show_welcome_mod_screen),
                     ft.Container(
                         Text(tr("setting_up").capitalize(),
@@ -2455,7 +2573,7 @@ class ModInstallWizard(UserControl):
                         ink=True,
                         expand=1,
                         visible=self.can_have_custom_install,
-                        disabled=self.mod is None),
+                        disabled=installing or results),
                     ft.Container(
                         Text(tr("installation").capitalize(),
                              weight=ft.FontWeight.W_500 if installing else ft.FontWeight.W_400,
@@ -2467,7 +2585,7 @@ class ModInstallWizard(UserControl):
                         padding=ft.padding.symmetric(horizontal=10, vertical=2),
                         ink=True,
                         expand=1,
-                        disabled=self.mod is None),
+                        disabled=True),
                     ft.Container(
                         Text(tr("install_results").capitalize(),
                              weight=ft.FontWeight.W_500 if results else ft.FontWeight.W_400,
@@ -2485,9 +2603,11 @@ class ModInstallWizard(UserControl):
         self.status_capsules.controls = capsules
         await self.status_capsules.update_async()
 
+    async def switch_title(self, title):
+        self.mod_title.current.value = title
+        await self.mod_title.current.update_async()
+
     def build(self):
-        mod_title = (f"{tr('installation')} {self.main_mod.display_name} - "
-                     f"{tr('version')} {self.main_mod.version}")
         return ft.Container(Column([ft.ResponsiveRow([
             Column(controls=[
                 ft.Card(ft.Container(
@@ -2495,7 +2615,9 @@ class ModInstallWizard(UserControl):
                         [Row([
                             ft.WindowDragArea(ft.Container(
                                 Row([
-                                    Text(mod_title, color=ft.colors.PRIMARY,
+                                    Text(self.mod_title_text,
+                                         ref=self.mod_title,
+                                         color=ft.colors.PRIMARY,
                                          weight=ft.FontWeight.BOLD)],
                                     alignment=ft.MainAxisAlignment.CENTER),
                                 padding=12), expand=True),

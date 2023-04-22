@@ -507,12 +507,12 @@ class GameCopy:
 
         if patched_version:
             self.patched_version = True
-            self.installed_content = None
+            self.installed_content = {}
             self.leftovers = True
             raise PatchedButDoesntHaveManifest(self.exe_version)
 
     def is_modded(self) -> bool:
-        if self.installed_content is None:
+        if not self.installed_content:
             return False
 
         if "community_remaster" in self.installed_content.keys():
@@ -533,7 +533,7 @@ class GameCopy:
         if additional_manifests:
             available_external_manifests = [manifest['name'] for manifest in additional_manifests.values()]
 
-        if self.installed_content is None:
+        if not self.installed_content:
             return
 
         for content_piece in self.installed_content:

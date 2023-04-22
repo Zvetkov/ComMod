@@ -202,7 +202,7 @@ class Mod:
                 mod.lang_label = lang
 
     def load_gui_info(self):
-        supported_img_extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]
+        supported_img_extensions = [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]
         self.change_log_content = ""
         if self.change_log:
             changelog_path = Path(self.distibution_dir, self.change_log)
