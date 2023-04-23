@@ -2435,6 +2435,7 @@ class ModInstallWizard(UserControl):
                 reinstall_warning = tr("warn_reinstall")
             else:
                 reinstall_warning = tr("warn_reinstall_mods")
+        # TODO: check that compatch over compatch reinstall triggers reinstall warning
         if mod.name == "community_remaster" and self.app.game.patched_version:
             reinstall_warning = tr("warn_reinstall")
 
@@ -2741,40 +2742,47 @@ class LocalModsScreen(UserControl):
     # shows no_local_mods_found warning
     async def did_mount_async(self):
         await self.update_list()
+        print("did mount local mods screen")
 
     async def update_list(self):
+        # if self.no_mods_warning.current is None:
+        #     return
+
         if self.app.config.current_distro:
             print(f"Have current distro {self.app.config.current_distro}")
         else:
             print("No current distro")
+
         if self.app.config.current_game:
             print(f"Have current game {self.app.config.current_game}")
         else:
             print("No current game")
         
-        if self.no_mods_warning.current is not None:
-            if not self.app.config.current_distro:
-                self.no_mods_warning.current.visible = True
-                self.no_mods_warning.current.value = "No current distro!"
-            elif not self.app.config.current_game:
-                self.no_mods_warning.current.visible = True
-                self.no_mods_warning.current.value = "No current game!"
-            elif not self.app.session.mods:
-                self.no_mods_warning.current.visible = True
-                self.no_mods_warning.current.value = "No mods available!"
-            else:
-                self.no_mods_warning.current.visible = False
-
-            await self.no_mods_warning.current.update_async()
-
-            for path, mod in self.app.session.mods.items():
-                mod_identifier = f'{mod.name}{mod.version}{mod.build}'
-                if mod_identifier not in self.tracked_mods:
-                    self.mods_list_view.current.controls.append(ModItem(self.app, mod))
-                
-            await self.mods_list_view.current.update_async()
+        if not self.app.config.current_distro:
+            if self.no_mods_warning.current not in self.mods_list_view.current.controls: 
+                self.mods_list_view.current.controls.insert(0, self.no_mods_warning.current)
+            self.no_mods_warning.current.value = "No current distro!"
+        elif not self.app.config.current_game:
+            if self.no_mods_warning.current not in self.mods_list_view.current.controls: 
+                self.mods_list_view.current.controls.insert(0, self.no_mods_warning.current)
+            self.no_mods_warning.current.value = "No current game!"
+        elif not self.app.session.mods:
+            if self.no_mods_warning.current not in self.mods_list_view.current.controls: 
+                self.mods_list_view.current.controls.insert(0, self.no_mods_warning.current)
+            self.no_mods_warning.current.value = "No mods available!"
         else:
-            print("not yet loaded")
+            self.mods_list_view.current.controls.remove(self.no_mods_warning.current)
+
+        # await self.no_mods_warning.current.update_async()
+
+        for path, mod in self.app.session.mods.items():
+            # mod_identifier = f'{mod.name}{mod.version}{mod.build}'
+            self.mods_list_view.current.controls.append(ModItem(self.app, mod))
+            # if mod_identifier not in self.tracked_mods:
+                # self.tracked_mods.add(mod_identifier)
+            
+        # await self.mods_list_view.current.update_async()
+        print(f"{len(self.mods_list_view.current.controls)} elements in mods list view")
 
     def build(self):
         return ft.Container(
@@ -2786,7 +2794,7 @@ class LocalModsScreen(UserControl):
                     ft.Container(
                         ft.ResponsiveRow([
                             ft.ListView([
-                                Text(tr("no_local_mods_found").capitalize(), ref=self.no_mods_warning)
+                                Text(tr("no_local_mods_found").capitalize(), ref=self.no_mods_warning, expand=1)
                                 ],
                                 spacing=10, padding=0,
                                 ref=self.mods_list_view, col={"md": 12, "lg": 11, "xxl": 10})],
