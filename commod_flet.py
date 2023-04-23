@@ -990,6 +990,7 @@ class SettingsScreen(UserControl):
         # TODO: exception handling for add_distribution_dir,
         # check that overwriting distro is working correctly
         self.app.context = InstallationContext(self.app.config.current_distro)
+        self.app.session = self.app.context.current_session
         if self.app.config.current_game:
             self.app.load_distro()
         else:
