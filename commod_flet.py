@@ -990,6 +990,7 @@ class SettingsScreen(UserControl):
         # TODO: exception handling for add_distribution_dir,
         # check that overwriting distro is working correctly
         self.app.context = InstallationContext(self.app.config.current_distro)
+        self.app.context.load_system_info()
         self.app.session = self.app.context.current_session
         if self.app.config.current_game:
             self.app.load_distro()
@@ -2192,14 +2193,22 @@ class ModInstallWizard(UserControl):
             await self.show_install_progress(e)
 
     async def show_install_progress(self, e):
+        await self.update_status_capsules(self.Steps.INSTALLING)
         print("Pressed yes when asked to start install or not")
+        self.screen.current.content = ft.Column([
+            Text("Installing..."),
+            ft.ProgressRing(scale=2)
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+        await self.screen.current.update_async()
+
+        self.current_screen = self.Steps.INSTALLING
+
         is_comrem_or_patch = self.mod.name == "community_remaster"
         is_compatch = False
         if isinstance(e.control.data, dict):
             is_compatch = e.control.data["is_compatch"]
         is_comrem = is_comrem_or_patch and not is_compatch
 
-        await self.update_status_capsules(self.Steps.INSTALLING)
         install_settings = {}
 
         install_settings["base"] = "yes"
@@ -2285,6 +2294,21 @@ class ModInstallWizard(UserControl):
             self.app.logger.error(ex)
             self.app.logger.error(er_message)
             return
+
+        await self.show_install_results()
+
+    async def show_install_results(self):
+        await self.update_status_capsules(self.Steps.RESULTS)
+        self.screen.current.content = Text("Results placeholder")
+
+        # TODO: should look into optimizing this context reload proccess
+        self.app.context = InstallationContext(self.app.config.current_distro)
+        self.app.context.load_system_info()
+        self.app.session = self.app.context.current_session
+        self.app.load_distro()
+
+        await self.screen.current.update_async()
+        self.current_screen = self.Steps.RESULTS
 
     def get_flag_buttons(self):
         flag_buttons = []
