@@ -243,12 +243,21 @@ class App:
         await self.page.update_async()
 
     def load_distro(self):
+        print("loading distro")
         try:
+            if not self.context.validated_mod_configs:
+                try:
+                    self.context.load_mods()
+                    print("loaded mods")
+                except ModsDirMissing:
+                    self.logger.info("No mods folder found, creating")
+                except NoModsFound:
+                    self.logger.info("No mods found")
+
             self.logger.info("Prevalidating Community Patch and Remaster state")
             self.context.validate_remaster()
             self.game.load_installed_descriptions(self.context.validated_mod_configs)
             remaster_mod = Mod(self.context.remaster_config, self.context.remaster_path)
-            # TODO: maybe check if remaster translation manifest is corrupted
             remaster_mod.load_translations(load_gui_info=True)
             remaster_mod.load_gui_info()
 
@@ -271,14 +280,6 @@ class App:
             self.logger.error(er)
             self.context.remaster_path = None
             self.remaster_config = {}
-
-        if not self.context.validated_mod_configs:
-            try:
-                self.context.load_mods()
-            except ModsDirMissing:
-                self.logger.info("No mods folder found, creating")
-            except NoModsFound:
-                self.logger.info("No mods found")
 
         if self.context.validated_mod_configs:
             for manifest_path, manifest in self.context.validated_mod_configs.items():
@@ -988,9 +989,11 @@ class SettingsScreen(UserControl):
         # TODO: sort out the duplicating functions of context, session and config
         # TODO: exception handling for add_distribution_dir,
         # check that overwriting distro is working correctly
-        self.app.context.add_distribution_dir(self.app.config.current_distro)
+        self.app.context = InstallationContext(self.app.config.current_distro)
         if self.app.config.current_game:
             self.app.load_distro()
+        else:
+            print("No current game in config")
 
     async def handle_dropdown_onchange(self, e):
         if e.data:
@@ -1099,6 +1102,9 @@ class SettingsScreen(UserControl):
         await self.update_async()
 
         if self.app.context.distribution_dir:
+            self.app.context.validated_mod_configs.clear()
+            self.app.context.current_session = InstallationContext.Session()
+            self.app.session = self.app.context.current_session
             self.app.load_distro()
         else:
             print("No distro dir in context")
@@ -2759,19 +2765,20 @@ class LocalModsScreen(UserControl):
             print("No current game")
         
         if not self.app.config.current_distro:
-            if self.no_mods_warning.current not in self.mods_list_view.current.controls: 
-                self.mods_list_view.current.controls.insert(0, self.no_mods_warning.current)
+            self.no_mods_warning.current.visible = True
+            self.mods_list_view.current.visible = False
             self.no_mods_warning.current.value = "No current distro!"
         elif not self.app.config.current_game:
-            if self.no_mods_warning.current not in self.mods_list_view.current.controls: 
-                self.mods_list_view.current.controls.insert(0, self.no_mods_warning.current)
+            self.no_mods_warning.current.visible = True
+            self.mods_list_view.current.visible = False
             self.no_mods_warning.current.value = "No current game!"
         elif not self.app.session.mods:
-            if self.no_mods_warning.current not in self.mods_list_view.current.controls: 
-                self.mods_list_view.current.controls.insert(0, self.no_mods_warning.current)
-            self.no_mods_warning.current.value = "No mods available!"
+            self.no_mods_warning.current.visible = True
+            self.mods_list_view.current.visible = False
+            self.no_mods_warning.current.value = tr("no_local_mods_found").capitalize()
         else:
-            self.mods_list_view.current.controls.remove(self.no_mods_warning.current)
+            self.no_mods_warning.current.visible = False
+            self.mods_list_view.current.visible = True
 
         # await self.no_mods_warning.current.update_async()
 
@@ -2793,11 +2800,9 @@ class LocalModsScreen(UserControl):
                 ft.Column([
                     ft.Container(
                         ft.ResponsiveRow([
-                            ft.ListView([
-                                Text(tr("no_local_mods_found").capitalize(), ref=self.no_mods_warning, expand=1)
-                                ],
-                                spacing=10, padding=0,
-                                ref=self.mods_list_view, col={"md": 12, "lg": 11, "xxl": 10})],
+                            Text(tr("no_local_mods_found").capitalize(), ref=self.no_mods_warning),
+                            ft.ListView([], spacing=10, padding=0,
+                                        ref=self.mods_list_view, col={"md": 12, "lg": 11, "xxl": 10})],
                             alignment=ft.MainAxisAlignment.CENTER),
                         padding=ft.padding.only(right=22))
                     ],
@@ -3140,6 +3145,7 @@ async def main(page: Page):
 
     page.app = app
     app.page = page
+    # TODO: pass 'dev' options further, it's needed in case of changing the context
 
     # TODO: move to app init
     app.current_game_process = None
