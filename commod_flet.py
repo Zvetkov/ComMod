@@ -242,6 +242,79 @@ class App:
         dlg.open = True
         await self.page.update_async()
 
+    def load_distro(self):
+        try:
+            self.logger.info("Prevalidating Community Patch and Remaster state")
+            self.context.validate_remaster()
+            self.game.load_installed_descriptions(self.context.validated_mod_configs)
+            remaster_mod = Mod(self.context.remaster_config, self.context.remaster_path)
+            # TODO: maybe check if remaster translation manifest is corrupted
+            remaster_mod.load_translations(load_gui_info=True)
+            remaster_mod.load_gui_info()
+
+            for translation in remaster_mod.translations_loaded.values():
+                commod_compatible_tr, commod_compat_err_tr = \
+                    translation.compatible_with_mod_manager(self.context.commod_version)
+                compat_info_tr = {
+                    "compatible_with_commod": commod_compatible_tr,
+                    "compatible_with_commod_err": commod_compat_err_tr}
+                translation.load_session_compatibility(compat_info_tr)
+
+            self.session.mods[self.context.remaster_path] = remaster_mod
+
+            manifest = self.context.remaster_config
+            # TODO: understand if this id really needed
+            # and if it's working as intended (prevents dumplication)
+            mod_identifier = f'{manifest["name"]}{manifest["version"]}{manifest["build"]}'
+            self.session.tracked_mods.add(self.context.remaster_path)
+        except CorruptedRemasterFiles as er:
+            self.logger.error(er)
+            self.context.remaster_path = None
+            self.remaster_config = {}
+
+        if not self.context.validated_mod_configs:
+            try:
+                self.context.load_mods()
+            except ModsDirMissing:
+                self.logger.info("No mods folder found, creating")
+            except NoModsFound:
+                self.logger.info("No mods found")
+
+        if self.context.validated_mod_configs:
+            for manifest_path, manifest in self.context.validated_mod_configs.items():
+                mod_identifier = f'{manifest["name"]}{manifest["version"]}{manifest["build"]}'
+                if mod_identifier not in self.session.tracked_mods:
+                    mod = Mod(manifest, Path(manifest_path).parent)
+
+                    try:
+                        mod.load_translations(load_gui_info=True)
+                    except Exception as ex:
+                        self.logger.error(ex)
+                        continue
+
+                    mod.load_gui_info()
+
+                    for translation in mod.translations_loaded.values():
+                        commod_compatible_tr, commod_compat_err_tr = \
+                            translation.compatible_with_mod_manager(self.context.commod_version)
+                        prevalidated_tr, prevalid_errors_tr = translation.check_requirements(
+                            self.game.installed_content,
+                            self.game.installed_descriptions)
+                        compatible_tr, incompatible_errors_tr = translation.check_incompatibles(
+                            self.game.installed_content,
+                            self.game.installed_descriptions)
+                        compat_info_tr = {
+                            "compatible_with_commod": commod_compatible_tr,
+                            "compatible_with_commod_err": commod_compat_err_tr,
+                            "prevalidated": prevalidated_tr,
+                            "prevalidated_err": prevalid_errors_tr,
+                            "compatible": compatible_tr,
+                            "compatible_err": incompatible_errors_tr}
+                        translation.load_session_compatibility(compat_info_tr)
+
+                    self.session.mods[manifest_path] = mod
+                    self.session.tracked_mods.add(mod_identifier)
+
 
 class GameCopyListItem(UserControl):
     def __init__(self, game_name, game_path,
@@ -663,8 +736,8 @@ class SettingsScreen(UserControl):
         self.add_game_manual_container = ft.Ref[ft.Container]()
         self.add_game_steam_container = ft.Ref[ft.Container]()
         self.add_distro_container = ft.Ref[ft.Container]()
-        self.add_game_expanded = not self.app.config.known_distros
-        self.add_steam_expanded = not self.app.config.known_distros
+        self.add_game_expanded = not self.app.config.known_games
+        self.add_steam_expanded = not self.app.config.known_games
         self.add_distro_expanded = not self.app.config.current_distro
 
         self.icon_expand_add_game_manual = ft.Ref[Icon]()
@@ -911,6 +984,13 @@ class SettingsScreen(UserControl):
         self.app.config.known_distros = set([self.app.config.current_distro])
         self.distro_location_field.value = None
         await self.update_async()
+        # await self.app.local_mods.update_list()
+        # TODO: sort out the duplicating functions of context, session and config
+        # TODO: exception handling for add_distribution_dir,
+        # check that overwriting distro is working correctly
+        self.app.context.add_distribution_dir(self.app.config.current_distro)
+        if self.app.config.current_game:
+            self.app.load_distro()
 
     async def handle_dropdown_onchange(self, e):
         if e.data:
@@ -1018,6 +1098,11 @@ class SettingsScreen(UserControl):
         self.app.logger.info(f"Game is now: {self.app.game.target_exe}")
         await self.update_async()
 
+        if self.app.context.distribution_dir:
+            self.app.load_distro()
+        else:
+            print("No distro dir in context")
+
     async def remove_game(self, item):
         if item.current:
             # if removing current, set dummy game as current
@@ -1025,6 +1110,8 @@ class SettingsScreen(UserControl):
             self.app.settings_page.no_game_warning.height = None
             await self.app.settings_page.no_game_warning.update_async()
             self.app.config.current_game = ""
+            # TODO: handler removal of the game
+            self.app.load_distro()
 
         self.list_of_games.controls.remove(item)
         await self.list_of_games.update_async()
@@ -1882,7 +1969,7 @@ class ModInstallWizard(UserControl):
     def __init__(self, parent: ModItem, app: App, mod: Mod, **kwargs):
         super().__init__(self, **kwargs)
         self.mod_item = parent
-        self.app = app
+        self.app: App = app
         self.main_mod: Mod | None = mod
         self.mod: Mod | None = None
         self.current_screen = None
@@ -2653,12 +2740,41 @@ class LocalModsScreen(UserControl):
     # TODO: is not working properly when first starting with no distro and then adding it
     # shows no_local_mods_found warning
     async def did_mount_async(self):
-        if self.app.session.mods:
-            self.mods_list_view.current.controls.remove(self.no_mods_warning.current)
-        for path, mod in self.app.session.mods.items():
-            mod_identifier = f'{mod.name}{mod.version}{mod.build}'
-            if mod_identifier not in self.tracked_mods:
-                self.mods_list_view.current.controls.append(ModItem(self.app, mod))
+        await self.update_list()
+
+    async def update_list(self):
+        if self.app.config.current_distro:
+            print(f"Have current distro {self.app.config.current_distro}")
+        else:
+            print("No current distro")
+        if self.app.config.current_game:
+            print(f"Have current game {self.app.config.current_game}")
+        else:
+            print("No current game")
+        
+        if self.no_mods_warning.current is not None:
+            if not self.app.config.current_distro:
+                self.no_mods_warning.current.visible = True
+                self.no_mods_warning.current.value = "No current distro!"
+            elif not self.app.config.current_game:
+                self.no_mods_warning.current.visible = True
+                self.no_mods_warning.current.value = "No current game!"
+            elif not self.app.session.mods:
+                self.no_mods_warning.current.visible = True
+                self.no_mods_warning.current.value = "No mods available!"
+            else:
+                self.no_mods_warning.current.visible = False
+
+            await self.no_mods_warning.current.update_async()
+
+            for path, mod in self.app.session.mods.items():
+                mod_identifier = f'{mod.name}{mod.version}{mod.build}'
+                if mod_identifier not in self.tracked_mods:
+                    self.mods_list_view.current.controls.append(ModItem(self.app, mod))
+                
+            await self.mods_list_view.current.update_async()
+        else:
+            print("not yet loaded")
 
     def build(self):
         return ft.Container(
@@ -2978,82 +3094,6 @@ async def main(page: Page):
 
         app.content_pages = [app.home, app.local_mods, app.download_mods, app.settings_page]
 
-    def proccess_game_and_distro_setup(app):
-        load_mods(app)
-
-    def load_mods(app):
-        try:
-            app.logger.info("Prevalidating Community Patch and Remaster state")
-            app.context.validate_remaster()
-            app.game.load_installed_descriptions(app.context.validated_mod_configs)
-            remaster_mod = Mod(app.context.remaster_config, app.context.remaster_path)
-            # TODO: maybe check if remaster translation manifest is corrupted
-            remaster_mod.load_translations(load_gui_info=True)
-            remaster_mod.load_gui_info()
-
-            for translation in remaster_mod.translations_loaded.values():
-                commod_compatible_tr, commod_compat_err_tr = \
-                    translation.compatible_with_mod_manager(app.context.commod_version)
-                compat_info_tr = {
-                    "compatible_with_commod": commod_compatible_tr,
-                    "compatible_with_commod_err": commod_compat_err_tr}
-                translation.load_session_compatibility(compat_info_tr)
-
-            app.session.mods[app.context.remaster_path] = remaster_mod
-
-            manifest = app.context.remaster_config
-            # TODO: understand if this id really needed
-            # and if it's working as intended (prevents dumplication)
-            mod_identifier = f'{manifest["name"]}{manifest["version"]}{manifest["build"]}'
-            app.session.tracked_mods.add(app.context.remaster_path)
-        except CorruptedRemasterFiles as er:
-            app.logger.error(er)
-            app.context.remaster_path = None
-            app.remaster_config = {}
-
-        if not app.context.validated_mod_configs:
-            try:
-                app.context.load_mods()
-            except ModsDirMissing:
-                app.logger.info("No mods folder found, creating")
-            except NoModsFound:
-                app.logger.info("No mods found")
-
-        if app.context.validated_mod_configs:
-            for manifest_path, manifest in app.context.validated_mod_configs.items():
-                mod_identifier = f'{manifest["name"]}{manifest["version"]}{manifest["build"]}'
-                if mod_identifier not in app.session.tracked_mods:
-                    mod = Mod(manifest, Path(manifest_path).parent)
-
-                    try:
-                        mod.load_translations(load_gui_info=True)
-                    except Exception as ex:
-                        app.logger.error(ex)
-                        continue
-
-                    mod.load_gui_info()
-
-                    for translation in mod.translations_loaded.values():
-                        commod_compatible_tr, commod_compat_err_tr = \
-                            translation.compatible_with_mod_manager(app.context.commod_version)
-                        prevalidated_tr, prevalid_errors_tr = translation.check_requirements(
-                            app.game.installed_content,
-                            app.game.installed_descriptions)
-                        compatible_tr, incompatible_errors_tr = translation.check_incompatibles(
-                            app.game.installed_content,
-                            app.game.installed_descriptions)
-                        compat_info_tr = {
-                            "compatible_with_commod": commod_compatible_tr,
-                            "compatible_with_commod_err": commod_compat_err_tr,
-                            "prevalidated": prevalidated_tr,
-                            "prevalidated_err": prevalid_errors_tr,
-                            "compatible": compatible_tr,
-                            "compatible_err": incompatible_errors_tr}
-                        translation.load_session_compatibility(compat_info_tr)
-
-                    app.session.mods[manifest_path] = mod
-                    app.session.tracked_mods.add(mod_identifier)
-
     async def wrap_on_window_event(e):
         if e.data == "close":
             await finalize(e)
@@ -3069,6 +3109,7 @@ async def main(page: Page):
     async def finalize(e):
         app.logger.debug("closing")
         app.config.save_config()
+        app.logger.debug("config saved")
         await page.window_close_async()
 
     options = _init_input_parser().parse_args()
@@ -3254,7 +3295,7 @@ async def main(page: Page):
         app.logger.debug("showing quick start")
         await app.show_guick_start_wizard()
     else:
-        proccess_game_and_distro_setup(app)
+        app.load_distro()
         await app.change_page(index=app.config.current_section)
 
     await page.update_async()
