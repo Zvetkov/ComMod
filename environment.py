@@ -580,8 +580,7 @@ class GameCopy:
             elif optional_content_keys:
                 description += f'{fconsole("*", bcolors.OKCYAN)} {tr("base_version")}\n'
 
-            # description += "\n"
-            self.installed_descriptions[content_piece] = description
+            self.installed_descriptions[content_piece] = description.strip()
 
     async def switch_windowed(self, enable=True):
         config = get_config(self.game_root_path)

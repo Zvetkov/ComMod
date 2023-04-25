@@ -258,16 +258,20 @@ class App:
             self.context.validate_remaster()
             self.game.load_installed_descriptions(self.context.validated_mod_configs)
             remaster_mod = Mod(self.context.remaster_config, self.context.remaster_path)
+            # remaster_mod.load_gui_info()
             remaster_mod.load_translations(load_gui_info=True)
-            remaster_mod.load_gui_info()
+            remaster_mod.load_commod_compatibility(self.context.commod_version)
+            # TODO: might not be needed for comrem, but need to check
+            remaster_mod.load_session_compatibility(self.game.installed_content,
+                                                    self.game.installed_descriptions)
 
-            for translation in remaster_mod.translations_loaded.values():
-                commod_compatible_tr, commod_compat_err_tr = \
-                    translation.compatible_with_mod_manager(self.context.commod_version)
-                compat_info_tr = {
-                    "compatible_with_commod": commod_compatible_tr,
-                    "compatible_with_commod_err": commod_compat_err_tr}
-                translation.load_session_compatibility(compat_info_tr)
+            # for translation in remaster_mod.translations_loaded.values():
+            #     commod_compatible_tr, commod_compat_err_tr = \
+            #         translation.compatible_with_mod_manager(self.context.commod_version)
+            #     compat_info_tr = {
+            #         "compatible_with_commod": commod_compatible_tr,
+            #         "compatible_with_commod_err": commod_compat_err_tr}
+            #     translation.load_session_compatibility(compat_info_tr)
 
             self.session.mods[self.context.remaster_path] = remaster_mod
 
@@ -293,25 +297,28 @@ class App:
                         self.logger.error(ex)
                         continue
 
-                    mod.load_gui_info()
+                    mod.load_commod_compatibility(self.context.commod_version)
+                    mod.load_session_compatibility(self.game.installed_content,
+                                                   self.game.installed_descriptions)
+                    # mod.load_gui_info()
 
-                    for translation in mod.translations_loaded.values():
-                        commod_compatible_tr, commod_compat_err_tr = \
-                            translation.compatible_with_mod_manager(self.context.commod_version)
-                        prevalidated_tr, prevalid_errors_tr = translation.check_requirements(
-                            self.game.installed_content,
-                            self.game.installed_descriptions)
-                        compatible_tr, incompatible_errors_tr = translation.check_incompatibles(
-                            self.game.installed_content,
-                            self.game.installed_descriptions)
-                        compat_info_tr = {
-                            "compatible_with_commod": commod_compatible_tr,
-                            "compatible_with_commod_err": commod_compat_err_tr,
-                            "prevalidated": prevalidated_tr,
-                            "prevalidated_err": prevalid_errors_tr,
-                            "compatible": compatible_tr,
-                            "compatible_err": incompatible_errors_tr}
-                        translation.load_session_compatibility(compat_info_tr)
+                    # for translation in mod.translations_loaded.values():
+                    #     commod_compatible_tr, commod_compat_err_tr = \
+                    #         translation.compatible_with_mod_manager(self.context.commod_version)
+                    #     prevalidated_tr, prevalid_errors_tr = translation.check_requirements(
+                    #         self.game.installed_content,
+                    #         self.game.installed_descriptions)
+                    #     compatible_tr, incompatible_errors_tr = translation.check_incompatibles(
+                    #         self.game.installed_content,
+                    #         self.game.installed_descriptions)
+                    #     compat_info_tr = {
+                    #         "compatible_with_commod": commod_compatible_tr,
+                    #         "compatible_with_commod_err": commod_compat_err_tr,
+                    #         "prevalidated": prevalidated_tr,
+                    #         "prevalidated_err": prevalid_errors_tr,
+                    #         "compatible": compatible_tr,
+                    #         "compatible_err": incompatible_errors_tr}
+                    #     translation.load_session_compatibility(compat_info_tr)
 
                     self.session.mods[manifest_path] = mod
                     self.session.tracked_mods.add(mod_identifier)
@@ -1118,7 +1125,7 @@ class SettingsScreen(UserControl):
             self.app.settings_page.no_game_warning.height = None
             await self.app.settings_page.no_game_warning.update_async()
             self.app.config.current_game = ""
-            # TODO: handler removal of the game
+            # TODO: handle removal of the game
             self.app.load_distro()
 
         self.list_of_games.controls.remove(item)
@@ -1514,17 +1521,18 @@ class ModInfo(UserControl):
         self.mod_info_column.current.controls = [
             Text(self.mod.description, color=ft.colors.ON_SURFACE,
                  ref=self.mod_description_text),
-            ft.Divider(visible=self.mod.name != "community_remaster"),
+            ft.Divider(visible=self.mod.name != "community_remaster" or not self.mod.can_install),
             Column(controls=self.get_pretty_compatibility(),
-                   visible=self.mod.name != "community_remaster"),
-            ft.Divider(visible=not self.mod.can_install),
+                   visible=self.mod.name != "community_remaster" or not self.mod.can_install),
+            ft.Divider(
+                visible=not (self.mod.commod_compatible and self.mod.compatible and self.mod.prevalidated)),
             Row([
                 Icon(ft.icons.INFO_OUTLINE_ROUNDED,
                      color=ft.colors.ERROR),
                 Text(f'{tr("cant_be_installed")}',
                      weight=ft.FontWeight.BOLD,
                      color=ft.colors.ERROR)],
-                visible=not self.mod.can_install),
+                visible=not (self.mod.commod_compatible and self.mod.compatible and self.mod.prevalidated)),
             Text(self.mod.commod_compatible_err,
                  color=ft.colors.ERROR,
                  visible=bool(self.mod.commod_compatible_err)),
@@ -1697,6 +1705,42 @@ class ModInfo(UserControl):
                      ])
             )
 
+        reinstall_content = []
+        if self.mod.is_reinstall:
+            if self.mod.can_be_reinstalled:
+                icon = ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED,
+                               color=ft.colors.TERTIARY,
+                               tooltip=tr("can_reinstall"))
+            else:
+                icon = ft.Icon(ft.icons.WARNING_ROUNDED,
+                               color=ft.colors.ERROR,
+                               tooltip=tr("cant_reinstall"))
+
+            mod_name = self.mod.existing_version.get("display_name")
+            if mod_name is None:
+                mod_name = self.mod.existing_version["name"]
+            reinstall_content = [
+                icon,
+                Column([
+                    Row([Text(mod_name,
+                              weight=ft.FontWeight.W_500,
+                              color=ft.colors.ON_PRIMARY_CONTAINER),
+                         Text(f'({self.mod.existing_version.get("version")})',
+                              weight=ft.FontWeight.W_100),
+                         Text(f'[{self.mod.existing_version.get("build")}]',
+                              weight=ft.FontWeight.W_100)]),
+                        #  Icon(ft.icons.INFO_OUTLINE_ROUNDED,
+                        #       visible=not incomp_ok_status,
+                        #       size=20,
+                        #       tooltip="\n".join(incomp_errors),
+                        #       color=ft.colors.ERROR)]),
+                    Text(self.mod.reinstall_warning,
+                         visible=True,
+                         weight=ft.FontWeight.W_100,
+                         no_wrap=False, width=500)
+                        ])
+                     ]
+
         if req_list:
             point_list.append(Text(tr("required_base").capitalize() + ":",
                               weight=ft.FontWeight.BOLD))
@@ -1705,6 +1749,10 @@ class ModInfo(UserControl):
             point_list.append(Text(tr("incompatible_base").capitalize() + ":",
                               weight=ft.FontWeight.BOLD))
             point_list.extend(incomp_list)
+        if reinstall_content:
+            point_list.append(Text(tr("mod_already_installed").capitalize() + ":",
+                              weight=ft.FontWeight.BOLD))
+            point_list.append(Row(controls=reinstall_content))
 
         return point_list
 
@@ -1944,20 +1992,24 @@ class ModItem(UserControl):
                                  ],
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True),
-                            ft.ElevatedButton(tr("install").capitalize(),
+                            ft.ElevatedButton(tr("install").capitalize() if not self.mod.is_reinstall
+                                              else tr("installed").capitalize(),
+                                              icon=ft.icons.CHECK_ROUNDED if self.mod.is_reinstall else None,
                                               style=ft.ButtonStyle(
                                                 color={
                                                     ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
-                                                    ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY,
+                                                    ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY if not self.mod.is_reinstall else ft.colors.ON_PRIMARY_CONTAINER,
                                                     ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
                                                     },
                                                 bgcolor={
                                                     ft.MaterialState.HOVERED: ft.colors.SECONDARY,
-                                                    ft.MaterialState.DEFAULT: ft.colors.PRIMARY,
+                                                    ft.MaterialState.DEFAULT: ft.colors.PRIMARY if not self.mod.is_reinstall else ft.colors.PRIMARY_CONTAINER,
                                                     ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
                                                 }
                                               ),
                                               disabled=not self.mod.can_install,
+                                              tooltip=tr("reinstall_mod_ask") if self.mod.can_be_reinstalled
+                                              and self.mod.is_reinstall else None,
                                               on_click=self.install_mod),
                             ft.OutlinedButton(tr("about_mod").capitalize(),
                                               animate_size=ft.animation.Animation(
@@ -1982,6 +2034,9 @@ class ModInstallWizard(UserControl):
         self.mod: Mod | None = None
         self.current_screen = None
         self.options = []
+
+        self.close_wizard_btn = ft.Ref[IconButton]()
+        self.close_wizard_btn_tooltip = ft.Ref[ft.Tooltip]()
 
         self.mod_title = ft.Ref[Text]()
         self.mod_title_text = (f"{tr('installation')} {self.main_mod.display_name} - "
@@ -2149,6 +2204,10 @@ class ModInstallWizard(UserControl):
         # self.visible = False
         # await self.update_async()
         self.app.page.overlay.clear()
+        if e.control.data == "close":
+            # TODO: check if it's better to replace this hack with proper reloading for mods
+            await self.app.change_page(index=AppSections.SETTINGS.value)
+            await self.app.change_page(index=AppSections.LOCAL_MODS.value)
         await self.app.page.update_async()
 
     async def disable(self, container):
@@ -2200,6 +2259,7 @@ class ModInstallWizard(UserControl):
             ft.ProgressRing(scale=2)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         await self.screen.current.update_async()
+        await asyncio.sleep(0.01)
 
         self.current_screen = self.Steps.INSTALLING
 
@@ -2246,7 +2306,7 @@ class ModInstallWizard(UserControl):
             status_ok, error_messages = mod.install(
                 game.data_path,
                 install_settings,
-                session.content_in_processing,
+                game.installed_content,
                 game.installed_descriptions)
             print(status_ok)
             print(error_messages)
@@ -2274,41 +2334,48 @@ class ModInstallWizard(UserControl):
             # TODO: check what is going on with context.remaster_config, why?
             # build_id = self.app.context.remaster_config["build"]
             build_id = mod.build
+
             file_ops.patch_game_exe(game.target_exe,
                                     "patch" if is_compatch else "remaster",
                                     build_id,
                                     self.app.context.monitor_res,
-                                    mod.exe_options if is_comrem else {},
+                                    mod.patcher_options if is_comrem else {},
                                     self.app.context.under_windows)
 
-        er_message = f"Couldn't dump install manifest to '{game.installed_manifest_path}'!"
-        try:
-            game.installed_content = game.installed_content | session.content_in_processing
-            if game.installed_content:
-                dumped_yaml = file_ops.dump_yaml(game.installed_content, game.installed_manifest_path)
-                installed_mod_description = mod.get_install_description(install_settings)
-                session.installed_content_description.extend(installed_mod_description)
-                if not dumped_yaml:
-                    self.app.logger.error(tr("installation_error"), er_message)
-        except Exception as ex:
-            self.app.logger.error(ex)
-            self.app.logger.error(er_message)
-            return
+        if status_ok:
+            er_message = f"Couldn't dump install manifest to '{game.installed_manifest_path}'!"
+            try:
+                game.installed_content = game.installed_content | session.content_in_processing
+                if game.installed_content:
+                    dumped_yaml = file_ops.dump_yaml(game.installed_content, game.installed_manifest_path)
+                    if not dumped_yaml:
+                        self.app.logger.error(tr("installation_error"), er_message)
+            except Exception as ex:
+                self.app.logger.error(ex)
+                self.app.logger.error(er_message)
+                return
 
         await self.show_install_results()
 
     async def show_install_results(self):
         await self.update_status_capsules(self.Steps.RESULTS)
         self.screen.current.content = Text("Results placeholder")
+        self.close_wizard_btn_tooltip.current.message = tr("close_window").capitalize()
+        await self.close_wizard_btn_tooltip.current.update_async()
+        self.close_wizard_btn.current.data = "close"
 
         # TODO: should look into optimizing this context reload proccess
-        self.app.context = InstallationContext(self.app.config.current_distro)
-        self.app.context.load_system_info()
-        self.app.session = self.app.context.current_session
-        self.app.load_distro()
+        # self.app.context = InstallationContext(self.app.config.current_distro)
+        # self.app.context.load_system_info()
+        # self.app.session = self.app.context.current_session
+        for mod in self.app.session.mods.values():
+            mod.load_session_compatibility(self.app.game.installed_content,
+                                           self.app.game.installed_descriptions)
+        # self.app.load_distro()
 
         await self.screen.current.update_async()
         self.current_screen = self.Steps.RESULTS
+        # await self.app.page.update_async()
 
     def get_flag_buttons(self):
         flag_buttons = []
@@ -2743,8 +2810,11 @@ class ModInstallWizard(UserControl):
                             ft.Tooltip(
                                 message=tr("cancel_install").capitalize(),
                                 wait_duration=50,
+                                ref=self.close_wizard_btn_tooltip,
                                 content=ft.IconButton(ft.icons.CLOSE_ROUNDED,
                                                       on_click=self.close_wizard,
+                                                      ref=self.close_wizard_btn,
+                                                      data="cancel",
                                                       icon_color=ft.colors.RED,
                                                       icon_size=22))
                               ],
@@ -2788,7 +2858,7 @@ class LocalModsScreen(UserControl):
             print(f"Have current game {self.app.config.current_game}")
         else:
             print("No current game")
-        
+
         if not self.app.config.current_distro:
             self.no_mods_warning.current.visible = True
             self.mods_list_view.current.visible = False
@@ -2812,7 +2882,7 @@ class LocalModsScreen(UserControl):
             self.mods_list_view.current.controls.append(ModItem(self.app, mod))
             # if mod_identifier not in self.tracked_mods:
                 # self.tracked_mods.add(mod_identifier)
-            
+
         # await self.mods_list_view.current.update_async()
         print(f"{len(self.mods_list_view.current.controls)} elements in mods list view")
 

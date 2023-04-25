@@ -157,11 +157,14 @@ class Mod:
 
     def load_translations(self, load_gui_info: bool = False):
         self.translations_loaded[self.language] = self
+        if load_gui_info:
+            self.load_gui_info()
         if self.translations:
             for lang, _ in self.translations.items():
                 lang_manifest_path = Path(self.distibution_dir, f"manifest_{lang}.yaml")
                 if not lang_manifest_path.exists():
-                    raise ValueError(f"Lang {lang} specified but manifest for it is missing")
+                    raise ValueError(f"Lang '{lang}' specified but manifest for it is missing! "
+                                     f"(Mod: {self.name})")
                 yaml_config = read_yaml(lang_manifest_path)
                 config_validated = Mod.validate_install_config(yaml_config, lang_manifest_path)
                 if config_validated:
@@ -259,29 +262,55 @@ class Mod:
         else:
             self.developer_title = "author"
 
-    def load_session_compatibility(self, compat_info: dict):
-        self.commod_compatible = compat_info["compatible_with_commod"]
-        self.commod_compatible_err = remove_colors(compat_info["compatible_with_commod_err"].strip())
+    def load_commod_compatibility(self, commod_version):
+        for translation in self.translations_loaded.values():
+            translation.commod_compatible, translation.commod_compatible_err = \
+                translation.compatible_with_mod_manager(commod_version)
 
-        compatible = compat_info.get("compatible")
-        if compatible is not None:
-            self.compatible = compatible
-            self.compatible_err = "\n".join(compat_info["compatible_err"]).strip()
-        else:
-            self.compatible = True
-            self.compatible_err = ""
+    def load_session_compatibility(self, installed_content, installed_descriptions):
+        for translation in self.translations_loaded.values():
+            # self.commod_compatible = compat_info["compatible_with_commod"]
+            # self.commod_compatible_err = remove_colors(compat_info["compatible_with_commod_err"].strip())
 
-        prevalidated = compat_info.get("prevalidated")
-        if prevalidated is not None:
-            self.prevalidated = prevalidated
-            self.prevalidated_err = "\n".join(compat_info["prevalidated_err"]).strip()
-        else:
-            self.prevalidated = True
-            self.prevalidated_err = ""
+            # compatible = compat_info.get("compatible")
+            # if compatible is not None:
+            #     self.compatible = compatible
+            #     self.compatible_err = "\n".join(compat_info["compatible_err"]).strip()
+            # else:
+            #     self.compatible = True
+            #     self.compatible_err = ""
+            translation.compatible, translation.compatible_err = \
+                translation.check_requirements(
+                    installed_content,
+                    installed_descriptions)
 
-        self.can_install = (self.commod_compatible
-                            and self.compatible
-                            and self.prevalidated)
+            translation.compatible_err = "\n".join(translation.compatible_err).strip()
+
+            # prevalidated = compat_info.get("prevalidated")
+            # if prevalidated is not None:
+            #     self.prevalidated = prevalidated
+            #     self.prevalidated_err = "\n".join(compat_info["prevalidated_err"]).strip()
+            # else:
+            #     self.prevalidated = True
+            #     self.prevalidated_err = ""
+
+            translation.prevalidated, translation.prevalidated_err = \
+                translation.check_incompatibles(
+                    installed_content,
+                    installed_descriptions)
+
+            translation.prevalidated_err = "\n".join(translation.prevalidated_err).strip()
+
+            (translation.is_reinstall, translation.can_be_reinstalled,
+             translation.reinstall_warning, translation.existing_version) = \
+                translation.check_reinstallability(
+                    installed_content,
+                    installed_descriptions)
+
+            translation.can_install = (translation.commod_compatible
+                                       and translation.compatible
+                                       and translation.prevalidated
+                                       and translation.can_be_reinstalled)
 
     def install(self, game_data_path: str,
                 install_settings: dict,
@@ -502,10 +531,15 @@ class Mod:
                                  f"{self.display_name} - {self.patcher_version_requirement}"
                                  f" > {patcher_version}")
 
+        self.individual_require_status.clear()
         for prereq in self.prerequisites:
+            if self.name == "community_remaster" and prereq["name"][0] == "community_patch":
+                continue
+
             validated, mod_error = self.check_requirement(prereq,
                                                           existing_content, existing_content_descriptions,
                                                           is_compatch_env)
+            # TODO: might need to clear individual_require_status each time we check requirements
             self.individual_require_status.append((prereq, validated, mod_error))
             if mod_error:
                 error_msg.extend(mod_error)
@@ -515,6 +549,57 @@ class Mod:
             error_msg.append(f'\n{tr("check_for_a_new_version")}')
 
         return requirements_met, error_msg
+
+    def check_reinstallability(self, existing_content: dict,
+                               existing_content_descriptions: dict) -> tuple[bool, bool, str]:
+        '''Returns is_reinstallation: bool, can_be_installed: bool, warning_text: str'''
+        previous_install = existing_content.get(self.name)
+        if self.name == "community_remaster":
+            compatch_preivous = existing_content.get("community_patch")
+            if previous_install is None:
+                previous_install = compatch_preivous
+
+        if previous_install is None:
+            # no reinstall, can be installed
+            return False, True, "", None
+
+        self_and_prereqs = [self.name]
+        for prereq in self.prerequisites:
+            self_and_prereqs.extend(prereq["name"])
+
+        existing_other_mods = set(existing_content.keys()) - set(self_and_prereqs)
+        if existing_other_mods:
+            # is reinstall, can't be installed as other mods not from prerequisites were installed
+            existing_mods_display_names = []
+            for name in existing_other_mods:
+                mod_name = existing_content[name].get("display_name")
+                if mod_name is None:
+                    mod_name = name
+                existing_mods_display_names.append(mod_name)
+            warning = f'{tr("cant_reinstall_over_other_mods")}: ' + ", ".join(existing_mods_display_names)
+            return True, False, warning, previous_install
+
+        existing_version = Mod.Version(previous_install["version"])
+        this_version = Mod.Version(self.version)
+        if existing_version == this_version:
+            if self.build == previous_install["build"]:
+                if self.optional_content:
+                    # is reinstall, complex mod, safe reinstall, forced options
+                    return True, True, tr("complex_safe_reinstall"), previous_install
+                else:
+                    # is reinstall, simple mod, safe reinstall
+                    return True, True, tr("safe_reinstall"), previous_install
+            elif self.build > previous_install["build"]:
+                if self.optional_content:
+                    # is reinstall, complex mod, unsafe reinstall, forced options
+                    return True, True, tr("complex_unsafe_reinstall"), previous_install
+                else:
+                    # is reinstall, simple mod, unsafe reinstall
+                    return True, True, tr("unsafe_reinstall"), previous_install
+            else:
+                return True, False, tr("cant_reinstall_over_newer_build"), previous_install
+        else:
+            return True, False, tr("cant_reinstall_over_other_version"), previous_install
 
     def check_incompatible(self, incomp: dict, existing_content: dict,
                            existing_content_descriptions: dict) -> tuple[bool, list]:
@@ -648,6 +733,8 @@ class Mod:
         error_msg = []
         compatible = True
 
+        self.individual_incomp_status.clear()
+
         for incomp in self.incompatible:
             incompatible_with_game_copy, mod_error = self.check_incompatible(
                 incomp, existing_content, existing_content_descriptions)
@@ -772,6 +859,11 @@ class Mod:
                     logger.info(f"Optional content for mod '{display_name}' validation result: {validated}")
                     if validated:
                         for option in optional_content:
+                            if option.get("name") in ["base", "display_name", "build", "version"]:
+                                validated = False
+                                logger.error(f"Optional content name '"
+                                            f"{option.get('name')}' of mod '{display_name}' "
+                                            f"is one of the reserved system names, can't load mod properly!")
                             install_settings = option.get("install_settings")
                             if install_settings is not None:
                                 validated &= (len(install_settings) > 1)
@@ -877,7 +969,7 @@ class Mod:
                                 deuswiki_url=fconsole(WIKI_COMPATCH, bcolors.HEADER),
                                 github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)) + "\n"
 
-        return compatible, error_msg
+        return compatible, error_msg.strip()
 
     @staticmethod
     def validate_dict(validating_dict: dict, scheme: dict) -> bool:
