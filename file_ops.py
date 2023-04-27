@@ -5,14 +5,17 @@ import data
 import os
 import sys
 import shutil
+import aioshutil
 import psutil
 
 # import winreg
+import asyncio
 import logging
 import yaml
 import struct
 import html
 from pathlib import Path
+from datetime import datetime
 
 from lxml import etree, objectify
 import markdownify
@@ -204,6 +207,50 @@ def copy_from_to(from_path_list: list[str], to_path: str, console: bool = False)
                 file_num += 1
 
 
+async def copy_from_to_async(from_path_list: list[str], to_path: str, callback_progbar: callable) -> None:
+    files_count = 0
+    for from_path in from_path_list:
+        logger.debug(f"Copying files from '{from_path}' to '{to_path}'")
+        files_count += count_files(from_path)
+    file_num: int = 1
+    for from_path in from_path_list:
+        for path, dirs, filenames in os.walk(from_path):
+            for directory in dirs:
+                destDir = path.replace(from_path, to_path)
+                makedirs(os.path.join(destDir, directory))
+        for path, dirs, filenames in os.walk(from_path):
+            for sfile in filenames:
+                dest_file = os.path.join(path.replace(from_path, to_path), sfile)
+                file_size = round(Path(os.path.join(path, sfile)).stat().st_size / 1024, 2)
+                await aioshutil.copy2(os.path.join(path, sfile), dest_file)
+                await callback_progbar(file_num, files_count, sfile, file_size)
+                file_num += 1
+
+
+async def copy_file_and_call_async(path, file_num, sfile, from_path, to_path, files_count, callback_progbar):
+    dest_file = os.path.join(path.replace(from_path, to_path), sfile)
+    file_size = round(Path(os.path.join(path, sfile)).stat().st_size / 1024, 2)
+    await aioshutil.copy2(os.path.join(path, sfile), dest_file)
+    await callback_progbar(file_num[0], files_count, sfile, file_size)
+    file_num[0] += 1
+
+
+async def copy_from_to_async_fast(from_path_list: list[str], to_path: str, callback_progbar: callable) -> None:
+    files_count = 0
+    for from_path in from_path_list:
+        logger.debug(f"Copying files from '{from_path}' to '{to_path}'")
+        files_count += count_files(from_path)
+    file_num = []
+    file_num.append(1)
+    for from_path in from_path_list:
+        for path, dirs, filenames in os.walk(from_path):
+            for directory in dirs:
+                destDir = path.replace(from_path, to_path)
+                makedirs(os.path.join(destDir, directory))
+        for path, dirs, filenames in os.walk(from_path):
+            await asyncio.gather(*[copy_file_and_call_async(path, file_num, sfile, from_path, to_path, files_count, callback_progbar) for sfile in filenames])
+
+
 def read_yaml(yaml_path: str) -> Any:
     yaml_config = None
     with open(yaml_path, 'r', encoding="utf-8") as stream:
@@ -318,6 +365,8 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
             f.seek(offset)
             f.write(bytes.fromhex(data.binary_inserts[offset]))
         changes_description.append("binary_inserts_patched")
+        changes_description.append("spawn_freezes_fix")
+        changes_description.append("camera_patched")
 
         for offset in data.mm_inserts.keys():
             f.seek(offset)
@@ -327,7 +376,6 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
         patch_offsets(f, offsets_exe)
 
         changes_description.append("numeric_fixes_patched")
-        changes_description.append("general_compatch_fixes")
 
         if version_choice == "remaster":
             f.seek(data.size_of_rsrc_offset)

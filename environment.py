@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 import winreg
 from color import bcolors, fconsole
-from mod import Mod
+from mod import Mod, GameInstallments
 from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory,\
                   DistributionNotFound, FileLoggingSetupError, InvalidExistingManifest, ModsDirMissing,\
                   NoModsFound, CorruptedRemasterFiles, PatchedButDoesntHaveManifest, WrongGameDirectoryPath
@@ -38,14 +38,6 @@ class DistroStatus(Enum):
     MISSING_FILES = "target_dir_missing_files"
     ALREADY_ADDED = "already_chosen"
     GENERAL_ERROR = "error"
-
-
-class GameInstallments(Enum):
-    ALL = 0
-    EXMACHINA = 1
-    M113 = 2
-    ARCADE = 3
-    UNKNOWN = 4
 
 
 class InstallationContext:
@@ -371,10 +363,9 @@ class GameCopy:
         self.fullscreen_game = True
         # TODO missed this default initially, check for checks breaking because of None
         self.game_root_path = None
-        self.label = ""
         self.exe_version = "Unknown"
-        self.game_installment = None
-        self.game_installment_id = 4
+        self.installment = None
+        self.installment_id = 4
 
     @staticmethod
     def validate_game_dir(game_root_path: str) -> tuple[bool, str]:
@@ -458,17 +449,17 @@ class GameCopy:
             raise ExeIsRunning
 
         if self.exe_version == "Unknown":
-            self.game_installment = None
-            self.game_installment_id = 4
+            self.installment = None
+            self.installment_id = 4
         elif "M113" in self.exe_version:
-            self.game_installment = "Ex Machina: Meridian 113"
-            self.game_installment_id = 2
+            self.installment = "m113"
+            self.installment_id = 2
         elif "Arcade" in self.exe_version:
-            self.game_installment = "Ex Machina: Arcade"
-            self.game_installment_id = 3
+            self.installment = "arcade"
+            self.installment_id = 3
         else:
-            self.game_installment = "Ex Machina"
-            self.game_installment_id = 1
+            self.installment = "exmachina"
+            self.installment_id = 1
 
         if not self.is_compatch_compatible_exe(self.exe_version):
             raise ExeNotSupported(self.exe_version)
@@ -496,6 +487,11 @@ class GameCopy:
             install_manifest = read_yaml(self.installed_manifest_path)
             valid_manifest = self.validate_install_manifest(install_manifest)
             if valid_manifest and patched_version:
+                for manifest in install_manifest.values():
+                    if manifest.get("language") is None:
+                        manifest["language"] = "not_specified"
+                    if manifest.get("installment") is None:
+                        manifest["installment"] = GameInstallments.EXMACHINA.value
                 self.installed_content = install_manifest
                 self.patched_version = True
                 return
@@ -556,10 +552,12 @@ class GameCopy:
                     name = external_manifest[0]["display_name"]
 
             optional_content_keys = (install_manifest.keys()
-                                     - set(["base", "version", "display_name", "build"]))
+                                     - set(["base", "version", "display_name",
+                                            "build", "language", "installment"]))
             unskipped_content = {key: value for key, value in install_manifest.items() if value != "skip"}
             installed_optional_content = (unskipped_content.keys()
-                                          - set(["base", "version", "display_name", "build"]))
+                                          - set(["base", "version", "display_name",
+                                                 "build", "language", "installment"]))
 
             build = ''
             if install_manifest.get("build") is not None:

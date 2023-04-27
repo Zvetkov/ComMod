@@ -285,7 +285,7 @@ class ConsoleUX:
         else:
             custom_header = "remaster_custom"
 
-        if mod.optional_content is not None:
+        if mod.optional_content:
             for option in mod.optional_content:
                 if option.install_settings is not None and option.default_option is None:
                     # if any option doesn't have a default, we will ask user to make a choice
@@ -331,7 +331,7 @@ class ConsoleUX:
 
         custom_install_prompt = None
 
-        if mod.optional_content is not None:
+        if mod.optional_content:
             if not requres_custom_install:
                 default_options = []
                 for option in mod.optional_content:

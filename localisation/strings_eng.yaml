@@ -21,9 +21,15 @@ content_requirement_not_met: '! Not all required content of base mods were insta
 
   You need to install additional content for the base mods before installing this one'
 copy_done: Finished copying
-copying_base_files_please_wait: Copying additional content, this can take a bit, please don't close installer
-copying_options_please_wait: Copying optional content, this can take a bit, please don't close installer
-copying_patch_files_please_wait: Copying base patch files, this can take a bit, please don't close installer
+copying_base_files_please_wait: Copying base mode files.
+
+  This can take a bit, please don't close installer.
+copying_options_please_wait: Copying optional content.
+
+  This can take a bit, please don't close installer.
+copying_patch_files_please_wait: Copying base patch files.
+
+  This can take a bit, please don't close installer.
 corrupted_installation: 'Game or Community Patch / Remaster files are corrupted or not all the patch files are present in the game directory.
 
   Reinstall the game and copy all the files of the patch to the root folder of the game before installing.'
@@ -64,11 +70,6 @@ folder: folder
 fonts_corrected: '* Fonts are corrected according to system`s scaling'
 for_mod: for mod
 found_incompatible: Game installation has an incompatible mod
-general_compatch_fixes: '* Fixes for quests and cutscenes
-
-  * Improvements of many game maps and low quality models
-
-  ... and many other changes - see change list for full description'
 including_options: Including options
 incorrect_prompt_answer: answer is unsupported, choose one of the listed options.
 install_leftovers: 'Warning: installation in the dirty environment.
@@ -121,9 +122,8 @@ mod_manager_title: Mod Manager {VERSION} - installation of mods for ComPatch/Com
 mod_url: 'Home page:'
 not_validated_mod_manifest: Couldn't start installation for mod, files might be corrupted or mod install manifest is of incorrect format
 nothing_to_install: Nothing to install, work finished.
-numeric_fixes_patched: '* Vehicle physics and handling improvements
-
-  * Game camera improvements'
+numeric_fixes_patched: '* Vehicle physics and handling improvements'
+camera_patched: '* Game camera improvements'
 of_version: of version
 optional_content: optional content
 or: or

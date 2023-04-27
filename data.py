@@ -56,7 +56,7 @@ OFFSET_UI_Y = round((TARGET_RES_Y - ORIG_RES_Y * ENLARGE_UI_COEF) / 2)
 # 0x5E306C
 # 0x5E3204
 # 0x5E3C61
-# 0x5E41EA
+# 0x5E41EA # logo x size
 # 0x5E4133 # ware InfoItem max String width
 # 0x5E4179 # important msg font size
 # 0x5E4264 # max damage resistance coeff
@@ -205,8 +205,10 @@ offsets_exe_fixes = {
                0x1DABEE: "0x009E59EC",
 
                # max_resistance_for_damage
-               0x2D72A5: "0x009E4264",
-               0x5E4264: 100.0,
+               0x2D72A5: "0x009E5A28",  # 25.0 -> 100.0
+               # min_resistance_for_damage
+               0x2D7295: "0x009E3C61",
+               0x5E3C61: -101.0,  # -25.0 -> -101.0
 
                # reflection experiment to fix fov
                # 0x001C19B7: "0x009E4133",
@@ -446,6 +448,17 @@ hidden_values = {"low_fuel_threshold": [0.25, 0x124CCD, "pointer", "used_elsewhe
                  "min_resistance_for_damage": [-25.1, 0x2D7295, "pointer", "single_use"],  # ai::VehiclePartPrototypeInfo::LoadFromXML
                  "max_resistance_for_damage": [25.0, 0x2D72A5, "pointer", "used_elsewhere"],
                  "blast_damage_friendly_fire": [0x01, 0x3DFADC, "direct", "single_use"]}  # bool
+
+
+def get_known_mod_display_name(service_name):
+    known_names = {"community_patch": "Community Patch",
+                   "community_remaster": "Community Remaster"}
+
+    return known_names.get(service_name)
+
+
+def is_known_lang(lang: str):
+    return lang in ["eng", "ru", "ua", "de", "pl", "tr"]
 
 
 def get_title() -> str:

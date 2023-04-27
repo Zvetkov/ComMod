@@ -246,7 +246,9 @@ def main_console(options: argparse.Namespace) -> None:
 
         session.content_in_processing["community_patch"] = {"base": "yes",
                                                             "version": remaster_mod.version,
+                                                            "installment": remaster_mod.installment,
                                                             "build": remaster_mod.build,
+                                                            "language": remaster_mod.language,
                                                             "display_name": "Community Patch"}
 
         if version_choice == "patch":
@@ -270,6 +272,8 @@ def main_console(options: argparse.Namespace) -> None:
             session.content_in_processing["community_remaster"] = installed_remaster_settings.copy()
             session.content_in_processing["community_remaster"]["version"] = remaster_mod.version
             session.content_in_processing["community_remaster"]["build"] = remaster_mod.build
+            session.content_in_processing["community_remaster"]["language"] = remaster_mod.language
+            session.content_in_processing["community_remaster"]["installment"] = remaster_mod.installment
             session.content_in_processing["community_remaster"]["display_name"] = remaster_mod.display_name
             exe_options = remaster_mod.patcher_options
 
@@ -405,8 +409,8 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
         if not mod_install_settings:
             continue
 
-        if (mod_install_settings.get("base") == "yes") or (mod_install_settings.get("base") == "no"
-                                                           and len(mod_install_settings) > 1):
+        if (mod_install_settings.get("base") == "yes"
+           or (mod_install_settings.get("base") == "no" and len(mod_install_settings) > 1)):
             logger.info("***")
             if console.auto_clear:
                 os.system('cls')
@@ -432,6 +436,8 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                 session.content_in_processing[mod.name] = mod_install_settings.copy()
                 session.content_in_processing[mod.name]["version"] = mod.version
                 session.content_in_processing[mod.name]["build"] = mod.build
+                session.content_in_processing[mod.name]["language"] = mod.language
+                session.content_in_processing[mod.name]["installment"] = mod.installment
                 session.content_in_processing[mod.name]["display_name"] = mod.display_name
                 if mod.patcher_options is not None:
                     file_ops.patch_configurables(game.target_exe, mod.patcher_options)

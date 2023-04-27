@@ -7,13 +7,25 @@ import os
 from pathlib import Path
 import typing
 
+from datetime import datetime
+
 from enum import Enum
 
 from color import bcolors, fconsole, remove_colors
 from localisation import tr, DEM_DISCORD, COMPATCH_GITHUB, WIKI_COMPATCH
-from file_ops import copy_from_to, read_yaml, process_markdown, get_internal_file_path
+from data import is_known_lang, get_known_mod_display_name
+from file_ops import read_yaml, process_markdown, get_internal_file_path,\
+                     copy_from_to, copy_from_to_async_fast
 
 logger = logging.getLogger('dem')
+
+
+class GameInstallments(Enum):
+    ALL = 0
+    EXMACHINA = 1
+    M113 = 2
+    ARCADE = 3
+    UNKNOWN = 4
 
 
 class Mod:
@@ -21,37 +33,53 @@ class Mod:
        and related functions'''
     def __init__(self, yaml_config: dict, distribution_dir: str) -> None:
         try:
-            self.name = str(yaml_config.get("name"))[:64].replace("/", "").replace("\\", "").replace(".", "").strip()
-            self.display_name = str(yaml_config.get("display_name"))[:64].strip()
-            self.description = str(yaml_config.get("description"))[:2048].strip()
-            self.authors = str(yaml_config.get("authors"))[:256].strip()
+            self.name = yaml_config.get("name")[:64].replace("/", "").replace("\\", "").replace(".", "").strip()
+            
+            installment = yaml_config.get("installment")
+            if installment is None:
+                self.installment = "exmachina"
+            else:
+                installment = installment.strip()
+                match installment.lower():
+                    case "exmachina" | "m113" | "arcade":
+                        self.installment = installment.lower()
+                    case _:
+                        raise ValueError(f"Game installment id '{installment}' "
+                                         "is not in the supported games list!")
+
+            self.display_name = yaml_config.get("display_name")[:64].strip()
+            self.description = yaml_config.get("description")[:2048].strip()
+            self.language = yaml_config.get("language")
+            self.authors = yaml_config.get("authors")[:256].strip()
             self.version = str(yaml_config.get("version"))[:64].strip()
             self.build = str(yaml_config.get("build"))[:7].strip()
+
             url = yaml_config.get("link")
             trailer_url = yaml_config.get("trailer_link")
             self.url = url[:128].strip() if url is not None else ""
             self.trailer_url = trailer_url[:128].strip() if trailer_url is not None else ""
+
             self.prerequisites = yaml_config.get("prerequisites")
             self.incompatible = yaml_config.get("incompatible")
+            self.release_date = yaml_config.get("release_date")
+            self.install_banner = yaml_config.get("install_banner")
+            self.tags = yaml_config.get("tags")
+            self.logo = yaml_config.get("logo")
+            self.screenshots = yaml_config.get("screenshots")
+            self.change_log = yaml_config.get("change_log")
+            self.other_info = yaml_config.get("other_info")
+
             self.individual_require_status = []
             self.individual_incomp_status = []
             self.requirements_style = "mixed"
             self.incompatibles_style = "mixed"
-            self.release_date = yaml_config.get("release_date")
-            self.tags = yaml_config.get("tags")
-            self.logo = yaml_config.get("logo")
-            self.install_banner = yaml_config.get("install_banner")
-            self.language = yaml_config.get("language")
-            self.screenshots = yaml_config.get("screenshots")
-            self.change_log = yaml_config.get("change_log")
-            self.other_info = yaml_config.get("other_info")
 
             translations = yaml_config.get("translations")
             self.translations = {}
             self.translations_loaded = {}
             if translations is not None:
                 for translation in translations:
-                    self.translations[translation] = Mod.is_known_lang(translation)
+                    self.translations[translation] = is_known_lang(translation)
 
             if self.release_date is None:
                 self.release_date = ""
@@ -68,6 +96,8 @@ class Mod:
                 for screenshot in self.screenshots:
                     if not isinstance(screenshot.get("img"), str):
                         next
+
+                    screenshot["img"] = screenshot["img"].replace("..", "")
 
                     if isinstance(screenshot.get("text"), str):
                         screenshot["text"] = screenshot["text"].strip()
@@ -132,11 +162,10 @@ class Mod:
                     else:
                         raise ValueError(f"Broken manifest for content '{self.name}'!")
 
-            self.optional_content = None
+            self.optional_content = []
 
             optional_content = yaml_config.get("optional_content")
             if optional_content and optional_content is not None:
-                self.optional_content = []
                 if isinstance(optional_content, list):
                     for option in optional_content:
                         option_loaded = Mod.OptionalContent(option, self)
@@ -150,10 +179,6 @@ class Mod:
             logger.error(ex)
             logger.error(er_message)
             raise ValueError(er_message)
-
-    @staticmethod
-    def is_known_lang(lang: str):
-        return lang in ["eng", "ru", "ua", "de", "pl", "tr"]
 
     def load_translations(self, load_gui_info: bool = False):
         self.translations_loaded[self.language] = self
@@ -170,27 +195,31 @@ class Mod:
                 if config_validated:
                     mod_tr = Mod(yaml_config, self.distibution_dir)
                     if mod_tr.name != self.name:
-                        raise ValueError("Service name missmatch in translation: "
+                        raise ValueError("Service name mismatch in translation: "
                                          f"'{mod_tr.name}' name specified for translation, "
                                          f"but main mod name is '{self.name}'! "
                                          f"(Mod: {self.name}) (Translation: {mod_tr.language})")
                     if mod_tr.version != self.version:
-                        raise ValueError("Version missmatch: "
+                        raise ValueError("Version mismatch: "
                                          f"'{mod_tr.version}' specified for translation, "
                                          f"but main mod version is '{self.version}'! "
                                          f"(Mod: {self.name}) (Translation: {mod_tr.language})")
                     if sorted(mod_tr.tags) != sorted(self.tags):
-                        raise ValueError("Tags missmatch: "
+                        raise ValueError("Tags mismatch: "
                                          f"{mod_tr.tags} specified for translation, "
                                          f"but main mod tags are {self.tags}! "
                                          f"(Mod: {self.name}) (Translation: {mod_tr.language})")
                     if mod_tr.language != lang:
-                        raise ValueError("Language missmatch for translation manifest name and info: "
+                        raise ValueError("Language mismatch for translation manifest name and info: "
                                          f"{mod_tr.language} in manifest, {lang} in manifest name! "
                                          f"(Mod: {self.name})")
                     if mod_tr.language == self.language:
                         raise ValueError("Language duplication for translation manifest: "
                                          f"{lang} in manifest, but {lang} is main lang already! "
+                                         f"(Mod: {self.name})")
+                    if mod_tr.installment != self.installment:
+                        raise ValueError("Game mismatch for translation manifest and the main mod: "
+                                         f"{mod_tr.installment} in translation, {self.installment} in manifest name! "
                                          f"(Mod: {self.name})")
 
                     self.translations_loaded[lang] = mod_tr
@@ -198,7 +227,7 @@ class Mod:
                         mod_tr.load_gui_info()
 
         for lang, mod in self.translations_loaded.items():
-            mod.known_language = self.is_known_lang(lang)
+            mod.known_language = is_known_lang(lang)
             if mod.known_language:
                 mod.lang_label = tr(lang)
             else:
@@ -267,32 +296,19 @@ class Mod:
             translation.commod_compatible, translation.commod_compatible_err = \
                 translation.compatible_with_mod_manager(commod_version)
 
+    def load_game_compatibility(self, game_installment):
+        for translation in self.translations_loaded.values():
+            translation.installment_compatible = self.installment == game_installment
+
     def load_session_compatibility(self, installed_content, installed_descriptions):
         for translation in self.translations_loaded.values():
-            # self.commod_compatible = compat_info["compatible_with_commod"]
-            # self.commod_compatible_err = remove_colors(compat_info["compatible_with_commod_err"].strip())
 
-            # compatible = compat_info.get("compatible")
-            # if compatible is not None:
-            #     self.compatible = compatible
-            #     self.compatible_err = "\n".join(compat_info["compatible_err"]).strip()
-            # else:
-            #     self.compatible = True
-            #     self.compatible_err = ""
             translation.compatible, translation.compatible_err = \
                 translation.check_requirements(
                     installed_content,
                     installed_descriptions)
 
             translation.compatible_err = "\n".join(translation.compatible_err).strip()
-
-            # prevalidated = compat_info.get("prevalidated")
-            # if prevalidated is not None:
-            #     self.prevalidated = prevalidated
-            #     self.prevalidated_err = "\n".join(compat_info["prevalidated_err"]).strip()
-            # else:
-            #     self.prevalidated = True
-            #     self.prevalidated_err = ""
 
             translation.prevalidated, translation.prevalidated_err = \
                 translation.check_incompatibles(
@@ -308,6 +324,7 @@ class Mod:
                     installed_descriptions)
 
             translation.can_install = (translation.commod_compatible
+                                       and translation.installment_compatible
                                        and translation.compatible
                                        and translation.prevalidated
                                        and translation.can_be_reinstalled)
@@ -325,11 +342,12 @@ class Mod:
                                                                    existing_content_descriptions)
             if requirements_met:
                 for install_setting in install_settings:
+                    # TODO: check if this correctly works, always copying 'base' before options  
                     if install_setting == "base":
                         install_base = install_settings.get('base')
                         if install_base is None:
                             raise KeyError(f"Installation config for base of mod '{self.name}' is broken")
-                        if self.optional_content is not None:
+                        if self.optional_content:
                             for option in self.optional_content:
                                 option_config = install_settings.get(option.name)
                                 if option_config is None:
@@ -361,6 +379,65 @@ class Mod:
                         if console and installation_prompt_result != "skip":
                             print(fconsole(tr("copying_options_please_wait"), bcolors.RED) + "\n")
                 copy_from_to(mod_files, game_data_path, console)
+                return True, []
+            else:
+                return False, error_msgs
+        except Exception as ex:
+            logger.error(ex)
+            return False, []
+
+    async def install_async(self, game_data_path: str,
+                            install_settings: dict,
+                            existing_content: dict,
+                            existing_content_descriptions: dict,
+                            callback_progbar: typing.Awaitable,
+                            callback_status: typing.Awaitable):
+        '''Returns bool success status of install and errors list in case mod requirements are not met'''
+        try:
+            logger.info(f"Existing content: {existing_content}")
+            mod_files = []
+            requirements_met, error_msgs = self.check_requirements(existing_content,
+                                                                   existing_content_descriptions)
+            if requirements_met:
+                for install_setting in install_settings:
+                    if install_setting == "base":
+                        install_base = install_settings.get('base')
+                        if install_base is None:
+                            raise KeyError(f"Installation config for base of mod '{self.name}' is broken")
+                        if self.optional_content:
+                            for option in self.optional_content:
+                                option_config = install_settings.get(option.name)
+                                if option_config is None:
+                                    raise KeyError(f"Installation config for option '{option.name}'"
+                                                   f" of mod '{self.name}' is broken")
+                        base_path = os.path.join(self.distibution_dir, "data")
+                        await callback_status(tr("copying_base_files_please_wait"))
+                        mod_files.append(base_path)
+                    else:
+                        wip_setting = self.options_dict[install_setting]
+                        base_work_path = os.path.join(self.distibution_dir, wip_setting.name, "data")
+                        installation_prompt_result = install_settings[install_setting]
+                        if installation_prompt_result == "yes":
+                            mod_files.append(base_work_path)
+                        elif installation_prompt_result == "skip":
+                            pass
+                        else:
+                            custom_install_method = install_settings[install_setting]
+                            custom_install_work_path = os.path.join(self.distibution_dir,
+                                                                    wip_setting.name,
+                                                                    custom_install_method)
+
+                            mod_files.append(base_work_path)
+                            mod_files.append(custom_install_work_path)
+                        if installation_prompt_result != "skip":
+                            await callback_status(tr("copying_options_please_wait"))
+
+                    start = datetime.now()
+                    await copy_from_to_async_fast(mod_files, game_data_path, callback_progbar)
+                    end = datetime.now()
+                    logger.debug(f"{(end - start).microseconds / 1000000} seconds took fast copy")
+
+                    mod_files.clear()
                 return True, []
             else:
                 return False, error_msgs
@@ -405,8 +482,12 @@ class Mod:
             if existing_mod is not None:
                 name_label.append(existing_mod["display_name"])
             else:
-                name_label.append(service_name)
-                only_technical_name_available = True
+                known_name = get_known_mod_display_name(service_name)
+                if known_name is None:
+                    name_label.append(service_name)
+                    only_technical_name_available = True
+                else:
+                    name_label.append(known_name)
 
         name_label = or_word.join(name_label)
         version_label = ""
@@ -539,7 +620,6 @@ class Mod:
             validated, mod_error = self.check_requirement(prereq,
                                                           existing_content, existing_content_descriptions,
                                                           is_compatch_env)
-            # TODO: might need to clear individual_require_status each time we check requirements
             self.individual_require_status.append((prereq, validated, mod_error))
             if mod_error:
                 error_msg.extend(mod_error)
@@ -554,18 +634,37 @@ class Mod:
                                existing_content_descriptions: dict) -> tuple[bool, bool, str]:
         '''Returns is_reinstallation: bool, can_be_installed: bool, warning_text: str'''
         previous_install = existing_content.get(self.name)
+        comrem_on_compatch = False
+
+        # comrem = existing_content.get("community_remaster")
+        # compatch = existing_content.get("community_patch")
+        # if comrem is not None:
+        #     installing_on = "comrem"
+        # elif compatch is not None:
+        #     installing_on = "compatch"
+        # else:
+        #     installing_on = "clean"
+
         if self.name == "community_remaster":
             compatch_preivous = existing_content.get("community_patch")
             if previous_install is None:
                 previous_install = compatch_preivous
+                comrem_on_compatch = True
 
         if previous_install is None:
             # no reinstall, can be installed
             return False, True, "", None
 
-        self_and_prereqs = [self.name]
+        old_options = set(previous_install.keys()) - set(["base", "version", "display_name",
+                                                          "build", "language", "installment"])
+        new_options = set([opt.name for opt in self.optional_content])
+
+        self_and_prereqs = [self.name, "community_patch"]
         for prereq in self.prerequisites:
             self_and_prereqs.extend(prereq["name"])
+
+        if previous_install.get("language") != self.language:
+            return True, False, tr("cant_reinstall_different_lang"), previous_install
 
         existing_other_mods = set(existing_content.keys()) - set(self_and_prereqs)
         if existing_other_mods:
@@ -583,16 +682,30 @@ class Mod:
         this_version = Mod.Version(self.version)
         if existing_version == this_version:
             if self.build == previous_install["build"]:
-                if self.optional_content:
-                    # is reinstall, complex mod, safe reinstall, forced options
-                    return True, True, tr("complex_safe_reinstall"), previous_install
+                if self.optional_content and not comrem_on_compatch:
+                    if old_options == new_options:
+                        # is reinstall, complex mod, safe reinstall, forced options
+                        warning = (tr("complex_safe_reinstall")
+                                   + "\n" + tr("to_increase_compat_options_are_limited"))
+                        return True, True, warning, previous_install
+                    elif comrem_on_compatch:
+                        return True, True, tr("can_reinstall"), previous_install
+                    else:
+                        return True, False, tr("cant_reinstall_with_different_options"), previous_install
                 else:
                     # is reinstall, simple mod, safe reinstall
-                    return True, True, tr("safe_reinstall"), previous_install
+                    return True, True, tr("can_reinstall"), previous_install
             elif self.build > previous_install["build"]:
                 if self.optional_content:
-                    # is reinstall, complex mod, unsafe reinstall, forced options
-                    return True, True, tr("complex_unsafe_reinstall"), previous_install
+                    if old_options == new_options:
+                        # is reinstall, complex mod, unsafe reinstall, forced options
+                        warning = (tr("complex_unsafe_reinstall")
+                                   + "\n" + tr("to_increase_compat_options_are_limited"))
+                        return True, True, warning, previous_install
+                    elif comrem_on_compatch:
+                        return True, True, tr("unsafe_reinstall"), previous_install
+                    else:
+                        return True, False, tr("cant_reinstall_with_different_options"), previous_install
                 else:
                     # is reinstall, simple mod, unsafe reinstall
                     return True, True, tr("unsafe_reinstall"), previous_install
@@ -760,16 +873,20 @@ class Mod:
             schema_fieds_top = {
                 "name": [[str], True],
                 "display_name": [[str], True],
+                "installment": [[str], False],
                 "version": [[str, int, float], True],
                 "build": [[str], True],
                 "description": [[str], True],
                 "authors": [[str], True],
+                "language": [[str], True],
+
+                "patcher_version_requirement": [[str, float, int, list[str | float | int]], True],
                 "prerequisites": [[list], True],
                 "incompatible": [[list], False],
-                "patcher_version_requirement": [[str, float, int, list[str | float | int]], True],
 
                 "release_date": [[str], False],
-                "language": [[str], True],
+                "url": [[str], False],
+                "trailer_url": [[str], False],
                 "translations": [[list[str]], False],
                 "link": [[str], False],
                 "tags": [[list[str]], False],
@@ -1067,7 +1184,7 @@ class Mod:
         '''Returns settings that describe default installation of the mod'''
         install_settings = {}
         install_settings["base"] = "yes"
-        if self.optional_content is not None:
+        if self.optional_content:
             for option in self.optional_content:
                 if option.default_option is not None:
                     install_settings[option.name] = option.default_option

@@ -689,14 +689,14 @@ class GameHomeScreen(QtWidgets.QWidget):
         self.start_game_btn = button_launch_game
 
     def update_game(self, game: GameCopy, context: InstallationContext):
-        if game.game_installment == "Ex Machina":
+        if game.installment == "exmachina":
             if "ComRemaster" in game.exe_version:
                 game_icon = get_internal_file_path("icons/hta_comrem.png")
             else:
                 game_icon = get_internal_file_path("icons/original_hta.png")
-        elif game.game_installment == "Ex Machina: Meridian 113":
+        elif game.installment == "m113":
             game_icon = get_internal_file_path("icons/original_m113.png")
-        elif game.game_installment == "Ex Machina: Arcade":
+        elif game.installment == "arcade":
             game_icon = get_internal_file_path("icons/original_arcade.png")
         else:
             game_icon = None
@@ -710,7 +710,7 @@ class GameHomeScreen(QtWidgets.QWidget):
         self.game_icon_label.setPixmap(game_icon)
         self.game_icon_label.setVisible(True)
 
-        self.game_name_label.setText(game.game_installment)
+        self.game_name_label.setText(game.installment)
 
         game_version_text = ""
         game_optional_content = ""

@@ -9,17 +9,16 @@ from enum import Enum
 from pathlib import Path
 
 from asyncio_requests.asyncio_request import request
-
 import localisation
 
 from commod import _init_input_parser
-from data import get_title
-from environment import InstallationContext, GameCopy, GameInstallments, GameStatus, DistroStatus
+from data import get_title, is_known_lang
+from environment import InstallationContext, GameCopy, GameStatus, DistroStatus
 import file_ops
 from file_ops import dump_yaml, get_internal_file_path, get_proc_by_names, read_yaml,\
                      process_markdown
 from localisation import tr, SupportedLanguages
-from mod import Mod
+from mod import Mod, GameInstallments
 
 # logging.basicConfig(level=logging.DEBUG)
 
@@ -261,17 +260,9 @@ class App:
             # remaster_mod.load_gui_info()
             remaster_mod.load_translations(load_gui_info=True)
             remaster_mod.load_commod_compatibility(self.context.commod_version)
-            # TODO: might not be needed for comrem, but need to check
+            remaster_mod.load_game_compatibility(self.game.installment)
             remaster_mod.load_session_compatibility(self.game.installed_content,
                                                     self.game.installed_descriptions)
-
-            # for translation in remaster_mod.translations_loaded.values():
-            #     commod_compatible_tr, commod_compat_err_tr = \
-            #         translation.compatible_with_mod_manager(self.context.commod_version)
-            #     compat_info_tr = {
-            #         "compatible_with_commod": commod_compatible_tr,
-            #         "compatible_with_commod_err": commod_compat_err_tr}
-            #     translation.load_session_compatibility(compat_info_tr)
 
             self.session.mods[self.context.remaster_path] = remaster_mod
 
@@ -289,40 +280,71 @@ class App:
             for manifest_path, manifest in self.context.validated_mod_configs.items():
                 mod_identifier = f'{manifest["name"]}{manifest["version"]}{manifest["build"]}'
                 if mod_identifier not in self.session.tracked_mods:
-                    mod = Mod(manifest, Path(manifest_path).parent)
-
                     try:
+                        mod = Mod(manifest, Path(manifest_path).parent)
                         mod.load_translations(load_gui_info=True)
+                        mod.load_commod_compatibility(self.context.commod_version)
+                        mod.load_game_compatibility(self.game.installment)
+                        mod.load_session_compatibility(self.game.installed_content,
+                                                       self.game.installed_descriptions)
+                        self.session.mods[manifest_path] = mod
+                        self.session.tracked_mods.add(mod_identifier)
                     except Exception as ex:
                         self.logger.error(ex)
                         continue
 
-                    mod.load_commod_compatibility(self.context.commod_version)
-                    mod.load_session_compatibility(self.game.installed_content,
-                                                   self.game.installed_descriptions)
-                    # mod.load_gui_info()
 
-                    # for translation in mod.translations_loaded.values():
-                    #     commod_compatible_tr, commod_compat_err_tr = \
-                    #         translation.compatible_with_mod_manager(self.context.commod_version)
-                    #     prevalidated_tr, prevalid_errors_tr = translation.check_requirements(
-                    #         self.game.installed_content,
-                    #         self.game.installed_descriptions)
-                    #     compatible_tr, incompatible_errors_tr = translation.check_incompatibles(
-                    #         self.game.installed_content,
-                    #         self.game.installed_descriptions)
-                    #     compat_info_tr = {
-                    #         "compatible_with_commod": commod_compatible_tr,
-                    #         "compatible_with_commod_err": commod_compat_err_tr,
-                    #         "prevalidated": prevalidated_tr,
-                    #         "prevalidated_err": prevalid_errors_tr,
-                    #         "compatible": compatible_tr,
-                    #         "compatible_err": incompatible_errors_tr}
-                    #     translation.load_session_compatibility(compat_info_tr)
+class ExpandableContainer(ft.Container):
+    def __init__(self, label_expanded, label_collapsed, content,
+                 expanded=True, min_height=48,
+                 *args, **kwargs):
 
-                    self.session.mods[manifest_path] = mod
-                    self.session.tracked_mods.add(mod_identifier)
+        self.min_height = min_height
+        self.label_expanded = label_expanded
+        self.label_collapsed = label_collapsed
+        self.expanded = expanded
+        self.expanded_icon = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
+        self.collapsed_icon = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
+        self.toggle_icon = ft.Ref[Icon]()
+        self.internal_content = ft.Container(
+            Column([
+                ft.Container(Row([
+                    Text(self.label_expanded if expanded else self.label_collapsed),
+                    Icon(self.expanded_icon if expanded else self.collapsed_icon,
+                         ref=self.toggle_icon)
+                    ]), margin=ft.margin.symmetric(horizontal=20)),
+                ft.Container(content, margin=ft.margin.only(left=20, right=20, bottom=15))
+            ], spacing=13),
+            on_click=self.toggle,
+            height=None if self.expanded else min_height,
+            animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
+            padding=11, border_radius=10
+        )
 
+        kwargs.setdefault("content", self.internal_content)
+        kwargs.setdefault("animate", ft.animation.Animation(300, ft.AnimationCurve.DECELERATE))
+        super().__init__(*args, **kwargs)
+
+    async def minimize(self):
+        self.internal_content.height = self.min_height
+        self.expanded = False
+        self.toggle_icon.current.name = self.collapsed_icon
+        await self.update_async()
+
+    async def maximize(self):
+        self.internal_content.height = None
+        self.expanded = True
+        self.toggle_icon.current.name = self.expanded_icon
+        await self.update_async()
+
+    async def toggle(self, e):
+        if self.expanded:
+            await self.minimize()
+        else:
+            await self.maximize()
+        await self.update_async()
 
 class GameCopyListItem(UserControl):
     def __init__(self, game_name, game_path,
@@ -697,7 +719,7 @@ class SettingsScreen(UserControl):
                 can_be_added, warning, game_info = self.check_compatible_game(game_path)
                 if can_be_added:
                     is_current = game_path == self.app.config.current_game
-                    installment = game_info.game_installment
+                    installment = game_info.installment
                     exe_version = game_info.exe_version
                 else:
                     is_current = False
@@ -780,14 +802,14 @@ class SettingsScreen(UserControl):
                          self.game_copy_warning,
                          Row([self.add_game_manual_btn], alignment=ft.MainAxisAlignment.CENTER),
                          ], spacing=13),
-                                  padding=11, border_radius=10,
-                                  border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
-                                  clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                                  animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
-                                  ref=self.add_game_manual_container,
-                                  height=104 if self.add_game_expanded else 48,
-                                  col={"xs": 12, "lg": 10, "xxl": 7}
-                                  ),
+                         padding=11, border_radius=10,
+                         border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
+                         clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                         animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
+                         ref=self.add_game_manual_container,
+                         height=104 if self.add_game_expanded else 48,
+                         col={"xs": 12, "lg": 10, "xxl": 7}
+                         ),
                     ft.Container(content=Column(
                         [ft.Container(Row([steam_icon,
                                            Text(tr("choose_from_steam"), weight=ft.FontWeight.W_500),
@@ -799,14 +821,14 @@ class SettingsScreen(UserControl):
                          self.steam_game_copy_warning,
                          Row([self.add_from_steam_btn], alignment=ft.MainAxisAlignment.CENTER),
                          ], spacing=13),
-                             padding=11, border_radius=10,
-                             border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
-                             clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                             animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
-                             ref=self.add_game_steam_container,
-                             height=104 if self.add_steam_expanded else 48,
-                             col={"xs": 12, "lg": 10, "xxl": 7}
-                                  )
+                        padding=11, border_radius=10,
+                        border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
+                        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                        animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
+                        ref=self.add_game_steam_container,
+                        height=104 if self.add_steam_expanded else 48,
+                        col={"xs": 12, "lg": 10, "xxl": 7}
+                        )
                     ], alignment=ft.MainAxisAlignment.CENTER),
                 ft.ResponsiveRow(
                     # contols of distro/comrem/mods folders
@@ -886,11 +908,11 @@ class SettingsScreen(UserControl):
         await self.update_async()
 
     async def expand_adding_game_manual(self):
-        final_height = 104
-        if self.add_game_manual_btn.visible:
-            final_height += 45
-        if self.game_copy_warning.visible:
-            final_height += 60
+        final_height = None
+        # if self.add_game_manual_btn.visible:
+            # final_height += 45
+        # if self.game_copy_warning.visible:
+            # final_height += 60
 
         self.add_game_manual_container.current.height = final_height
         self.add_game_expanded = True
@@ -912,11 +934,12 @@ class SettingsScreen(UserControl):
         await self.update_async()
 
     async def expand_adding_game_steam(self):
-        final_height = 104
-        if self.add_from_steam_btn.visible:
-            final_height += 45
-        if self.steam_game_copy_warning.visible:
-            final_height += 60
+        final_height = None
+        # final_height = 104
+        # if self.add_from_steam_btn.visible:
+            # final_height += 45
+        # if self.steam_game_copy_warning.visible:
+            # final_height += 60
 
         self.add_game_steam_container.current.height = final_height
         self.add_steam_expanded = True
@@ -1050,10 +1073,10 @@ class SettingsScreen(UserControl):
             # deselect all other games if any exist
             await gather(*[control.display_as_reserve() for control in self.list_of_games.controls])
 
-            visible = not self.is_installment_filtered(game_info.game_installment)
+            visible = not self.is_installment_filtered(game_info.installment)
             new_game = GameCopyListItem(set_game_name,
                                         game_path,
-                                        game_info.game_installment,
+                                        game_info.installment,
                                         game_info.exe_version,
                                         warning, current,
                                         self.select_game,
@@ -1521,9 +1544,11 @@ class ModInfo(UserControl):
         self.mod_info_column.current.controls = [
             Text(self.mod.description, color=ft.colors.ON_SURFACE,
                  ref=self.mod_description_text),
-            ft.Divider(visible=self.mod.name != "community_remaster" or not self.mod.can_install),
+            ft.Divider(visible=self.mod.name != "community_remaster"
+                       or not self.mod.can_install or self.mod.is_reinstall),
             Column(controls=self.get_pretty_compatibility(),
-                   visible=self.mod.name != "community_remaster" or not self.mod.can_install),
+                   visible=self.mod.name != "community_remaster"
+                   or not self.mod.can_install or self.mod.is_reinstall),
             ft.Divider(
                 visible=not (self.mod.commod_compatible and self.mod.compatible and self.mod.prevalidated)),
             Row([
@@ -1570,6 +1595,29 @@ class ModInfo(UserControl):
         and_word = f" {tr('and')} "
         but_word = f", {tr('but')} "
 
+        installment_compat_content = []
+        if not self.mod.installment_compatible:
+            icon = ft.Icon(ft.icons.WARNING_ROUNDED,
+                           color=ft.colors.ERROR,
+                           tooltip=tr("incompatible_game_installment"),
+                           expand=1)
+
+            installment_compat_content = [
+                icon,
+                Column([
+                    Row([Text(tr(self.app.game.installment),
+                              weight=ft.FontWeight.W_500,
+                              color=ft.colors.ON_PRIMARY_CONTAINER),
+                         Text(f'[{self.app.game.exe_version}]',
+                              weight=ft.FontWeight.W_100)]),
+                    Row([Text(tr("incompatible_game_installment"),
+                         weight=ft.FontWeight.W_100,
+                         no_wrap=False),
+                         Text(f'({tr("mod_for_game")} {tr(self.mod.installment)})',
+                         weight=ft.FontWeight.W_100,
+                         no_wrap=False)], spacing=5, wrap=True)
+                ], expand=15)]
+
         req_list = []
         for req_tuple in self.mod.individual_require_status:
             req = req_tuple[0]
@@ -1604,11 +1652,11 @@ class ModInfo(UserControl):
             if ok_status:
                 icon = ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED,
                                color=ft.colors.TERTIARY,
-                               tooltip=tr("requirements_met"))
+                               tooltip=tr("requirements_met"), expand=1)
             else:
                 icon = ft.Icon(ft.icons.WARNING_ROUNDED,
                                color=ft.colors.ERROR,
-                               tooltip=tr("requirements_not_met"))
+                               tooltip=tr("requirements_not_met"), expand=1)
 
             if not version:
                 version_string = f'({tr("of_any_version")})'
@@ -1632,8 +1680,8 @@ class ModInfo(UserControl):
                     Text(f'{tr("including_options").capitalize()}: {optional}',
                          visible=bool(optional),
                          weight=ft.FontWeight.W_100,
-                         no_wrap=False, width=500)
-                        ])
+                         no_wrap=False)
+                        ], expand=15)
                      ])
             )
 
@@ -1673,11 +1721,11 @@ class ModInfo(UserControl):
             if incomp_ok_status:
                 icon = ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED,
                                color=ft.colors.TERTIARY,
-                               tooltip=tr("requirements_met"))
+                               tooltip=tr("requirements_met"), expand=1)
             else:
                 icon = ft.Icon(ft.icons.WARNING_ROUNDED,
                                color=ft.colors.ERROR,
-                               tooltip=tr("requirements_not_met"))
+                               tooltip=tr("requirements_not_met"), expand=1)
 
             if not version:
                 version_string = f'({tr("of_any_version")})'
@@ -1700,8 +1748,8 @@ class ModInfo(UserControl):
                     Text(f'{tr("including_options").capitalize()}: {optional}',
                          visible=bool(optional),
                          weight=ft.FontWeight.W_100,
-                         no_wrap=False, width=500)
-                        ])
+                         no_wrap=False)
+                        ], expand=15)
                      ])
             )
 
@@ -1710,15 +1758,18 @@ class ModInfo(UserControl):
             if self.mod.can_be_reinstalled:
                 icon = ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED,
                                color=ft.colors.TERTIARY,
-                               tooltip=tr("can_reinstall"))
+                               tooltip=tr("can_reinstall"), expand=1)
             else:
                 icon = ft.Icon(ft.icons.WARNING_ROUNDED,
                                color=ft.colors.ERROR,
-                               tooltip=tr("cant_reinstall"))
+                               tooltip=tr("cant_reinstall"), expand=1)
 
             mod_name = self.mod.existing_version.get("display_name")
             if mod_name is None:
                 mod_name = self.mod.existing_version["name"]
+            lang_name = self.mod.existing_version.get("language")
+            if is_known_lang(lang_name):
+                lang_name = tr(lang_name)
             reinstall_content = [
                 icon,
                 Column([
@@ -1728,31 +1779,33 @@ class ModInfo(UserControl):
                          Text(f'({self.mod.existing_version.get("version")})',
                               weight=ft.FontWeight.W_100),
                          Text(f'[{self.mod.existing_version.get("build")}]',
+                              weight=ft.FontWeight.W_100),
+                         Text((f'{tr("language").capitalize()}: '
+                               f'{lang_name}'),
                               weight=ft.FontWeight.W_100)]),
-                        #  Icon(ft.icons.INFO_OUTLINE_ROUNDED,
-                        #       visible=not incomp_ok_status,
-                        #       size=20,
-                        #       tooltip="\n".join(incomp_errors),
-                        #       color=ft.colors.ERROR)]),
-                    Text(self.mod.reinstall_warning,
+                    Row([Text(self.mod.reinstall_warning,
                          visible=True,
                          weight=ft.FontWeight.W_100,
-                         no_wrap=False, width=500)
-                        ])
+                         no_wrap=False)], wrap=True)
+                        ], expand=15)
                      ]
-
-        if req_list:
-            point_list.append(Text(tr("required_base").capitalize() + ":",
+        if installment_compat_content:
+            point_list.append(Text(tr("game_compatibility").capitalize() + ":",
                               weight=ft.FontWeight.BOLD))
-            point_list.extend(req_list)
-        if incomp_list:
-            point_list.append(Text(tr("incompatible_base").capitalize() + ":",
-                              weight=ft.FontWeight.BOLD))
-            point_list.extend(incomp_list)
-        if reinstall_content:
-            point_list.append(Text(tr("mod_already_installed").capitalize() + ":",
-                              weight=ft.FontWeight.BOLD))
-            point_list.append(Row(controls=reinstall_content))
+            point_list.append(Row(controls=installment_compat_content))
+        else:
+            if req_list:
+                point_list.append(Text(tr("required_base").capitalize() + ":",
+                                  weight=ft.FontWeight.BOLD))
+                point_list.extend(req_list)
+            if incomp_list:
+                point_list.append(Text(tr("incompatible_base").capitalize() + ":",
+                                  weight=ft.FontWeight.BOLD))
+                point_list.extend(incomp_list)
+            if reinstall_content:
+                point_list.append(Text(tr("check_reinstallability").capitalize() + ":",
+                                  weight=ft.FontWeight.BOLD))
+                point_list.append(Row(controls=reinstall_content))
 
         return point_list
 
@@ -1777,6 +1830,13 @@ class ModInfo(UserControl):
                                                               margin=0),
                                                  Row([], ref=self.lang_list, spacing=0,
                                                      width=130, wrap=True, run_spacing=0)]),
+                                            ft.Container(
+                                                ft.Row([
+                                                    Text(f"{tr('game').capitalize()}:  "),
+                                                    Text(tr(self.mod.installment))
+                                                ], spacing=5),
+                                                visible=bool(self.mod.release_date),
+                                                margin=ft.margin.only(left=10, top=3, bottom=10)),
                                             ft.Container(
                                                 ft.Row([
                                                     Text(f"{tr('release').capitalize()}:  "),
@@ -1891,6 +1951,7 @@ class ModItem(UserControl):
         self.main_mod = mod
         self.mod = self.main_mod
 
+        self.install_btn = ft.Ref[ft.ElevatedButton]() 
         self.about_mod_btn = ft.Ref[ft.OutlinedButton]()
         self.info_container = ft.Ref[ModInfo]()
         self.mod_name_text = ft.Ref[Text]()
@@ -1928,9 +1989,53 @@ class ModItem(UserControl):
         await self.author_text.current.update_async()
         self.mod_logo_img.current.src = self.mod.logo_path
         await self.mod_logo_img.current.update_async()
+        await self.update_install_btn()
+
+    async def update_install_btn(self):
+        btn = self.install_btn.current
+
+        btn.icon = ft.icons.CHECK_ROUNDED if self.mod.is_reinstall else None
+
+        if not self.mod.is_reinstall:
+            btn.text = tr("install").capitalize()
+        else:
+            btn.text = tr("installed").capitalize()
+
+        btn.style = ft.ButtonStyle(
+            color={
+                ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
+                ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY if not self.mod.is_reinstall
+                else ft.colors.ON_PRIMARY_CONTAINER,
+                ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                },
+            bgcolor={
+                ft.MaterialState.HOVERED: ft.colors.SECONDARY,
+                ft.MaterialState.DEFAULT: ft.colors.PRIMARY if not self.mod.is_reinstall
+                else ft.colors.PRIMARY_CONTAINER,
+                ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+            })
+
+        btn.disabled = (not self.mod.can_install
+                        or (self.mod.is_reinstall and not self.mod.can_be_reinstalled))
+
+        if self.mod.can_be_reinstalled and self.mod.is_reinstall:
+            btn.tooltip = tr("reinstall_mod_ask")
+        else:
+            btn.tooltip = None
+
+        await btn.update_async()
 
     def build(self):
         tr_tags = [tr(tag.lower()).capitalize() for tag in self.mod.tags]
+        mod_cant_install = (not self.mod.can_install
+                           or (self.mod.is_reinstall and not self.mod.can_be_reinstalled))
+        if self.mod.can_be_reinstalled and self.mod.is_reinstall:
+            install_tooltip = tr("reinstall_mod_ask")
+        elif not self.mod.installment_compatible:
+            install_tooltip = tr("incompatible_game_installment")
+        else:
+            install_tooltip = None
+         
         # return ft.GestureDetector(
         return ft.Card(
             ft.Container(
@@ -1971,8 +2076,9 @@ class ModItem(UserControl):
                             Row([ft.Container(
                                     Text(f"{self.mod.version} [{self.mod.build}]",
                                          no_wrap=True,
+                                         tooltip=tr("mod_version_and_build").capitalize(),
                                          color=ft.colors.ON_PRIMARY_CONTAINER
-                                         if self.mod.can_install else ft.colors.ERROR,
+                                         if not mod_cant_install else ft.colors.ERROR,
                                          overflow=ft.TextOverflow.ELLIPSIS), margin=ft.margin.only(bottom=3)),
                                  Icon(ft.icons.INFO_OUTLINE_ROUNDED,
                                       color=ft.colors.ERROR,
@@ -2007,9 +2113,9 @@ class ModItem(UserControl):
                                                     ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
                                                 }
                                               ),
-                                              disabled=not self.mod.can_install,
-                                              tooltip=tr("reinstall_mod_ask") if self.mod.can_be_reinstalled
-                                              and self.mod.is_reinstall else None,
+                                              ref=self.install_btn,
+                                              disabled=mod_cant_install,
+                                              tooltip=install_tooltip,
                                               on_click=self.install_mod),
                             ft.OutlinedButton(tr("about_mod").capitalize(),
                                               animate_size=ft.animation.Animation(
@@ -2035,6 +2141,8 @@ class ModInstallWizard(UserControl):
         self.current_screen = None
         self.options = []
 
+        self.callback_time = datetime.now()
+
         self.close_wizard_btn = ft.Ref[IconButton]()
         self.close_wizard_btn_tooltip = ft.Ref[ft.Tooltip]()
 
@@ -2048,6 +2156,12 @@ class ModInstallWizard(UserControl):
         self.main_row = ft.Ref[ft.ResponsiveRow]()
         self.screen = ft.Ref[ft.Container]()
         self.default_install_btn = ft.Ref[ft.FilledButton]()
+
+        self.install_status_text = ft.Ref[Text]()
+        self.install_details_text = ft.Ref[Text]()
+        self.install_details_number_text = ft.Ref[Text]()
+        self.install_progress_bar = ft.Ref[ft.ProgressBar]()
+
         self.status_capsules = Row([])
         self.status_capsules_container = ft.Container(
             Column([
@@ -2112,8 +2226,8 @@ class ModInstallWizard(UserControl):
                     changed_from_default = e.data == "false"
                 self.choice = e.data
             else:
-                self.choice = e.control.data
-                changed_from_default = e.data != self.option.default_option
+                self.choice = e.control.data if e.data == "true" else "skip"
+                changed_from_default = self.choice != self.option.default_option
                 if e.data != 'false':
                     for check in self.checkboxes:
                         if check.data != self.choice:
@@ -2203,33 +2317,34 @@ class ModInstallWizard(UserControl):
     async def close_wizard(self, e):
         # self.visible = False
         # await self.update_async()
-        self.app.page.overlay.clear()
-        if e.control.data == "close":
-            # TODO: check if it's better to replace this hack with proper reloading for mods
-            await self.app.change_page(index=AppSections.SETTINGS.value)
-            await self.app.change_page(index=AppSections.LOCAL_MODS.value)
-        await self.app.page.update_async()
+        if self.can_close:
+            self.app.page.overlay.clear()
+            if e.control.data == "close":
+                # TODO: check if it's better to replace this hack with proper reloading for mods
+                await self.app.change_page(index=AppSections.SETTINGS.value)
+                await self.app.change_page(index=AppSections.LOCAL_MODS.value)
+            await self.app.page.update_async()
 
-    async def disable(self, container):
-        container.current.bgcolor = ft.colors.SURFACE
-        container.current.on_click = None
-        self.text.current.color = ft.colors.ON_SURFACE
-        await container.current.update_async()
-        await self.text.current.update_async()
+    # async def disable(self, container):
+    #     container.current.bgcolor = ft.colors.SURFACE
+    #     container.current.on_click = None
+    #     self.text.current.color = ft.colors.ON_SURFACE
+    #     await container.current.update_async()
+    #     await self.text.current.update_async()
 
-    async def select(self, container):
-        container.current.bgcolor = ft.colors.SURFACE
-        container.current.on_click = None
-        self.text.current.color = ft.colors.ON_SURFACE
-        await container.current.update_async()
-        await self.text.current.update_async()
+    # async def select(self, container):
+    #     container.current.bgcolor = ft.colors.SURFACE
+    #     container.current.on_click = None
+    #     self.text.current.color = ft.colors.ON_SURFACE
+    #     await container.current.update_async()
+    #     await self.text.current.update_async()
 
-    async def deselect(self, container):
-        container.current.bgcolor = ft.colors.PRIMARY_CONTAINER
-        container.current.on_click = self.on_click_action
-        self.text.current.color = ft.colors.ON_PRIMARY_CONTAINER
-        await container.current.update_async()
-        await self.text.current.update_async()
+    # async def deselect(self, container):
+    #     container.current.bgcolor = ft.colors.PRIMARY_CONTAINER
+    #     container.current.on_click = self.on_click_action
+    #     self.text.current.color = ft.colors.ON_PRIMARY_CONTAINER
+    #     await container.current.update_async()
+    #     await self.text.current.update_async()
 
     async def did_mount_async(self):
         validated_translations = []
@@ -2251,17 +2366,30 @@ class ModInstallWizard(UserControl):
         else:
             await self.show_install_progress(e)
 
+    async def callable_for_progbar(self, file_num, files_count, file_name, file_size):
+        now_time = datetime.now()
+        if (now_time - self.callback_time).microseconds > 30000:
+            file_counting_text = f"{file_num} {tr('one_of_many')} {files_count}"
+            description = f"{tr('copying_file').capitalize()}: {file_name} - {file_size} KB"
+            self.install_details_number_text.current.value = file_counting_text
+            self.install_details_text.current.value = description
+            await self.install_details_number_text.current.update_async()
+            await self.install_details_text.current.update_async()
+
+            self.install_progress_bar.current.value = file_num / files_count
+            await self.install_progress_bar.current.update_async()
+            self.callback_time = now_time
+
+    async def callable_for_status(self, status):
+        now_time = datetime.now()
+        if (now_time - self.callback_time).microseconds > 30000:
+            self.app.logger.debug(status)
+            self.install_status_text.current.value = status
+            await self.install_status_text.current.update_async()
+            self.callback_time = now_time
+
     async def show_install_progress(self, e):
         await self.update_status_capsules(self.Steps.INSTALLING)
-        print("Pressed yes when asked to start install or not")
-        self.screen.current.content = ft.Column([
-            Text("Installing..."),
-            ft.ProgressRing(scale=2)
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-        await self.screen.current.update_async()
-        await asyncio.sleep(0.01)
-
-        self.current_screen = self.Steps.INSTALLING
 
         is_comrem_or_patch = self.mod.name == "community_remaster"
         is_compatch = False
@@ -2269,13 +2397,54 @@ class ModInstallWizard(UserControl):
             is_compatch = e.control.data["is_compatch"]
         is_comrem = is_comrem_or_patch and not is_compatch
 
+        if is_compatch:
+            mod_banner_path = get_internal_file_path("assets/compatch_logo.png")
+        else:
+            mod_banner_path = self.mod.banner_path
+
+        self.screen.current.content = ft.Column([
+            Text(f"{tr('install_in_progress').capitalize()}...",
+                 style=ft.TextThemeStyle.HEADLINE_SMALL),
+            ft.ResponsiveRow([
+                Image(src=mod_banner_path,
+                      visible=self.mod.banner_path is not None,
+                      fit=ft.ImageFit.CONTAIN,
+                      col={"xs": 12, "xl": 11, "xxl": 10})
+                ], alignment=ft.MainAxisAlignment.CENTER),
+            ft.ProgressRing(width=100, height=100),
+            ft.ResponsiveRow([Text(ref=self.install_details_number_text,
+                                   text_align=ft.TextAlign.CENTER,
+                                   no_wrap=False, col=12)],
+                             alignment=ft.MainAxisAlignment.CENTER),
+            ft.ProgressBar(ref=self.install_progress_bar),
+            ft.ResponsiveRow([Text(ref=self.install_details_text,
+                                   text_align=ft.TextAlign.CENTER,
+                                   no_wrap=False, col=12)],
+                             alignment=ft.MainAxisAlignment.CENTER),
+            ft.Divider(),
+            ft.ResponsiveRow([Text(ref=self.install_status_text,
+                                   text_align=ft.TextAlign.CENTER,
+                                   no_wrap=False, col=12)],
+                             alignment=ft.MainAxisAlignment.CENTER),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+        await self.screen.current.update_async()
+        self.close_wizard_btn.current.disabled = True
+        self.close_wizard_btn.current.selected = True
+        await self.close_wizard_btn.current.update_async()
+        self.close_wizard_btn_tooltip.current.message = tr("install_please_wait")
+        await self.close_wizard_btn_tooltip.current.update_async()
+
         install_settings = {}
 
         install_settings["base"] = "yes"
         for option_card in self.options:
             option = option_card.option
             if option_card.complex_selector:
-                pass
+                # if no options is chosen this will be the default
+                install_settings[option.name] = "skip"
+                for check in option_card.checkboxes:
+                    if check.value:
+                        install_settings[option.name] = check.data
             else:
                 check = option_card.checkboxes[0]
                 install_settings[option.name] = "yes" if check.value else "skip"
@@ -2290,31 +2459,48 @@ class ModInstallWizard(UserControl):
             session.content_in_processing["community_patch"] = {
                 "base": "yes",
                 "version": mod.version,
+                "installment": mod.installment,
                 "build": mod.build,
+                "language": mod.language,
                 "display_name": "Community Patch"
             }
 
-            file_ops.copy_from_to([os.path.join(distribution_dir, "patch")],
-                                  os.path.join(game_root, "data"),
-                                  console=False)
-            file_ops.copy_from_to([os.path.join(distribution_dir, "libs")],
-                                  game_root,
-                                  console=False)
+            await self.callable_for_status(tr("copying_patch_files_please_wait"))
+
+            await file_ops.copy_from_to_async_fast(
+                [os.path.join(distribution_dir, "patch")],
+                os.path.join(game_root, "data"),
+                self.callable_for_progbar)
+
+            await file_ops.copy_from_to_async_fast(
+                [os.path.join(distribution_dir, "libs")],
+                game_root,
+                self.callable_for_progbar)
             file_ops.rename_effects_bps(game_root)
 
+        status_ok = False
+        error_messages = []
         if not is_compatch:
-            status_ok, error_messages = mod.install(
+            status_ok, error_messages = await mod.install_async(
                 game.data_path,
                 install_settings,
                 game.installed_content,
-                game.installed_descriptions)
+                game.installed_descriptions,
+                self.callable_for_progbar,
+                self.callable_for_status
+                )
             print(status_ok)
             print(error_messages)
 
             session.content_in_processing[mod.name] = install_settings.copy()
             session.content_in_processing[mod.name]["version"] = mod.version
             session.content_in_processing[mod.name]["build"] = mod.build
+            session.content_in_processing[mod.name]["language"] = mod.language
+            session.content_in_processing[mod.name]["installment"] = mod.installment
             session.content_in_processing[mod.name]["display_name"] = mod.display_name
+        else:
+            status_ok = True
+            error_messages = []
 
         if not is_comrem_or_patch:
             if mod.patcher_options is not None:
@@ -2323,6 +2509,7 @@ class ModInstallWizard(UserControl):
                     file_ops.correct_damage_coeffs(game.game_root_path,
                                                    mod.patcher_options.get('gravity'))
 
+        changes_description = []
         if is_comrem_or_patch:
             if is_comrem:
                 target_dll = os.path.join(game_root, "dxrender9.dll")
@@ -2335,12 +2522,13 @@ class ModInstallWizard(UserControl):
             # build_id = self.app.context.remaster_config["build"]
             build_id = mod.build
 
-            file_ops.patch_game_exe(game.target_exe,
-                                    "patch" if is_compatch else "remaster",
-                                    build_id,
-                                    self.app.context.monitor_res,
-                                    mod.patcher_options if is_comrem else {},
-                                    self.app.context.under_windows)
+            changes_description = file_ops.patch_game_exe(
+                game.target_exe,
+                "patch" if is_compatch else "remaster",
+                build_id,
+                self.app.context.monitor_res,
+                mod.patcher_options if is_comrem else {},
+                self.app.context.under_windows)
 
         if status_ok:
             er_message = f"Couldn't dump install manifest to '{game.installed_manifest_path}'!"
@@ -2355,14 +2543,154 @@ class ModInstallWizard(UserControl):
                 self.app.logger.error(er_message)
                 return
 
-        await self.show_install_results()
+        await self.show_install_results(status_ok, error_messages, changes_description)
 
-    async def show_install_results(self):
+    async def show_install_results(self, status_ok, error_messages, changes_description):
+        # TODO: check if it's a good idea to clear session.content_in_processing
         await self.update_status_capsules(self.Steps.RESULTS)
-        self.screen.current.content = Text("Results placeholder")
-        self.close_wizard_btn_tooltip.current.message = tr("close_window").capitalize()
-        await self.close_wizard_btn_tooltip.current.update_async()
-        self.close_wizard_btn.current.data = "close"
+
+        if status_ok:
+            info_color = ft.colors.TERTIARY
+            result_text = Text(tr("successfully").capitalize(),
+                               color=info_color,
+                               weight=ft.FontWeight.BOLD)
+        else:
+            info_color = ft.colors.ERROR
+            result_text = Text(tr("error_occurred").capitalize(),
+                               color=info_color,
+                               weight=ft.FontWeight.BOLD)
+
+        mod_names = [mod_name for mod_name in self.app.session.content_in_processing]
+        mod_basic_info = []
+        mod_name = self.mod.name
+        mod_display_name = self.mod.display_name
+        mod_description = self.mod.description
+
+        if self.mod.name == "community_remaster":
+            if set(mod_names) != set(["community_patch", "community_remaster"]):
+                mod_name = "community_patch"
+                mod_display_name = "Community Patch"
+                mod_description = tr("compatch_description")
+
+        install_info = self.app.session.content_in_processing[mod_name]
+        mod_basic_info.append(Text(mod_display_name,
+                                   style=ft.TextThemeStyle.HEADLINE_SMALL,
+                                   no_wrap=False, color=ft.colors.PRIMARY))
+        mod_basic_info.append(Text(mod_description, no_wrap=False))
+        mod_basic_info.append(Text(f"{tr(self.mod.developer_title)} {self.mod.authors}",
+                                   no_wrap=False, color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD))
+
+        mod_info = []
+        options_installed = []
+        if mod_name != "community_patch":
+            for option in self.mod.optional_content:
+                variant = install_info[option.name]
+                if variant != "skip":
+                    if variant != "yes":
+                        variant_description = ""
+                        for setting in option.install_settings:
+                            if setting["name"] == variant:
+                                variant_description = setting["description"]
+                        options_installed.append(Row([
+                            Text(option.display_name,
+                                 color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD),
+                            Text(f"[{option.name} / {variant}]", opacity=0.6)]))
+                        options_installed.append(Text(option.description + f"({variant_description})"))
+                    else:
+                        options_installed.append(Row([
+                            Text(option.display_name,
+                                 color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD),
+                            Text(f"[{option.name}]", opacity=0.6)]))
+                        options_installed.append(Text(option.description))
+
+        with_opt_label = ""
+        if options_installed:
+            with_opt_label = tr("with_option").capitalize()
+            if len(options_installed) > 1:
+                with_opt_label = tr("with_options").capitalize()
+
+            mod_info.append(
+                ExpandableContainer(with_opt_label,
+                                    with_opt_label,
+                                    Column(options_installed),
+                                    expanded=False))
+
+        if changes_description:
+            mod_info.append(Text(f'{tr("binary_fixes").capitalize()}:'))
+            for change in changes_description:
+                change = tr(change)
+                for splited in change.split("\n"):
+                    splited = splited.replace("* ", "").strip()
+                    if splited:
+                        mod_info.append(Row([
+                            ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED,
+                                    color=ft.colors.TERTIARY,
+                                    expand=1),
+                            Text(splited, expand=15)
+                            ]))
+
+        reinstall_warn_container = ft.Container(Row([
+            Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
+            Text((f'{tr("was_reinstall").capitalize()}!\n'
+                  f'{tr("install_from_scratch_if_issues")}'),
+                 no_wrap=False, color=ft.colors.ERROR, expand=True),
+            ]),
+            border_radius=10, padding=10, margin=ft.margin.only(bottom=8),
+            bgcolor=ft.colors.ERROR_CONTAINER,
+            height=0,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
+            visible=self.mod.is_reinstall)
+
+        c1 = ft.Container(
+                Column([
+                    Icon(ft.icons.CHECK_CIRCLE_ROUNDED if status_ok else ft.icons.WARNING_ROUNDED,
+                         size=100,
+                         color=info_color),
+                    result_text], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                margin=10
+                )
+        c2 = ft.Container(
+                Row([
+                    Column([
+                        Icon(ft.icons.CHECK_CIRCLE_ROUNDED if status_ok else ft.icons.WARNING_ROUNDED,
+                             size=80,
+                             color=info_color),
+                        Text(tr("installed").capitalize(),
+                             color=ft.colors.TERTIARY,
+                             weight=ft.FontWeight.W_600)],
+                           horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=2),
+                    Column(mod_basic_info, expand=10)
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                margin=ft.margin.symmetric(vertical=10), height=0,
+                animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE))
+
+        mod_status_and_description = ft.AnimatedSwitcher(
+            c1,
+            transition=ft.AnimatedSwitcherTransition.SCALE,
+            duration=500,
+            reverse_duration=200,
+            switch_in_curve=ft.AnimationCurve.EASE_OUT,
+            switch_out_curve=ft.AnimationCurve.EASE_IN)
+
+        mod_info_column = ft.Ref[Column]()
+        close_window_btn = ft.Ref[ft.FilledTonalButton]()
+
+        self.screen.current.content = ft.Column([
+            ft.Text(tr("install_results").capitalize(),
+                    style=ft.TextThemeStyle.HEADLINE_SMALL),
+            mod_status_and_description,
+            Column(controls=mod_info, height=0,
+                   ref=mod_info_column,
+                   animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE)),
+            ft.Divider(),
+            reinstall_warn_container,
+            ft.FilledTonalButton(tr("close_window").capitalize(),
+                                 data="close",
+                                 ref=close_window_btn,
+                                 height=0,
+                                 on_click=self.close_wizard)
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
         # TODO: should look into optimizing this context reload proccess
         # self.app.context = InstallationContext(self.app.config.current_distro)
@@ -2374,8 +2702,28 @@ class ModInstallWizard(UserControl):
         # self.app.load_distro()
 
         await self.screen.current.update_async()
-        self.current_screen = self.Steps.RESULTS
-        # await self.app.page.update_async()
+        self.can_close = False
+        await asyncio.sleep(1)
+        mod_status_and_description.content = c2
+        await mod_status_and_description.update_async()
+        c2.height = None
+        mod_info_column.current.height = None
+        reinstall_warn_container.height = None
+        close_window_btn.current.height = None
+        await c2.update_async()
+        await mod_info_column.current.update_async()
+        await reinstall_warn_container.update_async()
+        await close_window_btn.current.update_async()
+
+        self.close_wizard_btn.current.data = "close"
+        self.close_wizard_btn.current.disabled = False
+        self.close_wizard_btn.current.selected = False
+        await self.close_wizard_btn.current.update_async()
+
+        self.close_wizard_btn_tooltip.current.message = tr("close_window").capitalize()
+        await self.close_wizard_btn_tooltip.current.update_async()
+
+        self.can_close = True
 
     def get_flag_buttons(self):
         flag_buttons = []
@@ -2492,6 +2840,17 @@ class ModInstallWizard(UserControl):
                  f"{tr('version')} {self.mod.version}")
         await self.switch_title(title)
 
+        if self.mod.language != "ru":
+            disable_compatch_install = True
+            disable_compatch_install_tooltip = tr("patch_only_supports_russian")
+        elif (self.mod.is_reinstall
+              and self.app.game.installed_content.get("community_remaster") is not None):
+            disable_compatch_install = True
+            disable_compatch_install_tooltip = tr("cant_install_patch_over_remaster")
+        else:
+            disable_compatch_install = False
+            disable_compatch_install_tooltip = None
+
         remaster_button = ft.FloatingActionButton(
             content=Row([
                 Icon(ft.icons.CHECK, visible=not is_compatch),
@@ -2509,14 +2868,14 @@ class ModInstallWizard(UserControl):
             ], alignment=ft.MainAxisAlignment.CENTER),
             bgcolor=ft.colors.PRIMARY_CONTAINER if is_compatch else ft.colors.SECONDARY_CONTAINER,
             data="compatch",
-            disabled=self.mod.language != "ru",
-            opacity=1.0 if self.mod.language == "ru" else 0.7,
-            tooltip=tr("cant_be_installed") if self.mod.language != "ru" else None,
+            disabled=disable_compatch_install,
+            opacity=0.7 if disable_compatch_install else 1.0,
+            tooltip=disable_compatch_install_tooltip,
             on_click=self.show_comrem_welcome,
             width=170, height=60,
             scale=1.0 if is_compatch else 0.95)
 
-        if mod.optional_content is not None:
+        if mod.optional_content:
             self.can_have_custom_install = True
             for option in mod.optional_content:
                 if option.install_settings is not None and option.default_option is None:
@@ -2524,18 +2883,17 @@ class ModInstallWizard(UserControl):
                     self.requires_custom_install = True
                     break
 
-        description = (f"{tr('description')}\n{mod.description}\n\n"
+        if is_compatch:
+            mod_description = tr("compatch_description")
+        else:
+            mod_description = mod.description
+
+        description = (f"{tr('description')}\n{mod_description}\n\n"
                        f"{tr(mod.developer_title)} {mod.authors}")
 
-        reinstall_warning = ""
-        if self.app.game.installed_content.get(mod.name) is not None:
-            if mod.name == "community_remaster":
-                reinstall_warning = tr("warn_reinstall")
-            else:
-                reinstall_warning = tr("warn_reinstall_mods")
-        # TODO: check that compatch over compatch reinstall triggers reinstall warning
-        if mod.name == "community_remaster" and self.app.game.patched_version:
-            reinstall_warning = tr("warn_reinstall")
+        reinstall_warning = mod.reinstall_warning if mod.is_reinstall else ""
+        if reinstall_warning:
+            reinstall_warning += "\n" + tr("install_from_scratch_if_issues")
 
         user_answer_buttons = [
             ft.ElevatedButton(tr("yes").capitalize(),
@@ -2583,18 +2941,22 @@ class ModInstallWizard(UserControl):
                     ft.Row([remaster_button, patch_button],
                            visible=is_comrem,
                            alignment=ft.MainAxisAlignment.CENTER),
-                    ft.Container(Row([
-                        Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
-                        Text(reinstall_warning, no_wrap=False, color=ft.colors.ERROR, expand=True),
-                        ]),
-                        visible=bool(reinstall_warning), border_radius=10, padding=10,
-                        bgcolor=ft.colors.ERROR_CONTAINER)
                     ]), padding=ft.padding.only(bottom=5),
                              col={"xs": 12, "xl": 11, "xxl": 10})
                 ], alignment=ft.MainAxisAlignment.CENTER),
             ft.ResponsiveRow([ft.Container(ft.Divider(height=3), col={"xs": 12, "xl": 11, "xxl": 10})],
                              alignment=ft.MainAxisAlignment.CENTER),
             ft.Container(Column([
+                ft.Container(Row([
+                        Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
+                        Column([
+                            Text(tr("check_reinstallability").capitalize(), weight=ft.FontWeight.BOLD,
+                                 color=ft.colors.ERROR),
+                            Text(reinstall_warning, no_wrap=False, color=ft.colors.ERROR)], spacing=5),
+                        ], expand=True, spacing=15),
+                        visible=bool(reinstall_warning), border_radius=10, padding=15,
+                        margin=ft.margin.only(bottom=10),
+                        bgcolor=ft.colors.ERROR_CONTAINER),
                 self.get_flag_buttons() if not is_compatch else ft.Container(visible=False),
                 Text(welcome_install_prompt,
                      text_align=ft.TextAlign.CENTER),
@@ -2606,7 +2968,6 @@ class ModInstallWizard(UserControl):
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         await self.screen.current.update_async()
-        self.current_screen = self.Steps.WELCOME
         await self.update_status_capsules(self.Steps.WELCOME)
 
     async def show_settings_screen(self, e=None):
@@ -2698,13 +3059,14 @@ class ModInstallWizard(UserControl):
             spacing=5,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         await self.screen.current.update_async()
-        self.current_screen = self.Steps.SETTING_UP
 
     async def set_install_lang(self, e):
         self.mod = self.main_mod.translations_loaded[e.control.data]
         await self.show_welcome_mod_screen()
 
     async def update_status_capsules(self, step: Steps):
+        self.current_screen = step
+
         # colors of capsule representing currently active installation step
         active_clr = ft.colors.ON_PRIMARY_CONTAINER
         active_cont = ft.colors.PRIMARY_CONTAINER
@@ -2726,12 +3088,28 @@ class ModInstallWizard(UserControl):
             welcome_clr = active_clr
             welcome_cont = active_cont
         else:
-            if setting_up:
-                welcome_clr = deflt_clr
-                welcome_cont = deflt_cont
-            else:
-                welcome_clr = bg_clr
-                welcome_cont = bg_cont
+            welcome_clr = deflt_clr
+            welcome_cont = deflt_cont
+
+        if welcome:
+            setting_up_clr = bg_clr
+            setting_up_cont = bg_cont
+        elif setting_up:
+            setting_up_clr = active_clr
+            setting_up_cont = active_cont
+        else:
+            setting_up_clr = deflt_clr
+            setting_up_cont = deflt_cont
+
+        if welcome or setting_up:
+            installing_clr = bg_clr
+            installing_cont = bg_cont
+        elif installing:
+            installing_clr = active_clr
+            installing_cont = active_cont
+        else:
+            installing_clr = deflt_clr
+            installing_cont = deflt_cont
 
         capsules = [
                     ft.Container(
@@ -2751,9 +3129,9 @@ class ModInstallWizard(UserControl):
                         Text(tr("setting_up").capitalize(),
                              weight=ft.FontWeight.W_500 if setting_up else ft.FontWeight.W_400,
                              size=12,
-                             color=active_clr if setting_up else bg_clr,
+                             color=setting_up_clr,
                              opacity=0.5 if self.mod is None else 1.0),
-                        bgcolor=active_cont if setting_up else bg_cont,
+                        bgcolor=setting_up_cont,
                         border_radius=10,
                         padding=ft.padding.symmetric(horizontal=10, vertical=2),
                         ink=True,
@@ -2764,9 +3142,9 @@ class ModInstallWizard(UserControl):
                         Text(tr("installation").capitalize(),
                              weight=ft.FontWeight.W_500 if installing else ft.FontWeight.W_400,
                              size=12,
-                             color=active_clr if installing else bg_clr,
+                             color=installing_clr,
                              opacity=0.5 if self.mod is None else 1.0),
-                        bgcolor=active_cont if installing else bg_cont,
+                        bgcolor=installing_cont,
                         border_radius=10,
                         padding=ft.padding.symmetric(horizontal=10, vertical=2),
                         ink=True,
@@ -2816,6 +3194,8 @@ class ModInstallWizard(UserControl):
                                                       ref=self.close_wizard_btn,
                                                       data="cancel",
                                                       icon_color=ft.colors.RED,
+                                                      selected_icon=ft.icons.HOURGLASS_BOTTOM_ROUNDED,
+                                                      selected_icon_color=ft.colors.ON_BACKGROUND,
                                                       icon_size=22))
                               ],
                              alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -3055,11 +3435,11 @@ class HomeScreen(UserControl):
             md1 = fh.read()
             md1 = process_markdown(md1)
 
-            if self.app.game.game_installment_id == GameInstallments.EXMACHINA.value:
+            if self.app.game.installment_id == GameInstallments.EXMACHINA.value:
                 logo_path = "assets/em_logo.png"
-            elif self.app.game.game_installment_id == GameInstallments.M113.value:
+            elif self.app.game.installment_id == GameInstallments.M113.value:
                 logo_path = "assets/m113_logo.png"
-            elif self.app.game.game_installment_id == GameInstallments.ARCADE.value:
+            elif self.app.game.installment_id == GameInstallments.ARCADE.value:
                 logo_path = "assets/arcade_logo.png"
             else:
                 logo_path = None
@@ -3115,7 +3495,7 @@ class HomeScreen(UserControl):
                                         ref=self.checkbox_windowed_game)],
                                     # TODO: is this working as intended?
                                     disabled=self.app.game.exe_version == "Unknown")
-                                 ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
+                                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                             Row([ft.Switch(value=self.app.config.game_with_console,
                                            scale=0.7,
                                            on_change=self.game_console_mode_change,
@@ -3138,7 +3518,7 @@ class HomeScreen(UserControl):
                                 aspect_ratio=2.5,
                             )])
                         ],
-                        col={"xs": 4, "xl": 3}, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        col={"xs": 8, "xl": 7, "xxl": 6}, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Container(Column([
                         Row([ft.ProgressRing(scale=0.5), Text("Checking online news...")],
                             ref=self.checking_online, visible=self.news_text is None),
@@ -3153,8 +3533,8 @@ class HomeScreen(UserControl):
                         ],
                         alignment=ft.MainAxisAlignment.START,
                         spacing=20,
-                        scroll=ft.ScrollMode.ADAPTIVE), col={"xs": 8, "xl": 9})
-                    ], vertical_alignment=ft.CrossAxisAlignment.START, spacing=30),
+                        scroll=ft.ScrollMode.ADAPTIVE), col={"xs": 16, "xl": 17, "xxl": 18})
+                    ], vertical_alignment=ft.CrossAxisAlignment.START, spacing=30, columns=24),
                 margin=ft.margin.only(bottom=20), expand=True)
 
 
