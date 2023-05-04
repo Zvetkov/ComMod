@@ -17,7 +17,7 @@ cant_find_game_data: 'Не вдається знайти файли гри.
 cant_install_patch_over_remaster: Community Patch не підтримує встановлення поверх Community Remaster, опція відключена
 check_for_a_new_version: Перевірте, чи доступні нові версії для модів що інсталюються і чи всі залежності дотримано.
 compatch_mod_incompatible_with_comrem: Мод розроблено спеціально під Community Patch не можна встановлювати поверх Community Remaster
-content_requirement_not_met: '! Не всі потрібні аддони базових модів встановлено.
+content_requirement_not_met: 'Не всі потрібні аддони базових модів встановлено!
 
   Перед тим як почати встановлення, спершу поставте базовий мод із наступними аддонами'
 copy_done: Копіювання завершено
@@ -190,7 +190,7 @@ usupported_patcher_version: 'Встановлення контенту {content_
 version: Версія
 version_available: встановлена версія
 version_needed: Сумісні версії
-version_requirement_not_met: '! Не дотримані вимоги до версії базового мода'
+version_requirement_not_met: 'Не дотримані вимоги до версії базового мода!'
 warn_reinstall: 'ВАЖЛИВО: повторне встановлення ComPatch/ComRemaster небажане.
 
   Ми завжди рекомендуємо ставити ComPatch/ComRemaster на чисту розпаковану версію гри версії 1.02'

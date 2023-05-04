@@ -14,6 +14,7 @@ import logging
 import yaml
 import struct
 import html
+import zipfile
 from pathlib import Path
 from datetime import datetime
 
@@ -168,12 +169,6 @@ async def save_to_file_async(objectify_tree: objectify.ObjectifiedElement, path,
         else:
             await fh.write(xml_string)
 
-
-def makedirs(dest: str) -> None:
-    if not os.path.exists(dest):
-        os.makedirs(dest)
-
-
 def count_files(directory: str) -> int:
     files = []
 
@@ -194,7 +189,7 @@ def copy_from_to(from_path_list: list[str], to_path: str, console: bool = False)
         for path, dirs, filenames in os.walk(from_path):
             for directory in dirs:
                 destDir = path.replace(from_path, to_path)
-                makedirs(os.path.join(destDir, directory))
+                os.makedirs(os.path.join(destDir, directory), exist_ok=True)
         for path, dirs, filenames in os.walk(from_path):
             for sfile in filenames:
                 dest_file = os.path.join(path.replace(from_path, to_path), sfile)
@@ -217,7 +212,7 @@ async def copy_from_to_async(from_path_list: list[str], to_path: str, callback_p
         for path, dirs, filenames in os.walk(from_path):
             for directory in dirs:
                 destDir = path.replace(from_path, to_path)
-                makedirs(os.path.join(destDir, directory))
+                os.makedirs(os.path.join(destDir, directory), exist_ok=True)
         for path, dirs, filenames in os.walk(from_path):
             for sfile in filenames:
                 dest_file = os.path.join(path.replace(from_path, to_path), sfile)
@@ -246,19 +241,69 @@ async def copy_from_to_async_fast(from_path_list: list[str], to_path: str, callb
         for path, dirs, filenames in os.walk(from_path):
             for directory in dirs:
                 destDir = path.replace(from_path, to_path)
-                makedirs(os.path.join(destDir, directory))
+                os.makedirs(os.path.join(destDir, directory), exist_ok=True)
         for path, dirs, filenames in os.walk(from_path):
             await asyncio.gather(*[copy_file_and_call_async(path, file_num, sfile, from_path, to_path, files_count, callback_progbar) for sfile in filenames])
 
 
-def read_yaml(yaml_path: str) -> Any:
-    yaml_config = None
-    with open(yaml_path, 'r', encoding="utf-8") as stream:
+async def extract_files(archive, file_names, path, callback=None, files_num=1):
+    '''Extract and save to disk'''
+    for file_name in file_names:
+        data = archive.read(file_name)
         try:
-            yaml_config = yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            logger.error(exc)
-    return yaml_config
+            file_name.encode('cp437').decode('ascii')
+        except UnicodeDecodeError:
+            file_name = file_name.encode('cp437').decode('cp866')
+        except UnicodeEncodeError:
+            pass
+        filepath = Path(path, file_name)
+        async with aiofiles.open(str(filepath), 'wb') as fd:
+            await fd.write(data)
+        if callable is not None:
+            await callback(files_num)
+
+
+async def extract_from_to(zip_path, to_path, callback=None):
+    '''Unzip archive to disk asynchronously'''
+    os.makedirs(to_path, exist_ok=True)
+    with zipfile.ZipFile(zip_path, 'r') as archive:
+        only_files = []
+        namelist = archive.namelist()
+        workers = 100
+        chunksize = round(len(namelist) / workers)
+        tasks = []
+        for file_path in namelist:
+            if file_path.endswith("/"):
+                try:
+                    file_path.encode('cp437').decode('ascii')
+                except UnicodeDecodeError:
+                    file_path = file_path.encode('cp437').decode('cp866')
+                full_file_path = Path(to_path, file_path)
+                os.makedirs(full_file_path, exist_ok=True)
+                continue
+            else:
+                only_files.append(file_path)
+
+        files_num = len(only_files)
+        for i in range(0, len(only_files), chunksize):
+            file_names = only_files[i:(i + chunksize)]
+            tasks.append(extract_files(archive, file_names, to_path, callback, files_num))
+        await asyncio.gather(*tasks)
+
+
+def load_yaml(stream) -> Any:
+    try:
+        yaml_content = yaml.safe_load(stream)
+        return yaml_content
+    except yaml.YAMLError as exc:
+        logger.error(exc)
+        return None
+
+
+def read_yaml(yaml_path: str) -> Any:
+    with open(yaml_path, 'r', encoding="utf-8") as stream:
+        yaml_loaded = load_yaml(stream)
+        return yaml_loaded
 
 
 def dump_yaml(data, path, sort_keys=True) -> bool:

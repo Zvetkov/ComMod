@@ -17,7 +17,7 @@ cant_find_game_data: 'Can''t find game files.
 cant_install_patch_over_remaster: Community Patch doesn't support installation over Community Remaster, options is disabled
 check_for_a_new_version: Check if newer versions are available for mods and if all the required dependencies are fulfilled.
 compatch_mod_incompatible_with_comrem: Mod created specifically for Community Patch can't be install over Community Remaster
-content_requirement_not_met: '! Not all required content of base mods were installed.
+content_requirement_not_met: 'Not all required content of base mods were installed!
 
   You need to install additional content for the base mods before installing this one'
 copy_done: Finished copying
@@ -188,7 +188,7 @@ usupported_patcher_version: 'Content {content_name} installation required other 
 version: Version
 version_available: installed version
 version_needed: Compatible versions
-version_requirement_not_met: '! Version requirement is not met for base mod'
+version_requirement_not_met: 'Version requirement is not met for base mod!'
 warn_reinstall: 'IMPORTANT: overwriting existing installation of Patch/Remaster is undesirable.
 
   We always recommend installing ComPatch/ComRemaster on the clean unpacked 1.02 version of the game'

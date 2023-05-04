@@ -5,6 +5,7 @@ import logging
 import operator
 import os
 from pathlib import Path
+from pathvalidate import sanitize_filename
 import typing
 
 from datetime import datetime
@@ -54,6 +55,14 @@ class Mod:
             self.version = str(yaml_config.get("version"))[:64].strip()
             self.build = str(yaml_config.get("build"))[:7].strip()
 
+            self.id = sanitize_filename(
+                self.name
+                + str(Mod.Version(self.version)).replace(".", "")
+                + self.build
+                + f"{self.language}"
+                + f"[{self.installment.replace('exmachina', 'em')}]"
+                ).replace(" ", "").replace("_", "").replace("-", "")
+
             url = yaml_config.get("link")
             trailer_url = yaml_config.get("trailer_link")
             self.url = url[:128].strip() if url is not None else ""
@@ -68,6 +77,58 @@ class Mod:
             self.screenshots = yaml_config.get("screenshots")
             self.change_log = yaml_config.get("change_log")
             self.other_info = yaml_config.get("other_info")
+            self.compatible_minor_versions = False
+            self.compatible_patch_versions = False
+            self.safe_reinstall_options = False
+
+            compatible_minor_versions = yaml_config.get("compatible_minor_versions")
+            if compatible_minor_versions is not None:
+                if isinstance(compatible_minor_versions, bool):
+                    self.compatible_minor_versions = compatible_minor_versions
+                else:
+                    compatible_minor_versions = str(compatible_minor_versions)
+
+                    if compatible_minor_versions.lower() == "true":
+                        self.compatible_minor_versions = True
+                    elif compatible_minor_versions.lower() == "false":
+                        pass
+                    else:
+                        raise ValueError("'compatible_minor_versions' should be boolean!")
+
+            if self.compatible_minor_versions:
+                self.compatible_patch_versions = True
+                if yaml_config.get("compatible_patch_versions") is not None:
+                    self.logger.debug(f"Warn for content '{self.name}': "
+                                      "when compatible_minor_versions is True, "
+                                      "compatible_patch_versions is automatically True. No need to specify.")
+            else:
+                compatible_patch_versions = yaml_config.get("compatible_patch_versions")
+                if compatible_patch_versions is not None:
+                    if isinstance(compatible_patch_versions, bool):
+                        self.compatible_patch_versions = compatible_patch_versions
+                    else:
+                        compatible_patch_versions = str(compatible_patch_versions)
+
+                        if compatible_patch_versions.lower() == "true":
+                            self.compatible_patch_versions = True
+                        elif compatible_patch_versions.lower() == "false":
+                            pass
+                        else:
+                            raise ValueError("'compatible_patch_versions' should be boolean!")
+
+            safe_reinstall_options = yaml_config.get("safe_reinstall_options")
+            if safe_reinstall_options is not None:
+                if isinstance(safe_reinstall_options, bool):
+                    self.safe_reinstall_options = safe_reinstall_options
+                else:
+                    safe_reinstall_options = str(safe_reinstall_options)
+
+                    if safe_reinstall_options.lower() == "true":
+                        self.safe_reinstall_options = True
+                    elif safe_reinstall_options.lower() == "false":
+                        pass
+                    else:
+                        raise ValueError("'safe_reinstall_options' should be boolean!")
 
             self.individual_require_status = []
             self.individual_incomp_status = []
@@ -144,7 +205,7 @@ class Mod:
 
             self.patcher_options = yaml_config.get("patcher_options")
 
-            self.distibution_dir = distribution_dir
+            self.distribution_dir = str(distribution_dir)
             self.options_dict = {}
             self.no_base_content = False
 
@@ -160,7 +221,7 @@ class Mod:
                     elif no_base_content.lower() == "false":
                         pass
                     else:
-                        raise ValueError(f"Broken manifest for content '{self.name}'!")
+                        raise ValueError("'no_base_content' should be boolean!")
 
             self.optional_content = []
 
@@ -172,12 +233,16 @@ class Mod:
                         self.optional_content.append(option_loaded)
                         self.options_dict[option_loaded.name] = option_loaded
                 else:
-                    raise ValueError(f"Broken manifest for optional part of content '{self.name}'!")
+                    raise ValueError(f"Broken manifest for optional part of content '{self.name}'! "
+                                     "Bad structure for 'optional_content'.")
+
+            if self.no_base_content and not self.optional_content:
+                raise ValueError("'no_base_content' mod should include at least one option!")
 
         except Exception as ex:
-            er_message = f"Broken manifest for content '{self.name}'!"
-            logger.error(ex)
-            logger.error(er_message)
+            er_message = f"Broken manifest for content '{self.name}'! {ex}"
+            # logger.error(ex)
+            # logger.error(er_message)
             raise ValueError(er_message)
 
     def load_translations(self, load_gui_info: bool = False):
@@ -186,14 +251,14 @@ class Mod:
             self.load_gui_info()
         if self.translations:
             for lang, _ in self.translations.items():
-                lang_manifest_path = Path(self.distibution_dir, f"manifest_{lang}.yaml")
+                lang_manifest_path = Path(self.distribution_dir, f"manifest_{lang}.yaml")
                 if not lang_manifest_path.exists():
                     raise ValueError(f"Lang '{lang}' specified but manifest for it is missing! "
                                      f"(Mod: {self.name})")
                 yaml_config = read_yaml(lang_manifest_path)
                 config_validated = Mod.validate_install_config(yaml_config, lang_manifest_path)
                 if config_validated:
-                    mod_tr = Mod(yaml_config, self.distibution_dir)
+                    mod_tr = Mod(yaml_config, self.distribution_dir)
                     if mod_tr.name != self.name:
                         raise ValueError("Service name mismatch in translation: "
                                          f"'{mod_tr.name}' name specified for translation, "
@@ -237,7 +302,7 @@ class Mod:
         supported_img_extensions = [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]
         self.change_log_content = ""
         if self.change_log:
-            changelog_path = Path(self.distibution_dir, self.change_log)
+            changelog_path = Path(self.distribution_dir, self.change_log)
             if changelog_path.exists() and changelog_path.suffix.lower() == ".md":
                 with open(changelog_path, "r", encoding="utf-8") as fh:
                     md = fh.read()
@@ -246,7 +311,7 @@ class Mod:
 
         self.other_info_content = ""
         if self.other_info:
-            other_info_path = Path(self.distibution_dir, self.other_info)
+            other_info_path = Path(self.distribution_dir, self.other_info)
             if other_info_path.exists() and other_info_path.suffix.lower() == ".md":
                 with open(other_info_path, "r", encoding="utf-8") as fh:
                     md = fh.read()
@@ -255,18 +320,18 @@ class Mod:
 
         self.logo_path = get_internal_file_path("assets/no_logo.png")
         if isinstance(self.logo, str):
-            logo_path = Path(self.distibution_dir, self.logo)
+            logo_path = Path(self.distribution_dir, self.logo)
             if logo_path.exists() and logo_path.suffix.lower() in supported_img_extensions:
                 self.logo_path = str(logo_path)
 
         self.banner_path = None
         if isinstance(self.install_banner, str):
-            banner_path = Path(self.distibution_dir, self.install_banner)
+            banner_path = Path(self.distribution_dir, self.install_banner)
             if banner_path.exists() and banner_path.suffix.lower() in supported_img_extensions:
                 self.banner_path = str(banner_path)
 
         for screen in self.screenshots:
-            screen_path = Path(self.distibution_dir, screen["img"])
+            screen_path = Path(self.distribution_dir, screen["img"])
             if screen_path.exists() and screen_path.suffix.lower() in supported_img_extensions:
                 screen["path"] = str(screen_path)
             else:
@@ -274,7 +339,7 @@ class Mod:
                 logger.warning(f"Missing path for screenshot ({screen['img']}) "
                                f"in mod {self.name}-{self.language}")
 
-            compare_path = Path(self.distibution_dir, screen["compare"])
+            compare_path = Path(self.distribution_dir, screen["compare"])
             if compare_path.exists() and compare_path.suffix.lower() in supported_img_extensions:
                 screen["compare_path"] = str(compare_path)
                 if screen["text"]:
@@ -347,13 +412,11 @@ class Mod:
                         install_base = install_settings.get('base')
                         if install_base is None:
                             raise KeyError(f"Installation config for base of mod '{self.name}' is broken")
-                        if self.optional_content:
-                            for option in self.optional_content:
-                                option_config = install_settings.get(option.name)
-                                if option_config is None:
-                                    raise KeyError(f"Installation config for option '{option.name}'"
-                                                   f" of mod '{self.name}' is broken")
-                        base_path = os.path.join(self.distibution_dir, "data")
+                        if install_base == "skip":
+                            logger.debug("No base content will be installed")
+                            continue
+
+                        base_path = os.path.join(self.distribution_dir, "data")
                         if console:
                             if self.name == "community_remaster":
                                 print("\n")  # separator
@@ -362,17 +425,19 @@ class Mod:
                         mod_files.append(base_path)
                     else:
                         wip_setting = self.options_dict[install_setting]
-                        base_work_path = os.path.join(self.distibution_dir, wip_setting.name, "data")
+                        base_work_path = os.path.join(self.distribution_dir, wip_setting.name, "data")
                         installation_prompt_result = install_settings[install_setting]
                         if installation_prompt_result == "yes":
                             mod_files.append(base_work_path)
                         elif installation_prompt_result == "skip":
-                            pass
+                            logger.debug(f"Skipping option {install_setting}")
+                            continue
                         else:
                             custom_install_method = install_settings[install_setting]
-                            custom_install_work_path = os.path.join(self.distibution_dir,
+                            custom_install_work_path = os.path.join(self.distribution_dir,
                                                                     wip_setting.name,
-                                                                    custom_install_method)
+                                                                    custom_install_method,
+                                                                    "data")
 
                             mod_files.append(base_work_path)
                             mod_files.append(custom_install_work_path)
@@ -389,61 +454,56 @@ class Mod:
     async def install_async(self, game_data_path: str,
                             install_settings: dict,
                             existing_content: dict,
-                            existing_content_descriptions: dict,
                             callback_progbar: typing.Awaitable,
                             callback_status: typing.Awaitable):
-        '''Returns bool success status of install and errors list in case mod requirements are not met'''
+        '''Uses fast async copy, returns bool success status of install'''
         try:
             logger.info(f"Existing content: {existing_content}")
             mod_files = []
-            requirements_met, error_msgs = self.check_requirements(existing_content,
-                                                                   existing_content_descriptions)
-            if requirements_met:
-                for install_setting in install_settings:
-                    if install_setting == "base":
-                        install_base = install_settings.get('base')
-                        if install_base is None:
-                            raise KeyError(f"Installation config for base of mod '{self.name}' is broken")
-                        if self.optional_content:
-                            for option in self.optional_content:
-                                option_config = install_settings.get(option.name)
-                                if option_config is None:
-                                    raise KeyError(f"Installation config for option '{option.name}'"
-                                                   f" of mod '{self.name}' is broken")
-                        base_path = os.path.join(self.distibution_dir, "data")
-                        await callback_status(tr("copying_base_files_please_wait"))
-                        mod_files.append(base_path)
+            for install_setting in install_settings:
+                if install_setting == "base":
+                    install_base = install_settings.get('base')
+                    if install_base is None:
+                        raise KeyError(f"Installation config for base of mod '{self.name}' is broken")
+
+                    if install_base == "skip":
+                        logger.debug("No base content will be installed")
+                        continue
+
+                    base_path = os.path.join(self.distribution_dir, "data")
+                    await callback_status(tr("copying_base_files_please_wait"))
+                    mod_files.append(base_path)
+                else:
+                    wip_setting = self.options_dict[install_setting]
+                    base_work_path = os.path.join(self.distribution_dir, wip_setting.name, "data")
+                    installation_decision = install_settings[install_setting]
+                    if installation_decision == "yes":
+                        mod_files.append(base_work_path)
+                    elif installation_decision == "skip":
+                        logger.debug(f"Skipping option {install_setting}")
+                        continue
                     else:
-                        wip_setting = self.options_dict[install_setting]
-                        base_work_path = os.path.join(self.distibution_dir, wip_setting.name, "data")
-                        installation_prompt_result = install_settings[install_setting]
-                        if installation_prompt_result == "yes":
-                            mod_files.append(base_work_path)
-                        elif installation_prompt_result == "skip":
-                            pass
-                        else:
-                            custom_install_method = install_settings[install_setting]
-                            custom_install_work_path = os.path.join(self.distibution_dir,
-                                                                    wip_setting.name,
-                                                                    custom_install_method)
+                        custom_install_method = install_settings[install_setting]
+                        custom_install_work_path = os.path.join(self.distribution_dir,
+                                                                wip_setting.name,
+                                                                custom_install_method,
+                                                                "data")
 
-                            mod_files.append(base_work_path)
-                            mod_files.append(custom_install_work_path)
-                        if installation_prompt_result != "skip":
-                            await callback_status(tr("copying_options_please_wait"))
+                        mod_files.append(base_work_path)
+                        mod_files.append(custom_install_work_path)
+                    if installation_decision != "skip":
+                        await callback_status(tr("copying_options_please_wait"))
 
-                    start = datetime.now()
-                    await copy_from_to_async_fast(mod_files, game_data_path, callback_progbar)
-                    end = datetime.now()
-                    logger.debug(f"{(end - start).microseconds / 1000000} seconds took fast copy")
+                start = datetime.now()
+                await copy_from_to_async_fast(mod_files, game_data_path, callback_progbar)
+                end = datetime.now()
+                logger.debug(f"{(end - start).microseconds / 1000000} seconds took fast copy")
 
-                    mod_files.clear()
-                return True, []
-            else:
-                return False, error_msgs
+                mod_files.clear()
+            return True
         except Exception as ex:
             logger.error(ex)
-            return False, []
+            return False
 
     def check_requirement(self, prereq: dict, existing_content: dict,
                           existing_content_descriptions: dict,
@@ -558,7 +618,7 @@ class Mod:
 
                         error_msg.append(requirement_name)
                     else:
-                        logger.info(f"content validated: {option} - for mod: {name_label}")
+                        logger.info(f"Content requirement met: {option} - for mod: {name_label}")
 
         validated = name_validated and version_validated and optional_content_validated
 
@@ -675,44 +735,71 @@ class Mod:
                 if mod_name is None:
                     mod_name = name
                 existing_mods_display_names.append(mod_name)
-            warning = f'{tr("cant_reinstall_over_other_mods")}: ' + ", ".join(existing_mods_display_names)
+            warning = (f'{tr("cant_reinstall_over_other_mods")}: '
+                       + ", ".join(existing_mods_display_names) + ".")
             return True, False, warning, previous_install
 
         existing_version = Mod.Version(previous_install["version"])
         this_version = Mod.Version(self.version)
-        if existing_version == this_version:
-            if self.build == previous_install["build"]:
-                if self.optional_content and not comrem_on_compatch:
-                    if old_options == new_options:
-                        # is reinstall, complex mod, safe reinstall, forced options
-                        warning = (tr("complex_safe_reinstall")
-                                   + "\n" + tr("to_increase_compat_options_are_limited"))
-                        return True, True, warning, previous_install
-                    elif comrem_on_compatch:
-                        return True, True, tr("can_reinstall"), previous_install
-                    else:
-                        return True, False, tr("cant_reinstall_with_different_options"), previous_install
-                else:
-                    # is reinstall, simple mod, safe reinstall
-                    return True, True, tr("can_reinstall"), previous_install
-            elif self.build > previous_install["build"]:
-                if self.optional_content:
-                    if old_options == new_options:
-                        # is reinstall, complex mod, unsafe reinstall, forced options
-                        warning = (tr("complex_unsafe_reinstall")
-                                   + "\n" + tr("to_increase_compat_options_are_limited"))
-                        return True, True, warning, previous_install
-                    elif comrem_on_compatch:
-                        return True, True, tr("unsafe_reinstall"), previous_install
-                    else:
-                        return True, False, tr("cant_reinstall_with_different_options"), previous_install
-                else:
-                    # is reinstall, simple mod, unsafe reinstall
-                    return True, True, tr("unsafe_reinstall"), previous_install
+
+        over_other_version_warning = tr("cant_reinstall_over_other_version")
+
+        # special compat settings can make mod forward compatible
+        # backwards compatibility is not supported
+        if self.compatible_patch_versions:
+            if existing_version > this_version:
+                is_compatible_version = False
+                over_other_version_warning = tr("cant_reinstall_over_newer_version")
             else:
-                return True, False, tr("cant_reinstall_over_newer_build"), previous_install
+                existing_version.patch = 0
+                this_version.patch = 0
+
+                if self.compatible_minor_versions:
+                    existing_version.minor = 0
+                    this_version.minor = 0
+
+                is_compatible_version = existing_version == this_version
         else:
-            return True, False, tr("cant_reinstall_over_other_version"), previous_install
+            is_compatible_version = existing_version == this_version
+
+        if not is_compatible_version:
+            return True, False, over_other_version_warning, previous_install
+
+        if self.build < previous_install["build"]:
+            return True, False, tr("cant_reinstall_over_newer_build"), previous_install
+
+        if self.build == previous_install["build"]:
+            if not self.optional_content and not comrem_on_compatch:
+                # is reinstall, simple mod, safe reinstall
+                return True, True, tr("can_reinstall"), previous_install
+
+            if old_options == new_options:
+                # is reinstall, complex mod, safe reinstall, forced options
+                if not self.safe_reinstall_options:
+                    warning = tr("to_increase_compat_options_are_limited")
+                else:
+                    warning = tr("can_reinstall")
+                return True, True, warning, previous_install
+            elif comrem_on_compatch:
+                return True, True, tr("can_reinstall"), previous_install
+            else:
+                return True, False, tr("cant_reinstall_with_different_options"), previous_install
+
+        elif self.build > previous_install["build"]:
+            if not self.optional_content:
+                # is reinstall, simple mod, unsafe reinstall
+                return True, True, tr("can_reinstall"), previous_install
+
+            if old_options == new_options:
+                # is reinstall, complex mod, unsafe reinstall, forced options
+                warning = tr("can_reinstall")
+                if not self.safe_reinstall_options:
+                    warning += "\n" + tr("to_increase_compat_options_are_limited")
+                return True, True, warning, previous_install
+            elif comrem_on_compatch:
+                return True, True, tr("can_reinstall"), previous_install
+            else:
+                return True, False, tr("cant_reinstall_with_different_options"), previous_install
 
     def check_incompatible(self, incomp: dict, existing_content: dict,
                            existing_content_descriptions: dict) -> tuple[bool, list]:
@@ -883,6 +970,9 @@ class Mod:
                 "patcher_version_requirement": [[str, float, int, list[str | float | int]], True],
                 "prerequisites": [[list], True],
                 "incompatible": [[list], False],
+                "compatible_patch_versions": [[bool, str], False],
+                "compatible_minor_versions": [[bool, str], False],
+                "safe_reinstall_options": [[bool, str], False],
 
                 "release_date": [[str], False],
                 "url": [[str], False],
@@ -926,15 +1016,18 @@ class Mod:
             validated = Mod.validate_dict(install_config, schema_fieds_top)
             if validated:
                 display_name = install_config.get("display_name")
+                mod_name = install_config.get("display_name")
+                mod_lang = install_config.get("language")
                 logger.info("***")
-                logger.info(f"Initial mod '{display_name}' validation result: True")
+                logger.info(f"Validating mod '{display_name}' ({mod_name}, lang: {mod_lang})")
+                logger.info("Simple manifest validation result: True")
                 patcher_options = install_config.get("patcher_options")
                 optional_content = install_config.get("optional_content")
                 prerequisites = install_config.get("prerequisites")
                 incompatibles = install_config.get("incompatible")
                 if patcher_options is not None:
                     validated &= Mod.validate_dict_constrained(patcher_options, schema_patcher_options)
-                    logger.info(f"Patcher options for mod '{display_name}' validation result: {validated}")
+                    logger.info(f"Patcher options validation result: {validated}")
 
                 if prerequisites is not None:
                     has_forbidden_prerequisites = False
@@ -952,7 +1045,7 @@ class Mod:
                     if has_forbidden_prerequisites:
                         logger.error("Prerequisites which include ComPatch can't specify optional content")
                     validated &= not has_forbidden_prerequisites
-                    logger.info(f"Prerequisites for mod '{display_name}' validation result: {validated}")
+                    logger.info(f"Prerequisites validation result: {validated}")
 
                 if incompatibles is not None:
                     has_forbidden_icompabilities = False
@@ -968,34 +1061,33 @@ class Mod:
                     if has_forbidden_icompabilities:
                         logger.error("Incompatibles can't contain ComPatch, should just have ComRem prereq")
                     validated &= not has_forbidden_icompabilities
-                    logger.info(f"Incompatible content for mod '{display_name}' "
-                                f"validation result: {validated}")
+                    logger.info(f"Incompatible content validation result: {validated}")
 
                 if optional_content is not None:
                     validated &= Mod.validate_list(optional_content, schema_optional_content)
-                    logger.info(f"Optional content for mod '{display_name}' validation result: {validated}")
+                    logger.info(f"Optional content validation result: {validated}")
                     if validated:
                         for option in optional_content:
                             if option.get("name") in ["base", "display_name", "build", "version"]:
                                 validated = False
                                 logger.error(f"Optional content name '"
-                                            f"{option.get('name')}' of mod '{display_name}' "
-                                            f"is one of the reserved system names, can't load mod properly!")
+                                             f"{option.get('name')}' "
+                                             f"is one of the reserved service names, can't load mod properly!")
                             install_settings = option.get("install_settings")
                             if install_settings is not None:
                                 validated &= (len(install_settings) > 1)
-                                logger.info(f"Complex install settings num > 1 for content '"
-                                            f"{option.get('name')}' of mod '{display_name}' "
+                                logger.info(f"Multiple install settings exists for complex optional content '"
+                                            f"{option.get('name')}' "
                                             f"validation result: {validated}")
                                 validated &= Mod.validate_list(install_settings, schema_install_settins)
                                 logger.info(f"Install settings for content '{option.get('name')}' "
-                                            f"of mod '{display_name}' validation result: {validated}")
+                                            f"validation result: {validated}")
                             patcher_options_additional = option.get('patcher_options')
                             if patcher_options_additional is not None:
                                 validated &= Mod.validate_dict_constrained(patcher_options_additional,
                                                                            schema_patcher_options)
-                                logger.info(f"Patcher options for additional content of the mod "
-                                            f"'{display_name}' validation result: {validated}")
+                                logger.info(f"Patcher options for additional content "
+                                            f"validation result: {validated}")
 
                 if not skip_data_validation:
                     # community remaster is a mod, but it has a special folder name, we handle it here
@@ -1011,7 +1103,7 @@ class Mod:
                             logger.error('Expected path not exists: '
                                          f'{os.path.join(mod_path, mod_identifier, "data")}')
                         else:
-                            logger.info(f"Mod '{display_name}' data folder validation result: "
+                            logger.info(f"Base mod data folder validation result: "
                                         f"{validated_data_dir}")
                     if optional_content is not None:
                         for option in optional_content:
@@ -1023,12 +1115,18 @@ class Mod:
                                     validated &= os.path.isdir(os.path.join(mod_path,
                                                                             mod_identifier,
                                                                             option.get("name"),
-                                                                            setting.get("name")))
-                                    logger.info(f"Mod '{display_name}' optional content "
-                                                f"'{option.get('name')}' setting '{setting.get('name')}' "
+                                                                            setting.get("name"),
+                                                                            "data"))
+                                    logger.info(f"Optional content '{option.get('name')}' "
+                                                f"install setting '{setting.get('name')}' "
                                                 f"folder validation result: {validated}")
-                            logger.info(f"Mod '{display_name}' optional content '{option.get('name')}' "
-                                        f"data folder validation result: {validated}")
+                            else:
+                                validated &= os.path.isdir(os.path.join(mod_path,
+                                                                        mod_identifier,
+                                                                        option.get("name"),
+                                                                        "data"))
+                            logger.info(f"Optional content '{option.get('name')}' "
+                                        f"folders validation result: {validated}")
 
             return validated
         else:
@@ -1127,6 +1225,32 @@ class Mod:
                                  f"expected: {' or '.join(str(type_inst) for type_inst in types)}")
                     return False
         return True
+
+    @staticmethod
+    def get_unique_id_from_manifest(manifest):
+        try:
+            mod_id = []
+            installment = manifest.get("installment")
+            if installment is None:
+                mod_id.append("exmachina")
+            else:
+                if installment.lower() not in ("exmachina", "m113", "arcade"):
+                    return None
+                mod_id.append(installment.lower())
+
+            mod_id.append(manifest.get("name"))
+            mod_id.append(str(Mod.Version(manifest.get("version"))))
+            mod_id.append(manifest.get("build"))
+            mod_id.append(manifest.get("language"))
+
+            if any(part is None for part in mod_id):
+                return None
+
+            mod_id_full = "".join(mod_id)
+            return mod_id_full
+        except Exception as ex:
+            logger.error("Error when calculating hash for mod manifest", ex)
+            return None
 
     @staticmethod
     def validate_dict_constrained(validating_dict: dict, scheme: dict) -> bool:
@@ -1357,22 +1481,23 @@ class Mod:
                                       f"for '{self.name}' in content manifest. "
                                       f"Only 'skip' or 'install' is allowed for simple options!")
 
-            no_base_content = description.get("no_base_content")
             patcher_options = description.get("patcher_options")
             if patcher_options is not None:
                 for option in patcher_options:
                     # optional content can overwrite base mode options
                     parent.patcher_options[option] = patcher_options[option]
-            if no_base_content is not None:
-                if isinstance(no_base_content, bool):
-                    self.no_base_content = no_base_content
-                else:
-                    no_base_content = str(no_base_content)
-                    if no_base_content.lower() == "true":
-                        self.no_base_content = True
-                    elif no_base_content.lower() == "false":
-                        pass
-                    else:
-                        er_message = f"Broken manifest for content '{self.name}'!"
-                        logger.error(er_message)
-                        raise ValueError(er_message)
+
+            # no_base_content = description.get("no_base_content")
+            # if no_base_content is not None:
+            #     if isinstance(no_base_content, bool):
+            #         self.no_base_content = no_base_content
+            #     else:
+            #         no_base_content = str(no_base_content)
+            #         if no_base_content.lower() == "true":
+            #             self.no_base_content = True
+            #         elif no_base_content.lower() == "false":
+            #             pass
+            #         else:
+            #             er_message = f"Broken manifest for content '{self.name}'!"
+            #             logger.error(er_message)
+            #             raise ValueError(er_message)

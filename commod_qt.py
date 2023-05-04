@@ -89,8 +89,8 @@ def main(options):
             print(f"[Distro loading error] {ex}")
 
     need_quick_start = (config is None
-                        and app.context.distribution_dir is None
-                        and app.game.game_root_path is None
+                        and not app.context.distribution_dir
+                        and not app.game.game_root_path
                         and not options.skip_wizard)
 
     if need_quick_start:
@@ -253,7 +253,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
                     if validated_exe:
                         # TODO: handle "patched but doesn't have manifest"
-                        if self.app.game.target_exe is not None:
+                        if self.app.game.target_exe:
                             self.app.game = GameCopy()
                         self.app.game.process_game_install(directory_name)
                     else:

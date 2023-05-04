@@ -5,6 +5,8 @@ import platform
 import subprocess
 import sys
 from enum import Enum
+import zipfile
+import hashlib
 
 from pathlib import Path
 from datetime import datetime
@@ -18,7 +20,8 @@ from data import VERSION, VERSION_BYTES_100_STAR, VERSION_BYTES_102_NOCD, VERSIO
                  VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR, VERSION_BYTES_DEM_LNCH
 from localisation import tr
 from file_ops import TARGEM_NEGATIVE, TARGEM_POSITIVE,\
-                    get_config, running_in_venv, read_yaml, makedirs, save_to_file_async, shorten_path
+                    get_config, running_in_venv, read_yaml, load_yaml,\
+                    save_to_file_async, shorten_path
 
 
 class GameStatus(Enum):
@@ -45,16 +48,18 @@ class InstallationContext:
     Contains all the data about the current distribution directory
     (dir where installation files are located) and some details about ComMod
     '''
-    def __init__(self, distribution_dir: str | None = None,
+    def __init__(self, distribution_dir: str = "",
                  dev_mode: bool = False, can_skip_adding_distro: bool = False) -> None:
         self.dev_mode = dev_mode
-        self.distribution_dir = None
+        self.distribution_dir = ""
         self.validated_mod_configs = {}
+        self.hashed_mod_manifests = {}
+        self.ziped_mods = {}
         self.commod_version = VERSION
         self.os = platform.system()
         self.os_version = platform.release()
 
-        if distribution_dir is not None:
+        if distribution_dir:
             try:
                 self.add_distribution_dir(distribution_dir)
             except EnvironmentError:
@@ -71,7 +76,7 @@ class InstallationContext:
     def validate_distribution_dir(distribution_dir: str) -> bool:
         '''Distribution dir is a location of files to install, need to have at
         least files of ComPatch and ComRem'''
-        if not os.path.isdir(distribution_dir):
+        if not distribution_dir or not os.path.isdir(distribution_dir):
             return False
 
         paths_to_check = [os.path.join(distribution_dir, "patch"),
@@ -145,8 +150,9 @@ class InstallationContext:
         return monitor_res
 
     def validate_remaster(self):
-        if self.distribution_dir is None:
+        if not self.distribution_dir:
             raise CorruptedRemasterFiles("", "No ComRem files found")
+
         yaml_path = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
         yaml_config = read_yaml(yaml_path)
         if yaml_config is None:
@@ -185,27 +191,52 @@ class InstallationContext:
             raise DistributionNotFound(exe_path, "Distribution not found around mod manager exe")
 
     def load_mods(self) -> None:
+        self.logger.debug("Load_mods entry")
+        all_config_paths = []
+        legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
+        if os.path.exists(legacy_comrem):
+            all_config_paths.append(legacy_comrem)
+
         mod_loading_errors = self.current_session.mod_loading_errors
         mods_path = os.path.join(self.distribution_dir, "mods")
         if not os.path.isdir(mods_path):
-            makedirs(mods_path)
+            os.makedirs(mods_path, exist_ok=True)
             raise ModsDirMissing
-        mod_configs_paths = self.get_existing_mods(mods_path)
-        if not mod_configs_paths:
+        self.logger.debug("get_existing_mods call")
+        mod_configs_paths, ziped_mods = self.get_existing_mods(mods_path)
+        self.logger.debug("got existing_mods")
+        all_config_paths.extend(mod_configs_paths)
+        if not all_config_paths and not ziped_mods:
             raise NoModsFound
 
-        for mod_config_path in mod_configs_paths:
+        for mod_config_path in all_config_paths:
+            self.logger.info(f"Loading {mod_config_path}")
+            with open(mod_config_path, "rb") as f:
+                digest = hashlib.file_digest(f, "sha256").hexdigest()
+
+            if mod_config_path in self.hashed_mod_manifests.keys():
+                if digest == self.hashed_mod_manifests[mod_config_path]:
+                    continue
+                else:
+                    self.validated_mod_configs.pop(mod_config_path, None)
+
+            self.hashed_mod_manifests[mod_config_path] = digest
             yaml_config = read_yaml(mod_config_path)
             if yaml_config is None:
                 self.logger.warning(f"Couldn't read mod manifest: {mod_config_path}")
                 mod_loading_errors.append(f"\n{tr('empty_mod_manifest')}: "
                                           f"{Path(mod_config_path).parent.name} - "
                                           f"{Path(mod_config_path).name}")
+                if mod_config_path in self.validated_mod_configs.keys():
+                    self.validated_mod_configs.pop(mod_config_path, None)
                 continue
             config_validated = Mod.validate_install_config(yaml_config, mod_config_path)
             if config_validated:
                 self.validated_mod_configs[mod_config_path] = yaml_config
+                self.logger.debug(f"Loaded and validated mod config: {mod_config_path}")
             else:
+                if mod_config_path in self.validated_mod_configs.keys():
+                    self.validated_mod_configs.pop(mod_config_path, None)
                 self.logger.warning(f"Couldn't validate Mod manifest: {mod_config_path}")
                 mod_loading_errors.append(f"\n{tr('not_validated_mod_manifest')}.\n"
                                           f"{tr('folder').capitalize()}: "
@@ -213,25 +244,73 @@ class InstallationContext:
                                           f"/{Path(mod_config_path).parent.name}"
                                           f"/{Path(mod_config_path).name}")
 
+        outdated_mods = set(self.validated_mod_configs.keys()) - set(all_config_paths)
+        if outdated_mods:
+            for mod in outdated_mods:
+                self.logger.debug(f"Removed missing {mod} from rotation")
+                self.validated_mod_configs.pop(mod, None)
+                self.hashed_mod_manifests.pop(mod, None)
+
+        if ziped_mods:
+            for path, manifest in ziped_mods.items():
+                try:
+                    mod_dummy = Mod(manifest, Path(path).parent)
+                    self.ziped_mods[path] = mod_dummy
+                except Exception as ex:
+                    self.app.logger.error("Error on ZIP mod preload", ex)
+                    # TODO: remove raise, need to test
+                    raise NotImplementedError
+                    continue
+
         if mod_loading_errors:
             self.logger.info("***")
-            self.logger.debug(f"Mod loading errors: {mod_loading_errors}")
+            self.logger.debug("Mod loading errors:")
+            for line in mod_loading_errors:
+                self.logger.debug(line.strip())
 
-    @staticmethod
-    def get_existing_mods(mods_dir: str) -> list[str]:
-        mod_list = []
-        for entry in os.scandir(mods_dir):
+    def get_dir_manifest(self, dir: str, nesting_levels: int = 3, top_level=True) -> str:
+        found_manifests = []
+        levels_left = nesting_levels - 1
+        for entry in os.scandir(dir):
             if entry.is_dir():
                 manifest_path = os.path.join(entry, "manifest.yaml")
                 if os.path.exists(manifest_path):
-                    mod_list.append(manifest_path)
+                    found_manifests.append(manifest_path)
+                    if not top_level:
+                        break
                 else:
-                    for internal_entry in os.scandir(entry):
-                        if internal_entry.is_dir():
-                            internal_manifest_path = os.path.join(internal_entry, "manifest.yaml")
-                            if os.path.exists(internal_manifest_path):
-                                mod_list.append(internal_manifest_path)
-        return mod_list
+                    if levels_left != 0:
+                        found_manifests.extend(self.get_dir_manifest(entry, levels_left, top_level=False))
+        return found_manifests
+
+    def get_existing_mods(self, mods_dir: str) -> list[str]:
+        self.logger.debug("Inside get_existing_mods")
+        mod_list = self.get_dir_manifest(mods_dir)
+        self.logger.debug("Finished get_dir_manifest")
+        zip_dict = {}
+        for entry in os.scandir(mods_dir):
+            if entry.path.endswith(".zip"):
+                manifest = self.get_zip_manifest(entry.path)
+                if manifest:
+                    zip_dict[entry.path] = manifest
+
+        self.logger.debug("Finished get_zip_manifest")
+        return mod_list, zip_dict
+
+    def get_zip_manifest(self, zip_path):
+        try:
+            with zipfile.ZipFile(zip_path, "r") as archive:
+                manifests = [file for file in zipfile.ZipFile(zip_path).filelist if "manifest.yaml" in file.filename]
+                if manifests:
+                    manifest_b = archive.read(manifests[0])
+                    if manifest_b:
+                        manifest = load_yaml(manifest_b)
+                        if Mod.validate_install_config(manifest, zip_path,
+                                                       skip_data_validation=True):
+                            return manifest
+        except Exception as ex:
+            self.logger.error(ex)
+            return {}
 
     def setup_loggers(self, stream_only: bool = False) -> None:
         self.logger = logging.getLogger('dem')
@@ -242,7 +321,7 @@ class InstallationContext:
             self.logger.setLevel(logging.DEBUG)
             formatter = logging.Formatter('%(asctime)s: %(levelname)-7s - '
                                           '%(module)-11s - line %(lineno)-3d: %(message)s')
-            stream_formatter = logging.Formatter('%(levelname)-7s - %(module)-11s'
+            stream_formatter = logging.Formatter('%(asctime)s: %(levelname)-7s - %(module)-11s'
                                                  ' - line %(lineno)-3d: %(message)s')
 
             if self.dev_mode or stream_only:
@@ -268,7 +347,7 @@ class InstallationContext:
             self.logger.info("Loggers initialised")
 
     def setup_logging_folder(self) -> None:
-        if self.distribution_dir is not None:
+        if self.distribution_dir:
             log_path = os.path.join(self.distribution_dir, 'logs_commod')
             if os.path.exists(log_path) and not os.path.isdir(log_path):
                 os.remove(log_path)
@@ -290,6 +369,7 @@ class InstallationContext:
             self.installed_content_description = []
             self.steam_game_paths = []
             self.tracked_mods = set()
+            self.tracked_mods_hashes = {}
             self.mods = {}
             self.mods_validation_info = {}
 
@@ -359,10 +439,9 @@ class GameCopy:
         self.installed_descriptions = {}
         self.patched_version = False
         self.leftovers = False
-        self.target_exe = None
+        self.target_exe = ""
         self.fullscreen_game = True
-        # TODO missed this default initially, check for checks breaking because of None
-        self.game_root_path = None
+        self.game_root_path = ""
         self.exe_version = "Unknown"
         self.installment = None
         self.installment_id = 4
@@ -370,7 +449,7 @@ class GameCopy:
     @staticmethod
     def validate_game_dir(game_root_path: str) -> tuple[bool, str]:
         '''Checks existence of expected basic file structure in given game directory'''
-        if not os.path.isdir(game_root_path):
+        if not game_root_path or not os.path.isdir(game_root_path):
             return False, game_root_path
 
         possible_exe_paths = [os.path.join(game_root_path, "hta.exe"),
@@ -446,6 +525,7 @@ class GameCopy:
 
         self.exe_version = self.get_exe_version(self.target_exe)
         if self.exe_version is None:
+            self.exe_version = ""
             raise ExeIsRunning
 
         if self.exe_version == "Unknown":
@@ -470,7 +550,7 @@ class GameCopy:
 
         patched_version = ("ComRemaster" in self.exe_version) or ("ComPatch" in self.exe_version)
 
-        if self.exe_version != "Unknown" and self.game_root_path is not None:
+        if self.exe_version != "Unknown" and self.game_root_path:
             self.fullscreen_game = self.get_is_fullscreen()
             if self.fullscreen_game is None:
                 # TODO: is not actually InvalidGameDirectory but more like BrokenGameConfig exception
