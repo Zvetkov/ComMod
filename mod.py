@@ -1090,43 +1090,34 @@ class Mod:
                                             f"validation result: {validated}")
 
                 if not skip_data_validation:
-                    # community remaster is a mod, but it has a special folder name, we handle it here
-                    if install_config.get("name") == "community_remaster":
-                        mod_identifier = "remaster"
-                    else:
-                        mod_identifier = install_config.get("name")
-
                     if not install_config.get("no_base_content"):
-                        validated_data_dir = os.path.isdir(os.path.join(mod_path, mod_identifier, "data"))
+                        mod_root_dir = Path(mod_config_path).parent
+                        validated_data_dir = Path(mod_root_dir, "data").is_dir()
                         validated &= validated_data_dir
                         if not validated_data_dir:
                             logger.error('Expected path not exists: '
-                                         f'{os.path.join(mod_path, mod_identifier, "data")}')
+                                         f'{Path(mod_root_dir, "data")}')
                         else:
                             logger.info(f"Base mod data folder validation result: "
                                         f"{validated_data_dir}")
                     if optional_content is not None:
                         for option in optional_content:
-                            validated &= os.path.isdir(os.path.join(mod_path,
-                                                                    mod_identifier,
-                                                                    option.get("name")))
+                            validated &= Path(mod_root_dir, option.get("name")).is_dir()
                             if option.get("install_settings") is not None:
                                 for setting in option.get("install_settings"):
-                                    validated &= os.path.isdir(os.path.join(mod_path,
-                                                                            mod_identifier,
-                                                                            option.get("name"),
-                                                                            setting.get("name"),
-                                                                            "data"))
+                                    validated &= Path(mod_root_dir,
+                                                      option.get("name"),
+                                                      setting.get("name"),
+                                                      "data").is_dir()
                                     logger.info(f"Optional content '{option.get('name')}' "
                                                 f"install setting '{setting.get('name')}' "
-                                                f"folder validation result: {validated}")
+                                                f"data folder validation result: {validated}")
                             else:
-                                validated &= os.path.isdir(os.path.join(mod_path,
-                                                                        mod_identifier,
-                                                                        option.get("name"),
-                                                                        "data"))
+                                validated &= Path(mod_root_dir,
+                                                  option.get("name"),
+                                                  "data").is_dir()
                             logger.info(f"Optional content '{option.get('name')}' "
-                                        f"folders validation result: {validated}")
+                                        f"data folder validation result: {validated}")
 
             return validated
         else:
