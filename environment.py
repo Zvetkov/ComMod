@@ -1,3 +1,4 @@
+from asyncio import gather
 from ctypes import windll
 import logging
 import os
@@ -7,6 +8,8 @@ import sys
 from enum import Enum
 import zipfile
 import hashlib
+import aiofiles
+from aiopath import AsyncPath
 
 from pathlib import Path
 from datetime import datetime
@@ -55,6 +58,7 @@ class InstallationContext:
         self.validated_mod_configs = {}
         self.hashed_mod_manifests = {}
         self.ziped_mods = {}
+        self.zip_manifest_cache = {}
         self.commod_version = VERSION
         self.os = platform.system()
         self.os_version = platform.release()
@@ -73,22 +77,23 @@ class InstallationContext:
         self.current_session = self.Session()
 
     @staticmethod
-    def validate_distribution_dir(distribution_dir: str) -> bool:
+    def validate_distribution_dir(distribution_dir: str, legacy_checks=False) -> bool:
         '''Distribution dir is a location of files to install, need to have at
         least files of ComPatch and ComRem'''
         if not distribution_dir or not os.path.isdir(distribution_dir):
             return False
 
-        paths_to_check = [os.path.join(distribution_dir, "patch"),
-                          os.path.join(distribution_dir, "remaster"),
-                          os.path.join(distribution_dir, "remaster", "data"),
-                          os.path.join(distribution_dir, "remaster", "manifest.yaml"),
-                          os.path.join(distribution_dir, "libs", "library.dll"),
-                          os.path.join(distribution_dir, "libs", "library.pdb")]
+        if legacy_checks:
+            paths_to_check = [os.path.join(distribution_dir, "patch"),
+                              os.path.join(distribution_dir, "remaster"),
+                              os.path.join(distribution_dir, "remaster", "data"),
+                              os.path.join(distribution_dir, "remaster", "manifest.yaml"),
+                              os.path.join(distribution_dir, "libs", "library.dll"),
+                              os.path.join(distribution_dir, "libs", "library.pdb")]
 
-        for path in paths_to_check:
-            if not os.path.exists(path):
-                return False
+            for path in paths_to_check:
+                if not os.path.exists(path):
+                    return False
         return True
 
     @staticmethod
@@ -268,6 +273,84 @@ class InstallationContext:
             for line in mod_loading_errors:
                 self.logger.debug(line.strip())
 
+    async def load_mods_async(self) -> None:
+        self.logger.debug("Load_mods entry")
+        all_config_paths = []
+        legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
+        if os.path.exists(legacy_comrem):
+            all_config_paths.append(legacy_comrem)
+
+        mod_loading_errors = self.current_session.mod_loading_errors
+        mods_path = os.path.join(self.distribution_dir, "mods")
+        if not os.path.isdir(mods_path):
+            os.makedirs(mods_path, exist_ok=True)
+            raise ModsDirMissing
+        self.logger.debug("get_existing_mods_async call")
+        mod_configs_paths, ziped_mods = await self.get_existing_mods_async(mods_path)
+        self.logger.debug("got existing_mods")
+        all_config_paths.extend(mod_configs_paths)
+        if not all_config_paths and not ziped_mods:
+            raise NoModsFound
+
+        for mod_config_path in all_config_paths:
+            self.logger.info(f"Loading {mod_config_path}")
+            with open(mod_config_path, "rb") as f:
+                digest = hashlib.file_digest(f, "sha256").hexdigest()
+
+            if mod_config_path in self.hashed_mod_manifests.keys():
+                if digest == self.hashed_mod_manifests[mod_config_path]:
+                    continue
+                else:
+                    self.validated_mod_configs.pop(mod_config_path, None)
+
+            self.hashed_mod_manifests[mod_config_path] = digest
+            yaml_config = read_yaml(mod_config_path)
+            if yaml_config is None:
+                self.logger.warning(f"Couldn't read mod manifest: {mod_config_path}")
+                mod_loading_errors.append(f"\n{tr('empty_mod_manifest')}: "
+                                          f"{Path(mod_config_path).parent.name} - "
+                                          f"{Path(mod_config_path).name}")
+                if mod_config_path in self.validated_mod_configs.keys():
+                    self.validated_mod_configs.pop(mod_config_path, None)
+                continue
+            config_validated = Mod.validate_install_config(yaml_config, mod_config_path)
+            if config_validated:
+                self.validated_mod_configs[mod_config_path] = yaml_config
+                self.logger.debug(f"Loaded and validated mod config: {mod_config_path}")
+            else:
+                if mod_config_path in self.validated_mod_configs.keys():
+                    self.validated_mod_configs.pop(mod_config_path, None)
+                self.logger.warning(f"Couldn't validate Mod manifest: {mod_config_path}")
+                mod_loading_errors.append(f"\n{tr('not_validated_mod_manifest')}.\n"
+                                          f"{tr('folder').capitalize()}: "
+                                          f"/{Path(mod_config_path).parent.parent.name}"
+                                          f"/{Path(mod_config_path).parent.name}"
+                                          f"/{Path(mod_config_path).name}")
+
+        outdated_mods = set(self.validated_mod_configs.keys()) - set(all_config_paths)
+        if outdated_mods:
+            for mod in outdated_mods:
+                self.logger.debug(f"Removed missing {mod} from rotation")
+                self.validated_mod_configs.pop(mod, None)
+                self.hashed_mod_manifests.pop(mod, None)
+
+        if ziped_mods:
+            for path, manifest in ziped_mods.items():
+                try:
+                    mod_dummy = Mod(manifest, Path(path).parent)
+                    self.ziped_mods[path] = mod_dummy
+                except Exception as ex:
+                    self.app.logger.error("Error on ZIP mod preload", ex)
+                    # TODO: remove raise, need to test
+                    raise NotImplementedError
+                    continue
+
+        if mod_loading_errors:
+            self.logger.info("***")
+            self.logger.debug("Mod loading errors:")
+            for line in mod_loading_errors:
+                self.logger.debug(line.strip())
+
     def get_dir_manifest(self, dir: str, nesting_levels: int = 3, top_level=True) -> str:
         found_manifests = []
         levels_left = nesting_levels - 1
@@ -283,6 +366,42 @@ class InstallationContext:
                         found_manifests.extend(self.get_dir_manifest(entry, levels_left, top_level=False))
         return found_manifests
 
+    async def find_manifest_in_dir(self, dir: AsyncPath, nesting_levels: int = 3):
+        self.logger.debug(f"{datetime.now()} looking for manifest in {dir.name}")
+        levels_left = nesting_levels - 1
+        manifests_path = AsyncPath(dir, "manifest.yaml")
+        if await manifests_path.exists():
+            return manifests_path
+
+        if levels_left == 0:
+            return None
+
+        nested_dirs = []
+        async for path in dir.glob("*"):
+            if await path.is_dir():
+                nested_dirs.append(path)
+
+        num_dirs = len(nested_dirs)
+        if num_dirs == 0:
+            return None
+        elif num_dirs > 1:
+            dir_names = set([dir.name for dir in nested_dirs])
+            if set(["patch", "remaster"]).issubset(dir_names):
+                return await self.find_manifest_in_dir(AsyncPath(dir, "remaster"))
+            return None
+
+        return await self.find_manifest_in_dir(nested_dirs[0])
+
+    async def get_dir_manifest_async(self, dir: str,) -> str:
+        top_level_dirs = []
+        async for path in AsyncPath(dir).glob("*"):
+            if await path.is_dir():
+                top_level_dirs.append(path)
+
+        search_results = await gather(*[self.find_manifest_in_dir(dir) for dir in top_level_dirs])
+
+        return [result for result in search_results if result is not None]
+
     def get_existing_mods(self, mods_dir: str) -> list[str]:
         self.logger.debug("Inside get_existing_mods")
         mod_list = self.get_dir_manifest(mods_dir)
@@ -290,31 +409,80 @@ class InstallationContext:
         zip_dict = {}
         for entry in os.scandir(mods_dir):
             if entry.path.endswith(".zip"):
+                self.logger.debug(f"Getting zip manifest for {entry.path}")
                 manifest = self.get_zip_manifest(entry.path)
                 if manifest:
                     zip_dict[entry.path] = manifest
+            self.logger.debug("Added zip manifest to list")
 
         self.logger.debug("Finished get_zip_manifest")
         return mod_list, zip_dict
 
-    def get_zip_manifest(self, zip_path):
+    async def get_existing_mods_async(self, mods_dir: str) -> list[str]:
+        self.logger.debug("Inside get_existing_mods async")
+        # mod_list = await self.get_dir_manifest_async(mods_dir)
+        mod_list = self.get_dir_manifest(mods_dir)
+        self.logger.debug("Finished get_dir_manifest")
+        zip_dict = {}
+        async for entry in AsyncPath(mods_dir).glob("*.zip"):
+            self.logger.debug(f"Working on zip {entry}")
+            if entry.suffix == ".zip":
+                self.logger.debug(f"Getting zip manifest for {entry}")
+                manifest = self.get_zip_manifest(entry)
+                if manifest:
+                    zip_dict[entry] = manifest
+            self.logger.debug("Added zip manifest to list")
+
+        self.logger.debug("Finished get_zip_manifest")
+        return mod_list, zip_dict
+
+    def get_zip_manifest(self, zip_path, ignore_cache=False):
+        if not ignore_cache:
+            cached = self.zip_manifest_cache.get(zip_path)
+            if cached is not None:
+                return cached
         try:
             with zipfile.ZipFile(zip_path, "r") as archive:
-                manifests = [file for file in zipfile.ZipFile(zip_path).filelist if "manifest.yaml" in file.filename]
+                manifests = [file for file in zipfile.ZipFile(zip_path).filelist
+                             if "manifest.yaml" in file.filename]
                 if manifests:
                     manifest_b = archive.read(manifests[0])
                     if manifest_b:
                         manifest = load_yaml(manifest_b)
                         if Mod.validate_install_config(manifest, zip_path,
                                                        skip_data_validation=True):
+                            self.zip_manifest_cache[zip_path] = manifest
                             return manifest
         except Exception as ex:
             self.logger.error(ex)
+            self.zip_manifest_cache[zip_path] = {}
+            return {}
+
+    async def get_zip_manifest_async(self, zip_path, ignore_cache=False):
+        if not ignore_cache:
+            cached = self.zip_manifest_cache.get(zip_path)
+            if cached is not None:
+                return cached
+        try:
+            with zipfile.ZipFile(zip_path, "r") as archive:
+                manifests = [file for file in archive.filelist
+                             if "manifest.yaml" in file.filename]
+                if manifests:
+                    manifest_b = archive.read(manifests[0])
+                    if manifest_b:
+                        manifest = load_yaml(manifest_b)
+                        if Mod.validate_install_config(manifest, zip_path,
+                                                       skip_data_validation=True):
+                            self.zip_manifest_cache[zip_path] = manifest
+                            return manifest
+        except Exception as ex:
+            self.logger.error(ex)
+            self.zip_manifest_cache[zip_path] = {}
             return {}
 
     def setup_loggers(self, stream_only: bool = False) -> None:
         self.logger = logging.getLogger('dem')
-        if self.logger.handlers:
+        if self.logger.handlers and len(self.logger.handlers) > 1:
             self.logger.debug("Logger already exists, will use it with existing settings")
         else:
             self.logger.propagate = False
@@ -332,7 +500,6 @@ class InstallationContext:
 
                 file_handler_level = logging.DEBUG
             else:
-                # stream_handler.setLevel(logging.WARNING)
                 file_handler_level = logging.INFO
 
             if not stream_only:

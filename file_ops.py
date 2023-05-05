@@ -16,7 +16,6 @@ import struct
 import html
 import zipfile
 from pathlib import Path
-from datetime import datetime
 
 from lxml import etree, objectify
 import markdownify
@@ -243,7 +242,10 @@ async def copy_from_to_async_fast(from_path_list: list[str], to_path: str, callb
                 destDir = path.replace(from_path, to_path)
                 os.makedirs(os.path.join(destDir, directory), exist_ok=True)
         for path, dirs, filenames in os.walk(from_path):
-            await asyncio.gather(*[copy_file_and_call_async(path, file_num, sfile, from_path, to_path, files_count, callback_progbar) for sfile in filenames])
+            await asyncio.gather(*[
+                copy_file_and_call_async(path, file_num, sfile,
+                                         from_path, to_path, files_count,
+                                         callback_progbar) for sfile in filenames])
 
 
 async def extract_files(archive, file_names, path, callback=None, files_num=1):

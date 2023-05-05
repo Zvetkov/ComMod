@@ -201,11 +201,14 @@ class App:
                 print("Not on the target page, skipping refresh")
                 return
         content = self.content_column.content
-        self.content_column.content = None
-        await self.content_column.update_async()
-        self.content_column.content = content
-        await self.content_column.update_async()
-        await self.content_column.content.update_async()
+        if not content.refreshing:
+            content.refreshing = True
+            self.content_column.content = None
+            await self.content_column.update_async()
+            self.content_column.content = content
+            await self.content_column.update_async()
+            await self.content_column.content.update_async()
+            content.refreshing = False
 
     async def change_page(self, e=None, index: int | AppSections = AppSections.LAUNCH):
         if e is None:
@@ -296,24 +299,53 @@ class App:
             self.logger.info("No mods found")
 
         self.game.load_installed_descriptions(self.context.validated_mod_configs)
-        # try:
-        #     self.logger.info("Prevalidating Community Patch and Remaster state")
-        #     self.context.validate_remaster()
-        #     remaster_mod = Mod(self.context.remaster_config, self.context.remaster_path)
-        #     # remaster_mod.load_gui_info()
-        #     remaster_mod.load_translations(load_gui_info=True)
-        #     remaster_mod.load_commod_compatibility(self.context.commod_version)
-        #     remaster_mod.load_game_compatibility(self.game.installment)
-        #     remaster_mod.load_session_compatibility(self.game.installed_content,
-        #                                             self.game.installed_descriptions)
 
-        #     self.session.mods[self.context.remaster_path] = remaster_mod
-        #     self.session.tracked_mods.add(remaster_mod.id)
-        #     self.session.tracked_mods_hashes[mod.id] = self.context.hashed_mod_manifests[manifest_path]
-        # except CorruptedRemasterFiles as er:
-        #     self.logger.error(er)
-        #     self.context.remaster_path = None
-        #     self.remaster_config = {}
+        if self.context.validated_mod_configs:
+            for manifest_path, manifest in self.context.validated_mod_configs.items():
+                mod = Mod(manifest, Path(manifest_path).parent)
+
+                if mod.id in self.session.tracked_mods:
+                    if self.session.tracked_mods_hashes[mod.id] == self.context.hashed_mod_manifests[manifest_path]:
+                        self.logger.debug(f"{mod.id} already loaded to distro, skipping")
+                        continue
+                    else:
+                        self.session.tracked_mods.remove(mod.id)
+                        self.session.tracked_mods_hashes.pop(mod.id, None)
+                        self.session.mods.pop(manifest_path, None)
+                        self.logger.debug(f"{mod.id} was tracked, but hash is different, removing from distro")
+                try:
+                    self.logger.debug(f"Loading {mod.id} to distro")
+                    mod.load_translations(load_gui_info=True)
+                    mod.load_commod_compatibility(self.context.commod_version)
+                    mod.load_game_compatibility(self.game.installment)
+                    mod.load_session_compatibility(self.game.installed_content,
+                                                   self.game.installed_descriptions)
+                    self.session.mods[manifest_path] = mod
+                    self.session.tracked_mods.add(mod.id)
+                    self.session.tracked_mods_hashes[mod.id] = self.context.hashed_mod_manifests[manifest_path]
+                except Exception as ex:
+                    self.logger.error(ex)
+                    continue
+
+        removed_mods = set(self.session.mods.keys()) - set(self.context.validated_mod_configs.keys())
+        for mod_path in removed_mods:
+            mod_id = self.session.mods[mod_path].id
+            self.session.tracked_mods.remove(mod_id)
+            self.session.tracked_mods_hashes.pop(mod_id, None)
+            self.session.mods.pop(mod_path, None)
+            self.logger.debug(f"Removed {mod_id} from session as it was deleted")
+
+    async def load_distro_async(self):
+        self.logger.debug("Loading distro")
+        try:
+            await self.context.load_mods_async()
+            self.logger.debug("Loaded mods")
+        except ModsDirMissing:
+            self.logger.info("No mods folder found, creating")
+        except NoModsFound:
+            self.logger.info("No mods found")
+
+        self.game.load_installed_descriptions(self.context.validated_mod_configs)
 
         if self.context.validated_mod_configs:
             for manifest_path, manifest in self.context.validated_mod_configs.items():
@@ -607,6 +639,7 @@ class SettingsScreen(UserControl):
     def __init__(self, app, **kwargs):
         super().__init__(self, **kwargs)
         self.app = app
+        self.refreshing = False
 
     def build(self):
         game_icon = Image(src=get_internal_file_path("icons/hta_comrem.png"),
@@ -1102,7 +1135,8 @@ class SettingsScreen(UserControl):
         self.app.session = self.app.context.current_session
         self.app.session.steam_game_paths = loaded_steam_game_paths
         if self.app.config.current_game:
-            self.app.load_distro()
+            # self.app.load_distro()
+            await self.app.load_distro_async()
         else:
             self.app.logger.debug("No current game found in config")
 
@@ -1220,7 +1254,8 @@ class SettingsScreen(UserControl):
             # TODO: maybe do a full steam path reload?
             # or maybe also copy steam_parsing_error
             self.app.session.steam_game_paths = loaded_steam_game_paths
-            self.app.load_distro()
+            # self.app.load_distro()
+            await self.app.load_distro_async()
         else:
             self.app.logger.debug("No distro dir found in context")
 
@@ -1232,7 +1267,8 @@ class SettingsScreen(UserControl):
             await self.app.settings_page.no_game_warning.update_async()
             self.app.config.current_game = ""
             # TODO: handle removal of the game
-            self.app.load_distro()
+            # self.app.load_distro()
+            await self.app.load_distro_async()
 
         self.list_of_games.controls.remove(item)
         await self.list_of_games.update_async()
@@ -1598,7 +1634,8 @@ class ModInfo(UserControl):
         await self.app.page.launch_url_async(self.mod.trailer_url)
 
     async def delete_mod_ask(self, e):
-        await self.app.show_modal(tr("this_will_delete_mod"),
+        await self.app.show_modal(tr("this_will_delete_mod").capitalize()+".",
+                                  tr("ask_confirm_deletion").capitalize(),
                                   on_yes=self.delete_mod)
 
     async def delete_mod(self, e):
@@ -2008,13 +2045,13 @@ class ModInfo(UserControl):
                                                     elevation=3,
                                                     icon=ft.icons.DELETE_FOREVER_ROUNDED,
                                                     icon_color=ft.colors.ERROR,
-                                                    text=tr("delete_mod").capitalize(),
+                                                    text=tr("delete_mod_short").capitalize(),
                                                     color=ft.colors.ERROR,
                                                     ref=self.mod_delete_btn,
                                                     on_click=self.delete_mod_ask,
                                                     tooltip=tr("delete_mod_from_library").capitalize())],
                                                 alignment=ft.MainAxisAlignment.CENTER),
-                                                margin=7, padding=ft.padding.only(left=10))
+                                                margin=7, padding=ft.padding.only(left=3))
                                             ],
                                             spacing=2,
                                             alignment=ft.MainAxisAlignment.START,
@@ -2098,7 +2135,7 @@ class ModArchiveItem(UserControl):
     async def progress_show(self, files_num):
         now_time = datetime.now()
         self.file_counter += 1
-        if (now_time - self.callback_time).microseconds > 30000:
+        if (now_time - self.callback_time).microseconds > 16000:
             self.progress_ring.current.value = self.file_counter/files_num
             await self.progress_ring.current.update_async()
             self.file_counting_text.current.value = f"{self.file_counter} {tr('one_of_many')} {files_num}"
@@ -3638,30 +3675,36 @@ class LocalModsScreen(UserControl):
         self.mods_list_view = ft.Ref[ft.ListView]()
         self.mods_archived_list_view = ft.Ref[ft.ListView]()
         self.add_mods_column = ft.Ref[Column]()
+        self.add_mod_card = ft.Ref[ft.Card]()
         self.no_mods_warning = ft.Ref[Text]()
         self.get_mod_archive_dialog = ft.FilePicker(on_result=self.get_mod_archive_result)
+        self.refreshing = False
 
     # TODO: is not working properly when first starting with no distro and then adding it
     # shows no_local_mods_found warning
     async def did_mount_async(self):
         # await self.app.page.floating_action_button.update_async()
         await self.update_list()
+        self.add_mod_card.current.height = None
+        # await self.add_mod_card.current.update_async()
         await self.app.page.update_async()
 
     async def upd_pressed(self, e):
         await self.app.refresh_page(AppSections.LOCAL_MODS.value)
 
     async def delete_mod(self, mod):
+        cont_ref = ft.Ref[ft.Container]()
         bs = ft.BottomSheet(
             ft.Container(
                 Row(
                     [
                         ft.ProgressRing(),
-                        ft.Text(f"Deleting mod {mod.name} {mod.version} [{mod.build}]..."),
+                        ft.Text(f'{mod.name} {mod.version} [{mod.build}]: '
+                                f'{tr("deleting_mod_from_lib").capitalize()}.')
                     ],
                     tight=True,
                 ),
-                padding=10,
+                padding=20, ref=cont_ref
             ),
             open=True,
         )
@@ -3674,13 +3717,34 @@ class LocalModsScreen(UserControl):
         main_distro = Path(self.app.context.distribution_dir, "mods")
 
         if main_distro in mod_path.parents:
+            # if mod dir is located directly in "mods" - delete just that
             if mod_path.parent == main_distro:
                 await aioshutil.rmtree(mod_path)
+            # mod directory is very often nested inside another dir because of zip files structure
+            # if we can detect that it's safe, we will delete whole nested structure
             elif mod_path.parent.parent == main_distro:
-                await aioshutil.rmtree(mod_path.parent)
+                # we only want to delete parent dir if it was automatically created by commod
+                if mod_path.parent.stem == mod.id:
+                    await aioshutil.rmtree(mod_path.parent)
+                else:
+                    await aioshutil.rmtree(mod_path)
             elif mod_path.parent.parent.parent == main_distro:
-                await aioshutil.rmtree(mod_path.parent.parent)
+                # same as above
+                if mod_path.parent.parent.stem == mod.id:
+                    await aioshutil.rmtree(mod_path.parent.parent)
+                else:
+                    await aioshutil.rmtree(mod_path)
 
+        cont_ref.current.content = Row(
+            [
+                Icon(ft.icons.CHECK_CIRCLE_ROUNDED, color=ft.colors.TERTIARY, size=37),
+                ft.Text(f'{tr("ready").capitalize()}: {mod.name} {mod.version} [{mod.build}] - '
+                        f'{tr("deleted_mod_from_lib")}.'),
+            ],
+            tight=True,
+        )
+        await bs.update_async()
+        await asyncio.sleep(1)
         bs.open = False
         await bs.update_async()
         self.app.page.overlay.remove(bs)
@@ -3688,7 +3752,8 @@ class LocalModsScreen(UserControl):
         await self.app.refresh_page(index=AppSections.LOCAL_MODS.value)
 
     async def update_list(self):
-        self.app.load_distro()
+        await self.app.load_distro_async()
+
         mod_items = self.mods_list_view.current.controls
         self.tracked_loaded_mods = set()
         for mod_item in mod_items:
@@ -3807,7 +3872,9 @@ class LocalModsScreen(UserControl):
             for file in e.files:
                 manifest = self.app.context.get_zip_manifest(file.path)
                 if not manifest:
-                    await self.app.show_alert(f"Bad archive:\n{file.path}")
+                    await self.app.show_alert(
+                        file.path,
+                        tr("issue_with_archive"))
                 else:
                     print(f'Read manifest for: {manifest.get("display_name")}')
                     try:
@@ -3820,7 +3887,9 @@ class LocalModsScreen(UserControl):
 
                     if mod_dummy.id in self.app.session.tracked_mods:
                         self.app.logger.info(f"Zipped mod id '{mod_dummy.id}' is already tracked")
-                        await self.app.show_alert("This mod version is already in library!")
+                        await self.app.show_alert(
+                            f"{mod_dummy.display_name} {mod_dummy.version} [{mod_dummy.build}]",
+                            tr("mod_already_in_library").capitalize())
                     else:
                         self.app.logger.info(f"Zipped mod id '{mod_dummy.id}' - adding to list")
                         self.mods_archived_list_view.current.controls.append(
@@ -3876,7 +3945,8 @@ class LocalModsScreen(UserControl):
                                         icon=ft.icons.FILE_OPEN)
                                     ],
                                     horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                border_radius=10, padding=20))
+                                border_radius=10, padding=20),
+                                height=10, ref=self.add_mod_card)
                             ],
                             alignment=ft.MainAxisAlignment.CENTER),
                         padding=ft.padding.only(right=22)),
@@ -3891,6 +3961,7 @@ class DownloadModsScreen(UserControl):
     def __init__(self, app: App, **kwargs):
         super().__init__(self, **kwargs)
         self.app = app
+        self.refreshing = False
 
     def build(self):
         return Column([
@@ -3923,6 +3994,7 @@ class HomeScreen(UserControl):
         self.launch_game_btn = ft.Ref[ft.FloatingActionButton]()
         self.launch_game_btn_text = ft.Ref[Text]()
         self.checkbox_windowed_game = ft.Ref[ft.PopupMenuItem]()
+        self.refreshing = False
 
     async def did_mount_async(self):
         self.got_news = False
@@ -4315,7 +4387,7 @@ async def main(page: Page):
     if app.context.distribution_dir:
         app.context.setup_logging_folder()
         app.context.setup_loggers()
-        
+
     need_quick_start = (not app.config.game_names
                         and not app.context.distribution_dir
                         and not app.game.game_root_path)
@@ -4414,7 +4486,8 @@ async def main(page: Page):
         app.logger.debug("showing quick start")
         await app.show_guick_start_wizard()
     else:
-        app.load_distro()
+        # app.load_distro()
+        await app.load_distro_async()
         await app.change_page(index=app.config.current_section)
 
     await page.update_async()
