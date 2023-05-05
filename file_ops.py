@@ -273,6 +273,8 @@ async def extract_from_to(zip_path, to_path, callback=None):
         namelist = archive.namelist()
         workers = 100
         chunksize = round(len(namelist) / workers)
+        if chunksize == 0:
+            chunksize = 1
         tasks = []
         for file_path in namelist:
             if file_path.endswith("/"):
