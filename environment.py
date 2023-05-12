@@ -19,7 +19,7 @@ from mod import Mod, GameInstallments
 from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory,\
                   DistributionNotFound, FileLoggingSetupError, InvalidExistingManifest, ModsDirMissing,\
                   NoModsFound, CorruptedRemasterFiles, PatchedButDoesntHaveManifest, WrongGameDirectoryPath
-from data import VERSION, VERSION_BYTES_100_STAR, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
+from data import OWN_VERSION, VERSION_BYTES_100_STAR, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
                  VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR, VERSION_BYTES_DEM_LNCH
 from localisation import tr
 from file_ops import TARGEM_NEGATIVE, TARGEM_POSITIVE,\
@@ -59,7 +59,7 @@ class InstallationContext:
         self.hashed_mod_manifests = {}
         self.ziped_mods = {}
         self.zip_manifest_cache = {}
-        self.commod_version = VERSION
+        self.commod_version = OWN_VERSION
         self.os = platform.system()
         self.os_version = platform.release()
 
@@ -78,8 +78,8 @@ class InstallationContext:
 
     @staticmethod
     def validate_distribution_dir(distribution_dir: str, legacy_checks=False) -> bool:
-        '''Distribution dir is a location of files to install, need to have at
-        least files of ComPatch and ComRem'''
+        '''Distribution dir is a location of mod storage, in console UI flow it needs to have at
+        least files of ComPatch and ComRem. Unused in GUI, as it allows work without ComPatch files'''
         if not distribution_dir or not os.path.isdir(distribution_dir):
             return False
 
@@ -196,7 +196,7 @@ class InstallationContext:
             raise DistributionNotFound(exe_path, "Distribution not found around mod manager exe")
 
     def load_mods(self) -> None:
-        self.logger.debug("Load_mods entry")
+        # self.logger.debug("Load_mods entry")
         all_config_paths = []
         legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
         if os.path.exists(legacy_comrem):
@@ -207,17 +207,16 @@ class InstallationContext:
         if not os.path.isdir(mods_path):
             os.makedirs(mods_path, exist_ok=True)
             raise ModsDirMissing
-        self.logger.debug("get_existing_mods call")
+        # self.logger.debug("get_existing_mods call")
         mod_configs_paths, ziped_mods = self.get_existing_mods(mods_path)
-        self.logger.debug("got existing_mods")
+        self.logger.debug("-- Got existing mods --")
         all_config_paths.extend(mod_configs_paths)
         if not all_config_paths and not ziped_mods:
             raise NoModsFound
 
         for mod_config_path in all_config_paths:
-            self.logger.info(f"Loading {mod_config_path}")
             with open(mod_config_path, "rb") as f:
-                digest = hashlib.file_digest(f, "sha256").hexdigest()
+                digest = hashlib.file_digest(f, "md5").hexdigest()
 
             if mod_config_path in self.hashed_mod_manifests.keys():
                 if digest == self.hashed_mod_manifests[mod_config_path]:
@@ -225,6 +224,7 @@ class InstallationContext:
                 else:
                     self.validated_mod_configs.pop(mod_config_path, None)
 
+            self.logger.info(f"--- Loading {mod_config_path} ---")
             self.hashed_mod_manifests[mod_config_path] = digest
             yaml_config = read_yaml(mod_config_path)
             if yaml_config is None:
@@ -238,16 +238,16 @@ class InstallationContext:
             config_validated = Mod.validate_install_config(yaml_config, mod_config_path)
             if config_validated:
                 self.validated_mod_configs[mod_config_path] = yaml_config
-                self.logger.debug(f"Loaded and validated mod config: {mod_config_path}")
+                self.logger.debug("--- Loaded and validated mod config ---")
             else:
                 if mod_config_path in self.validated_mod_configs.keys():
                     self.validated_mod_configs.pop(mod_config_path, None)
-                self.logger.warning(f"Couldn't validate Mod manifest: {mod_config_path}")
+                self.logger.warning(f"! Couldn't validate Mod manifest: {mod_config_path}")
                 mod_loading_errors.append(f"\n{tr('not_validated_mod_manifest')}.\n"
                                           f"{tr('folder').capitalize()}: "
                                           f"/{Path(mod_config_path).parent.parent.name}"
                                           f"/{Path(mod_config_path).parent.name}"
-                                          f"/{Path(mod_config_path).name}")
+                                          f"/{Path(mod_config_path).name} !")
 
         outdated_mods = set(self.validated_mod_configs.keys()) - set(all_config_paths)
         if outdated_mods:
@@ -268,13 +268,10 @@ class InstallationContext:
                     continue
 
         if mod_loading_errors:
-            self.logger.info("***")
-            self.logger.debug("Mod loading errors:")
-            for line in mod_loading_errors:
-                self.logger.debug(line.strip())
+            self.logger.error("-- Errors occurred when loading mods! --")
 
     async def load_mods_async(self) -> None:
-        self.logger.debug("Load_mods entry")
+        # self.logger.debug("Load_mods entry")
         all_config_paths = []
         legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
         if os.path.exists(legacy_comrem):
@@ -285,17 +282,16 @@ class InstallationContext:
         if not os.path.isdir(mods_path):
             os.makedirs(mods_path, exist_ok=True)
             raise ModsDirMissing
-        self.logger.debug("get_existing_mods_async call")
+        # self.logger.debug("get_existing_mods_async call")
         mod_configs_paths, ziped_mods = await self.get_existing_mods_async(mods_path)
-        self.logger.debug("got existing_mods")
+        self.logger.debug("-- Got existing mods --")
         all_config_paths.extend(mod_configs_paths)
         if not all_config_paths and not ziped_mods:
             raise NoModsFound
 
         for mod_config_path in all_config_paths:
-            self.logger.info(f"Loading {mod_config_path}")
             with open(mod_config_path, "rb") as f:
-                digest = hashlib.file_digest(f, "sha256").hexdigest()
+                digest = hashlib.file_digest(f, "md5").hexdigest()
 
             if mod_config_path in self.hashed_mod_manifests.keys():
                 if digest == self.hashed_mod_manifests[mod_config_path]:
@@ -303,10 +299,11 @@ class InstallationContext:
                 else:
                     self.validated_mod_configs.pop(mod_config_path, None)
 
+            self.logger.info(f"--- Loading {mod_config_path} ---")
             self.hashed_mod_manifests[mod_config_path] = digest
             yaml_config = read_yaml(mod_config_path)
             if yaml_config is None:
-                self.logger.warning(f"Couldn't read mod manifest: {mod_config_path}")
+                self.logger.warning(f"Couldn't read mod manifest or it's empty: {mod_config_path}")
                 mod_loading_errors.append(f"\n{tr('empty_mod_manifest')}: "
                                           f"{Path(mod_config_path).parent.name} - "
                                           f"{Path(mod_config_path).name}")
@@ -320,7 +317,7 @@ class InstallationContext:
             else:
                 if mod_config_path in self.validated_mod_configs.keys():
                     self.validated_mod_configs.pop(mod_config_path, None)
-                self.logger.warning(f"Couldn't validate Mod manifest: {mod_config_path}")
+                self.logger.warning(f"Couldn't validate mod install manifest: {mod_config_path}")
                 mod_loading_errors.append(f"\n{tr('not_validated_mod_manifest')}.\n"
                                           f"{tr('folder').capitalize()}: "
                                           f"/{Path(mod_config_path).parent.parent.name}"
@@ -346,10 +343,7 @@ class InstallationContext:
                     continue
 
         if mod_loading_errors:
-            self.logger.info("***")
-            self.logger.debug("Mod loading errors:")
-            for line in mod_loading_errors:
-                self.logger.debug(line.strip())
+            self.logger.error("-- Errors occurred when loading mods! --")
 
     def get_dir_manifest(self, dir: str, nesting_levels: int = 3, top_level=True) -> str:
         found_manifests = []
@@ -403,37 +397,37 @@ class InstallationContext:
         return [result for result in search_results if result is not None]
 
     def get_existing_mods(self, mods_dir: str) -> list[str]:
-        self.logger.debug("Inside get_existing_mods")
+        # self.logger.debug("Inside get_existing_mods")
         mod_list = self.get_dir_manifest(mods_dir)
-        self.logger.debug("Finished get_dir_manifest")
+        # self.logger.debug("Finished get_dir_manifest")
         zip_dict = {}
         for entry in os.scandir(mods_dir):
             if entry.path.endswith(".zip"):
-                self.logger.debug(f"Getting zip manifest for {entry.path}")
+                # self.logger.debug(f"Getting zip manifest for {entry.path}")
                 manifest = self.get_zip_manifest(entry.path)
                 if manifest:
                     zip_dict[entry.path] = manifest
-            self.logger.debug("Added zip manifest to list")
+            # self.logger.debug("Added zip manifest to list")
 
-        self.logger.debug("Finished get_zip_manifest")
+        # self.logger.debug("Finished get_zip_manifest")
         return mod_list, zip_dict
 
     async def get_existing_mods_async(self, mods_dir: str) -> list[str]:
-        self.logger.debug("Inside get_existing_mods async")
+        # self.logger.debug("Inside get_existing_mods async")
         # mod_list = await self.get_dir_manifest_async(mods_dir)
         mod_list = self.get_dir_manifest(mods_dir)
-        self.logger.debug("Finished get_dir_manifest")
+        # self.logger.debug("Finished get_dir_manifest")
         zip_dict = {}
         async for entry in AsyncPath(mods_dir).glob("*.zip"):
-            self.logger.debug(f"Working on zip {entry}")
+            # self.logger.debug(f"Working on zip {entry}")
             if entry.suffix == ".zip":
-                self.logger.debug(f"Getting zip manifest for {entry}")
-                manifest = self.get_zip_manifest(entry)
+                # self.logger.debug(f"Getting zip manifest for {entry}")
+                manifest = await self.get_zip_manifest_async(entry)
                 if manifest:
                     zip_dict[entry] = manifest
-            self.logger.debug("Added zip manifest to list")
+            # self.logger.debug("Added zip manifest to list")
 
-        self.logger.debug("Finished get_zip_manifest")
+        # self.logger.debug("Finished get_zip_manifest")
         return mod_list, zip_dict
 
     def get_zip_manifest(self, zip_path, ignore_cache=False):
@@ -443,38 +437,48 @@ class InstallationContext:
                 return cached
         try:
             with zipfile.ZipFile(zip_path, "r") as archive:
-                manifests = [file for file in zipfile.ZipFile(zip_path).filelist
+                file_list = archive.filelist
+                manifests = [file for file in file_list
                              if "manifest.yaml" in file.filename]
                 if manifests:
                     manifest_b = archive.read(manifests[0])
                     if manifest_b:
                         manifest = load_yaml(manifest_b)
-                        if Mod.validate_install_config(manifest, zip_path,
-                                                       skip_data_validation=True):
+                        if Mod.validate_install_config(manifest, manifests[0].filename,
+                                                       archive_file_list=file_list,
+                                                       root_path=zip_path):
                             self.zip_manifest_cache[zip_path] = manifest
                             return manifest
+                        self.zip_manifest_cache[zip_path] = {}
+                        return {}
         except Exception as ex:
             self.logger.error(ex)
             self.zip_manifest_cache[zip_path] = {}
             return {}
 
     async def get_zip_manifest_async(self, zip_path, ignore_cache=False):
+        if isinstance(zip_path, str):
+            zip_path = AsyncPath(zip_path)
         if not ignore_cache:
             cached = self.zip_manifest_cache.get(zip_path)
             if cached is not None:
                 return cached
         try:
             with zipfile.ZipFile(zip_path, "r") as archive:
+                file_list = archive.filelist
                 manifests = [file for file in archive.filelist
                              if "manifest.yaml" in file.filename]
                 if manifests:
                     manifest_b = archive.read(manifests[0])
                     if manifest_b:
                         manifest = load_yaml(manifest_b)
-                        if Mod.validate_install_config(manifest, zip_path,
-                                                       skip_data_validation=True):
+                        if Mod.validate_install_config(manifest, manifests[0].filename,
+                                                       archive_file_list=file_list,
+                                                       root_path=zip_path):
                             self.zip_manifest_cache[zip_path] = manifest
                             return manifest
+                        self.zip_manifest_cache[zip_path] = {}
+                        return {}
         except Exception as ex:
             self.logger.error(ex)
             self.zip_manifest_cache[zip_path] = {}
@@ -482,15 +486,15 @@ class InstallationContext:
 
     def setup_loggers(self, stream_only: bool = False) -> None:
         self.logger = logging.getLogger('dem')
+        self.logger.propagate = False
         if self.logger.handlers and len(self.logger.handlers) > 1:
             self.logger.debug("Logger already exists, will use it with existing settings")
         else:
-            self.logger.propagate = False
             self.logger.setLevel(logging.DEBUG)
             formatter = logging.Formatter('%(asctime)s: %(levelname)-7s - '
-                                          '%(module)-11s - line %(lineno)-3d: %(message)s')
+                                          '%(module)-11s - line %(lineno)-4d: %(message)s')
             stream_formatter = logging.Formatter('%(asctime)s: %(levelname)-7s - %(module)-11s'
-                                                 ' - line %(lineno)-3d: %(message)s')
+                                                 ' - line %(lineno)-4d: %(message)s')
 
             if self.dev_mode or stream_only:
                 stream_handler = logging.StreamHandler()
@@ -674,6 +678,12 @@ class GameCopy:
                     return False
         return True
 
+    def check_is_running(self) -> bool:
+        if self.target_exe:
+            return self.get_exe_version(self.target_exe) is None
+        else:
+            return False
+
     def process_game_install(self, target_dir: str) -> None:
         '''Parse game install to know the version and current state of it'''
         if not os.path.isdir(target_dir):
@@ -820,7 +830,7 @@ class GameCopy:
             if installed_optional_content:
                 if colourise:
                     description += fconsole("*", bcolors.OKCYAN)
-                description += (f' {tr("optional_content").capitalize()}: '
+                description += (f'{tr("optional_content").capitalize()}: '
                                 f'{", ".join(sorted(list(installed_optional_content)))}\n')
             elif optional_content_keys:
                 description += f'{fconsole("*", bcolors.OKCYAN)} {tr("base_version")}\n'
@@ -889,30 +899,30 @@ class GameCopy:
 
             if version_identifier[8:12] == b'1.02':
                 return "Clean 1.02"
-            elif version_identifier[3:7] == b'1.10':
-                return "ComRemaster 1.10"
-            elif version_identifier[:4] == b'1.10':
-                return "ComPatch 1.10"
-            elif version_identifier[3:7] == b'1.11':
-                return "ComRemaster 1.11"
-            elif version_identifier[:4] == b'1.11':
-                return "ComPatch 1.11"
-            elif version_identifier[3:7] == b'1.12':
-                return "ComRemaster 1.12"
-            elif version_identifier[:4] == b'1.12':
-                return "ComPatch 1.12"
-            elif version_identifier[3:7] == b'1.13':
-                return "ComRemaster 1.13"
-            elif version_identifier[:4] == b'1.13':
-                return "ComPatch 1.13"
-            elif version_identifier[3:7] == b'1.14':
-                return "ComRemaster 1.14"
-            elif version_identifier[:4] == b'1.14':
-                return "ComPatch 1.14"
-            elif version_identifier[8:12] == b'1.04':
-                return "KRBDZSKL 1.04"
             elif version_identifier_103_nocd[1:5] == b'1.03':
                 return "DRM Free 1.03"
+            elif version_identifier[:4] == b'1.10':
+                return "ComPatch 1.10"
+            elif version_identifier[:4] == b'1.11':
+                return "ComPatch 1.11"
+            elif version_identifier[:4] == b'1.12':
+                return "ComPatch 1.12"
+            elif version_identifier[:4] == b'1.13':
+                return "ComPatch 1.13"
+            elif version_identifier[:4] == b'1.14':
+                return "ComPatch 1.14"
+            elif version_identifier[3:7] == b'1.10':
+                return "ComRemaster 1.10"
+            elif version_identifier[3:7] == b'1.11':
+                return "ComRemaster 1.11"
+            elif version_identifier[3:7] == b'1.12':
+                return "ComRemaster 1.12"
+            elif version_identifier[3:7] == b'1.13':
+                return "ComRemaster 1.13"
+            elif version_identifier[3:7] == b'1.14':
+                return "ComRemaster 1.14"
+            elif version_identifier[8:12] == b'1.04':
+                return "KRBDZSKL 1.04"
             elif version_identifier_100_star[1:5] == b'1.0 ':
                 return "1.0 Starforce"
             elif version_identifier_102_star[:9] == b'O0\x87\xfa%\xbc\x9f\x86Q':

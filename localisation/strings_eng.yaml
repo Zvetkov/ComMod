@@ -1,3 +1,177 @@
+"exmachina": "HTA"
+"m113": "HTA: RoC"
+"arcade": "HTA: Arcade"
+"game": "game"
+"yes": "yes"
+"no": "no"
+"settings": "settings"
+"setting_up": "setting up"
+"launch": "launch"
+"launch_full": "game launch"
+"has_mods": "installed mods"
+"ready": "ready"
+"no_game_selected": "game not selected"
+"game_compatibility": "game compatibility"
+"incompatible_game_installment": "Incompatible game installment"
+"mod_for_game": "mod for game"
+"local_mods": "local mods"
+"mods_library": "mods library"
+"issue_with_archive": "Issue with the archive: mod is not prepared in the supported way or archive is corrupted."
+"no_local_mods_found": "Available for installation mod not found"
+"mod_already_in_library": "this mod is already in the library"
+"download": "download"
+"open": "open"
+"delete_mod_short": "delete files"
+"delete_mod_from_library": "delete mod from the library (deletes files from the disk)"
+"this_will_delete_mod": "mod will be removed from the library and it's files deleted from the disk"
+"ask_confirm_deletion": "confirm deletion?"
+"deleted_mod_from_lib": "mod has been deleted from the library"
+"deleting_mod_from_lib": "mod is being deleted from the library"
+"install_results": "installation results"
+"but": "but"
+"attention": "attention!"
+"one_of_many": "of"
+"mod_name": "mod name"
+"mod_version_and_build": "version and build of the mod"
+"about_mod": "about mod"
+"hide_menu": "hide menu"
+"was_reinstall": "mod was reinstalled"
+"main_info": "main information"
+"screenshots": "screenshots"
+"language": "language"
+"install_in_progress": "install in progress"
+"successfully": "Success"
+"error_occurred": "error occurred"
+"mod_install_language": "mod installation language"
+"copying_file": "copying file"
+"download_mods_screen_placeholder": "Mods installation inside ComMod will be available in an upcoming version"
+"launch_game_placeholder": "You can add a game in the section"
+"local_mods_placeholder": "You can add mod storage folder in the section"
+"close_window": "close the windows"
+"app_lang": "application language"
+"developers": "developers of"
+"restart_to_change_lang": "Full language change will require a restart of ComMod"
+"change_log": "change list"
+"other_info": "other information"
+"patch_only_supports_russian": "ComPatch doesn't support translations, check ComRemaster"
+"reinstall_mod_ask": "Try to reinstall the mod?"
+"check_reinstallability": "check if mod can be reinstalled"
+"can_reinstall": "Reinstallation on selected game copy is possible, but can cause errors."
+"cant_reinstall": "Reinstall on selected game copy is disabled."
+"cant_reinstall_with_different_options": "Installed version and this one have different optional content, reinstallation is not possible."
+"cant_reinstall_different_lang": "Can't reisntall the mod in the language different from the one already installed."
+"cant_reinstall_over_other_mods": "Simple reinstallation is not possible if other mods are already installed on this copy"
+"cant_reinstall_over_newer_version": "Reinstallation over a newer version of the same mod is not possible."
+"cant_reinstall_over_newer_build": "Reinstallation over a newer build of the same mod is not possible."
+"cant_reinstall_over_other_version": "Reinstallation over an other version of the same mod is not possible."
+"to_increase_compat_options_are_limited": "To increase compatibility, options choice will be limited."
+"install_from_scratch_if_issues": "In case issues occur, reinstall mods from scratch on a clean game copy."
+"install_from_scratch": "Install mods from scratch on a clean game copy if necessary."
+"setup_mod_ask": "Continue to mod configuration?"
+"trailer_watch": "watch trailer"
+"install_please_wait": "Installation might take some time, please do not close the installer"
+"error": "Error"
+"of_any_version": "any version"
+"click_screen_to_compare": "Click the screenshot to see comparison"
+"play": "play"
+"launching": "launching"
+"stop_game": "close the game"
+"warn_external_address": "Warning! External link from the author of the mod!"
+"install": "install"
+"installed": "installed"
+"not_installed": "not installed"
+"release": "release"
+"not_specified": "not specified"
+"eng": "English"
+"us": "English"
+"ru": "Russian"
+"ua": "Ukrainian"
+"de": "German"
+"tr": "Turkish"
+"pl": "Polish"
+"binary_fixes": "binary fixes"
+"spawn_freezes_fix": "Removed freeze on vehicle spawn"
+"recommended_install_chosen": "recommended options chosen"
+"choose_recommended_install": "choose recommended options"
+"last_settings_chosed": "previous installation options have been chosen"
+"choose_one_of_the_options": "choose one or none of the options"
+"will_not_be_installed": "will not be installed"
+"setup_install": "setup the installation"
+"cancel_install": "cancel the installation"
+"with_option": "with option"
+"with_options": "with options"
+"install_steps": "installation steps"
+"welcoming": "introduction"
+"cant_change_choice": "can't change the choice"
+"install_base_mod_ask": "Install mods without options?"
+"install_mod_with_options_ask": "Install mod with the chosen options?"
+"exe_version": "Game exe version"
+"extract": "extract"
+"extract_mod": "extract archive with the mod"
+"mod_in_archive": "Need to extract archive before the installation"
+"archived_mods_explanation": "Here you can add to the library archive with a mod that you manually downloaded"
+"add_to_list": "add to list"
+"all_versions": "all versions"
+"add_mod": "add mod"
+"launch_params": "launch options"
+"windowed_mode": "windowed mode"
+"incompatible_base": "incompatible mods"
+"enable_console": "enable dev console"
+"broken_game": "Previously added game couldn't pass integrity check, you will not be able to use it right now in ComMod"
+"where_is_game": "Where is the game?"
+"where_is_distro": "Where should be mods and Community Remaster stored?"
+"welcome": "Welcome to mod manager!"
+"control_game_copies": "manage game copies"
+"control_mod_folders": "manage mods storage"
+"other_settings": "other settings"
+"quick_start": "Quick start"
+"dirty_copy": "Dirty copy"
+"requirements_met": "Mod's game requirements are met"
+"use_this_game": "Use this game"
+"theme_mode": "Theme: system, dark, light"
+"commod_needs_game": "To unlock full ComMod functionality you need to show path to an unpacked copy of HTA version 1.02."
+"commod_needs_distro": "To unlock full ComMod functionality you need to add a directory for storing mods and other related files."
+"steam_game_found": "Found a game installed on Steam, do you want to use it?"
+"steam_add_hint": "Choose path and press the button to add the game to the list"
+"game_is_running": "Game is running"
+"choose_from_steam": "Choose from versions installed on Steam"
+"choose_found": "Choose found version"
+"path_to_game": "Path to game"
+"path_to_comrem": "Path to Community Remaster files"
+"open_in_explorer": "Open in Explorer"
+"already_in_list": "Already in the list"
+"remove_from_list": "Remove from the list"
+"already_chosen": "Already chosen"
+"choose_path": "Choose path"
+"ask_to_choose_path": "Choose path"
+"choose_game_path_manually": "Show path to the game manually"
+"choose_distro_path": "Show path to mods storage folder"
+"new_name": "New name"
+"edit_name": "Edit name"
+"confirm_choice": "Confirm choice"
+"not_yet_added_games_of_type": "You haven't added this type of game yet\n(support fom RoC and Arcade will be added in the upcoming version)"
+"not_a_valid_path": "Path doesn't exist"
+"target_dir_missing_files": "Chosen directory is missing some necessary files."
+"unsupported_exe_version": "Chosen directory doesn't contain supported game version"
+"no_base_content_mod_requires_options": "This mod consists of different options, need to choose at least one of those"
+"havent_been_chosen": "Not chosen"
+"launch_game_button": "Launch game"
+"download_mods": "Download mods"
+"backup_game": "Create backup / Restore from backup"
+"our_discord": "Our Discord"
+"our_github": "Project's Github"
+"game_info": "Game information"
+"bugfix": "bugfix"
+"gameplay": "gameplay"
+"story": "story"
+"visual": "visual"
+"audio": "audio"
+"weapons": "weapons"
+"vehicles": "vehicles"
+"ui": "interface"
+"balance": "balance"
+"humor": "humor"
+"uncategorized": "uncategorized"
 advanced: Advanced
 already_installed: Already installed
 and: and
@@ -88,7 +262,7 @@ installation: Installation
 installation_aborted_by_user: Installation aborted by the user.
 installation_error: Installation error has occured, installation hasn't been finished
 installation_finished: Installation is complete!
-installation_title: Community Remaster & Community Patch installation - installer version {VERSION}
+installation_title: Community Remaster & Community Patch installation - installer version {OWN_VERSION}
 installed_listing: 'Installed:'
 intro_modded_game: 'Installer detected that mods was already installed on this game copy with Community Patch or Community Remaster.
 
@@ -118,7 +292,7 @@ missing_distribution: 'Community Patch / Remaster files were not found near the 
 
   Put the installer in the same folder where other Compatch distribution files are located'
 mm_inserts_patched: '* Memory manager replacement, 4GB patch'
-mod_manager_title: Mod Manager {VERSION} - installation of mods for ComPatch/ComRem
+mod_manager_title: Mod Manager {OWN_VERSION} - installation of mods for ComPatch/ComRem
 mod_url: 'Home page:'
 not_validated_mod_manifest: Couldn't start installation for mod, files might be corrupted or mod install manifest is of incorrect format
 nothing_to_install: Nothing to install, work finished.
@@ -128,7 +302,7 @@ of_version: of version
 optional_content: optional content
 or: or
 or_options: To choose install options - input 'options' and press 'Enter'
-patch_title: Community Patch installation - installer version {VERSION}
+patch_title: Community Patch installation - installer version {OWN_VERSION}
 patching_exe: Patching exe
 press_enter_to_continue: Press Enter to continue.
 press_enter_to_exit: Press Enter to close the window.
@@ -154,7 +328,7 @@ reinstalling_intro_no_mods: 'Installer detected that Community Patch or Communit
   If you want to exit installation - enter ''exit''
 
   If you want to overwrite existing installation of Community Patch/Remaster and install it again - enter ''reinstall'''
-remaster_title: Community Remaster installation - installer version {VERSION}
+remaster_title: Community Remaster installation - installer version {OWN_VERSION}
 required_base: Required base
 required_mod_not_found: Required base mod(s) is not installed
 requirements_not_met: Mod requirements for installation are not met
@@ -182,7 +356,7 @@ technical_name: technical name
 ui_fixes_patched: '* 16:9 resolution options in options menu
 
   * Console font size fix'
-usupported_patcher_version: 'Content {content_name} installation required other mod manager version: {required_version}, now used: {current_version}
+usupported_patcher_version: 'Mod "{content_name}" installation required other mod manager version: {required_version}, now used: {current_version}
 
   You can download a new mod manager version from: {github_url}'
 version: Version

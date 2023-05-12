@@ -1,3 +1,177 @@
+"exmachina": "Ex Machina"
+"m113": "Ex Machina: M113"
+"arcade": "EM: Arcade"
+"game": "гра"
+"yes": "так"
+"no": "ні"
+"settings": "налаштування"
+"setting_up": "налаштування"
+"launch": "запуск"
+"launch_full": "запуск гри"
+"has_mods": "встановлені моди"
+"ready": "готово"
+"no_game_selected": "гру не вибрано"
+"game_compatibility": "сумісність із грою"
+"incompatible_game_installment": "Несумісна вресія гри"
+"mod_for_game": "мод для гри"
+"local_mods": "моди"
+"mods_library": "бібліотека модів"
+"issue_with_archive": "Проблема з архівом: мод не запакований сумісним з ComMod чином або архів пошкоджений."
+"no_local_mods_found": "Доступні для встановлення моди не знайдені"
+"mod_already_in_library": "цей мод уже є в бібліотеці"
+"download": "завантажити"
+"open": "відкрити"
+"delete_mod_short": "видалити файли"
+"delete_mod_from_library": "видалити мод із бібліотеки (видалить файли мода з носія даних)"
+"this_will_delete_mod": "мод буде видалено з бібліотеки, а всі файли мода видалено з носія даних"
+"ask_confirm_deletion": "підтверджуєте видалення?"
+"deleted_mod_from_lib": "мод видалено з бібліотеки"
+"deleting_mod_from_lib": "мод видаляється з бібліотеки"
+"install_results": "підсумки встановлення"
+"but": "але"
+"attention": "увага!"
+"one_of_many": "з"
+"mod_name": "назва мода"
+"mod_version_and_build": "версія і білд мода"
+"about_mod": "про модифікацію"
+"hide_menu": "згорнути меню"
+"was_reinstall": "було перевстановлено"
+"main_info": "основна інформація"
+"screenshots": "скріншоти"
+"language": "мова"
+"install_in_progress": "триває встановлення"
+"successfully": "успішно"
+"error_occurred": "виникла помилка"
+"mod_install_language": "мова встановлення мода"
+"copying_file": "копіюється файл"
+"download_mods_screen_placeholder": "Завантаження модів усередині ComMod буде доступне в наступних версіях"
+"launch_game_placeholder": "Додати гру можна в розділі"
+"local_mods_placeholder": "Додати папку сховища модів можна в розділі"
+"close_window": "закрити вікно"
+"app_lang": "мова програми"
+"developers": "розробники"
+"restart_to_change_lang": "Повне перемикання мови вимагає перезапуску ComMod"
+"change_log": "перелік змін"
+"other_info": "інша інформація"
+"patch_only_supports_russian": "ComPatch не підтримує переклади, спробуйте ComRemaster"
+"reinstall_mod_ask": "Спробувати встановити мод повторно?"
+"check_reinstallability": "перевірка можливості перевстановлення"
+"can_reinstall": "Перевстановлення на обрану копію гри можливе, але може викликати помилки."
+"cant_reinstall": "Перевстановлення на обрану копію гри відключено."
+"cant_reinstall_with_different_options": "Набір опцій встановленої та цієї версії мода відрізняються, встановлення зверху неможливе."
+"cant_reinstall_different_lang": "Мод не можна перевстановити зверху при виборі мови, відмінної від уже встановленої."
+"cant_reinstall_over_other_mods": "Просте перевстановлення неможливе коли вже встановлені інші моди"
+"cant_reinstall_over_newer_version": "Встановлення зверху новішої версії того самого мода неможливе."
+"cant_reinstall_over_newer_build": "Встановлення зверху новішого білда того самого мода неможливе."
+"cant_reinstall_over_other_version": "Встановлення зверху іншої версії того самого мода неможливе."
+"to_increase_compat_options_are_limited": "Для підвищення сумісності вибір опцій буде обмежений."
+"install_from_scratch_if_issues": "У разі проблем, перевстановіть моди з нуля на чисту гру."
+"install_from_scratch": "За необхідності перевстановіть моди з нуля на чисту гру."
+"setup_mod_ask": "Перейти до вибору опцій?"
+"trailer_watch": "дивитися трейлер"
+"install_please_wait": "Встановлення може зайняти деякий час, будь ласка, не закривайте установник"
+"error": "Помилка"
+"of_any_version": "будь-якої версії"
+"click_screen_to_compare": "Натисніть на скріншот для порівняння"
+"play": "грати"
+"launching": "запускається"
+"stop_game": "закрити гру"
+"warn_external_address": "Обережно! Зовнішнє посилання від автора модифікації!"
+"install": "встановити"
+"installed": "встановлено"
+"not_installed": "не встановлено"
+"release": "реліз"
+"not_specified": "не вказано"
+"eng": "англійська"
+"us": "англійська"
+"ru": "російська"
+"ua": "українська"
+"de": "німецька"
+"tr": "турецька"
+"pl": "польська"
+"binary_fixes": "бінарні правки"
+"spawn_freezes_fix": "Прибрано фриз під час спавну машин"
+"recommended_install_chosen": "обрано рекомендовані опції"
+"choose_recommended_install": "обрати рекомендовані опції"
+"last_settings_chosed": "обрано опції попереднього встановлення"
+"choose_one_of_the_options": "виберіть один із варіантів"
+"will_not_be_installed": "не буде встановлено"
+"setup_install": "налаштувати встановлення"
+"cancel_install": "скасувати встановлення"
+"with_option": "з опцією"
+"with_options": "з опціями"
+"install_steps": "кроки встановлення"
+"welcoming": "вступ"
+"cant_change_choice": "не можна змінити вибір"
+"install_base_mod_ask": "Встановити мод без опцій?"
+"install_mod_with_options_ask": "Встановити мод з обраними опціями?"
+"exe_version": "Версія exe гри"
+"extract": "розпакувати"
+"extract_mod": "розпакувати мод"
+"mod_in_archive": "Для встановлення потрібне розпакування"
+"archived_mods_explanation": "Тут можна додати в бібліотеку архів з модом, який ви самі раніше завантажили"
+"add_to_list": "додати до переліку"
+"all_versions": "всі версії"
+"add_mod": "додати мод"
+"launch_params": "параметри запуску"
+"windowed_mode": "віконний режим"
+"incompatible_base": "несумісні моди"
+"enable_console": "увімкнути консоль"
+"broken_game": "Раніше додана копія гри не пройшла перевірку на цілісність, зараз її неможливо використовувати для роботи"
+"where_is_game": "Де знаходиться гра?"
+"where_is_distro": "Де повинні зберігатися моди і Community Remaster?"
+"welcome": "Ласкаво просимо до менеджера модів!"
+"control_game_copies": "управління копіями гри"
+"control_mod_folders": "управління сховищем модів"
+"other_settings": "інші налаштування"
+"quick_start": "Швидкий старт"
+"dirty_copy": "Брудна копія"
+"requirements_met": "Вимоги мода до ігрової копії задоволені"
+"use_this_game": "Використовувати цю гру"
+"theme_mode": "Тема: системна, темна, світла"
+"commod_needs_game": "Для повноцінної роботи ComMod потрібно вказати шлях до розпакованої копії Ex Machina версії 1.02."
+"commod_needs_distro": "Для повноцінної роботи ComMod потрібно вказати папку для зберігання модів та інших пов'язаних файлів."
+"steam_game_found": "Знайдена копія гри, встановлена в Steam, використовувати її?"
+"steam_add_hint": "Оберіть шлях і натисніть кнопку щоб додати гру до переліку"
+"game_is_running": "Гра запущена"
+"choose_from_steam": "Вибрати зі встановлених у Steam"
+"choose_found": "вибрати знайдену"
+"path_to_game": "Шлях до гри"
+"path_to_comrem": "Шлях до файлів Community Remaster"
+"open_in_explorer": "Відкрити в провіднику"
+"already_in_list": "Уже в переліку"
+"remove_from_list": "Прибрати зі переліка"
+"already_chosen": "Уже обраний"
+"choose_path": "Вказати шлях"
+"ask_to_choose_path": "Вкажіть шлях"
+"choose_game_path_manually": "Вказати шлях до гри вручну"
+"choose_distro_path": "Вказати шлях до сховища"
+"new_name": "Нове ім'я"
+"edit_name": "Редагувати ім'я"
+"confirm_choice": "Підтвердити вибір"
+"not_yet_added_games_of_type": "Ви поки що не додали відповідні копії ігор\n(підтримка M113 і Arcade з'явиться в наступних версіях)"
+"not_a_valid_path": "Зазначений шлях не існує"
+"target_dir_missing_files": "Зазначена папка не містить усіх необхідних файлів."
+"unsupported_exe_version": "Зазначена папка містить не підтримувану версію гри"
+"no_base_content_mod_requires_options": "Цей мод складається з окремих опцій, потрібно вибрати хоча б одну"
+"havent_been_chosen": "не вказано"
+"launch_game_button": "Запустити гру"
+"download_mods": "Завантажити моди"
+"backup_game": "Зробити резервну копію / Відновити з копії"
+"our_discord": "Наш Discord"
+"our_github": "Github проекту"
+"game_info": "Інформація про гру"
+"bugfix": "багфікс"
+"gameplay": "геймплейний"
+"story": "сюжетний"
+"visual": "візуальний"
+"audio": "аудіо"
+"weapons": "зброя"
+"vehicles": "транспорт"
+"ui": "інтерфейс"
+"balance": "баланс"
+"humor": "гумор"
+"uncategorized": "без категорії"
 advanced: Розширена
 already_installed: Уже встановлено
 and: і
@@ -88,7 +262,7 @@ installation: Встановлення
 installation_aborted_by_user: Встановлення перервано за бажанням користувача.
 installation_error: Під час встановлення виникла помилка, встановлення не було закінчено
 installation_finished: Встановлення завершено!
-installation_title: Встановлення Community Remaster & Community Patch - версія інсталятора {VERSION}
+installation_title: Встановлення Community Remaster & Community Patch - версія інсталятора {OWN_VERSION}
 installed_listing: 'Встановлено:'
 intro_modded_game: 'Інсталятор виявив, що на цю копію гри з Community Patch або Community Remaster уже встановлено мод.
 
@@ -118,7 +292,7 @@ missing_distribution: 'Файли Community Patch / Remaster не знайден
 
   Помістіть інсталятор в одну папку з іншими файлами ComPatch.'
 mm_inserts_patched: '* Заміна менеджера пам''яті, 4GB патч'
-mod_manager_title: Mod Manager {VERSION} - встановлення модів для ComPatch/ComRem
+mod_manager_title: Mod Manager {OWN_VERSION} - встановлення модів для ComPatch/ComRem
 mod_url: 'Домашня сторінка:'
 not_validated_mod_manifest: Не вдалося почати установку для мода, можливо файли пошкоджені або маніфест установки має некоректний формат
 nothing_to_install: Нічого встановлювати, роботу закінчено.
@@ -128,7 +302,7 @@ of_version: версії
 optional_content: опціональний контент
 or: або
 or_options: Для вибору опцій - наберіть 'options' і натисніть 'Enter'
-patch_title: Інсталяція Community Patch - версія інсталятора {VERSION}
+patch_title: Інсталяція Community Patch - версія інсталятора {OWN_VERSION}
 patching_exe: Працюємо над exe
 press_enter_to_continue: Натисніть Enter щоб продовжити.
 press_enter_to_exit: Натисніть Enter щоб закрити вікно.
@@ -154,7 +328,7 @@ reinstalling_intro_no_mods: 'Інсталятор виявив, що Community P
   Щоб закрити інсталятор - введіть ''exit''.
 
   Для повторного встановлення Patch/Remaster поверх наявної інсталяції - введіть ''reinstall'''
-remaster_title: Встановлення Community Remaster - версія інсталятора {VERSION}
+remaster_title: Встановлення Community Remaster - версія інсталятора {OWN_VERSION}
 required_base: Необхідна база
 required_mod_not_found: Не встановлено необхідний базовий мод(и)
 requirements_not_met: Вимоги мода до ігрової копії не дотримані
@@ -184,7 +358,7 @@ technical_name: "технічне ім'я"
 ui_fixes_patched: '* 16:9 опції роздільної здатності екрана в налаштуваннях
 
   * Покращення відображення шрифтів у консолі'
-usupported_patcher_version: 'Встановлення контенту {content_name} потребує іншу версію мод менеджера: {required_version}, зараз використовується: {current_version}
+usupported_patcher_version: 'Встановлення мода "{content_name}" потребує іншу версію мод менеджера: {required_version}, зараз використовується: {current_version}
 
   Завантажити нову версію мод менеджера можна на: {github_url}'
 version: Версія

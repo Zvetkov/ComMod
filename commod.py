@@ -252,8 +252,7 @@ def main_console(options: argparse.Namespace) -> None:
                                                             "display_name": "Community Patch"}
 
         if version_choice == "patch":
-            logger.info("***")
-            logger.info("Starting installation of ComPatch")
+            logger.info("- Starting installation of ComPatch -")
             logger.info(session.content_in_processing)
             console.copy_patch_files(context.distribution_dir, game.game_root_path)
             patch_description = [tr(line) for line in install_base(version_choice, game, context)]

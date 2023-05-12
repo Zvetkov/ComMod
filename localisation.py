@@ -3,7 +3,7 @@ import locale
 import logging
 
 from file_ops import read_yaml, get_internal_file_path
-from data import VERSION
+from data import OWN_VERSION
 
 logger = logging.getLogger('dem')
 
@@ -12,11 +12,28 @@ COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
 WIKI_COMPATCH = "https://deuswiki.com/w/Community_Patch"
 
 
+class LangFlags(Enum):
+    eng = "assets\\flags\\openmoji_uk.svg"
+    ru = "assets\\flags\\openmoji_ru.svg"
+    ua = "assets\\flags\\openmoji_ua.svg"
+    de = "assets\\flags\\openmoji_de.svg"
+    tr = "assets\\flags\\openmoji_tr.svg"
+    pl = "assets\\flags\\openmoji_pl.svg"
+    other = "assets\\flags\\openmoji_orange.svg"
+
+
 class SupportedLanguages(Enum):
-    SYS = 0
-    ENG = 1
-    RUS = 2
-    UKR = 3
+    ENG = "eng"
+    RU = "ru"
+    UA = "ua"
+
+    @classmethod
+    def list_values(cls):
+        return list(map(lambda c: c.value, cls))
+
+    @classmethod
+    def list_names(cls):
+        return list(map(lambda c: c.name, cls))
 
 
 local_dict = {
@@ -29,7 +46,10 @@ local_dict = {
     "settings": "настройки",
     "setting_up": "настройка",
     "launch": "запуск",
+    "launch_full": "запуск игры",
+    "has_mods": "установлены моды",
     "ready": "готово",
+    "no_game_selected": "игра не выбрана",
     "game_compatibility": "совместимость с игрой",
     "incompatible_game_installment": "Несовместимая часть игры",
     "mod_for_game": "мод для игры",
@@ -64,7 +84,12 @@ local_dict = {
     "mod_install_language": "язык установки мода",
     "copying_file": "копируется файл",
     "download_mods_screen_placeholder": "Скачивание модов внутри ComMod будет доступно в следующих версиях",
+    "launch_game_placeholder": "Добавить игру можно в разделе",
+    "local_mods_placeholder": "Добавить папку хранилища модов можно в разделе",
     "close_window": "закрыть окно",
+    "app_lang": "язык приложения",
+    "developers": "разработчики",
+    "restart_to_change_lang": "Полное переключение языка требует перезапуска ComMod",
     "change_log": "список изменений",
     "other_info": "другая информация",
     "patch_only_supports_russian": "ComPatch не поддерживает переводы, попробуйте ComRemaster",
@@ -88,6 +113,8 @@ local_dict = {
     "of_any_version": "любой версии",
     "click_screen_to_compare": "Нажмите на скриншот для сравнения",
     "play": "играть",
+    "launching": "запускается",
+    "stop_game": "закрыть игру",
     "warn_external_address": "Осторожно! Внешняя ссылка от автора модификации!",
     "install": "установить",
     "installed": "установлен",
@@ -135,19 +162,19 @@ local_dict = {
     "welcome": "Добро пожаловать в менеджер модов!",
     "control_game_copies": "управление копиями игры",
     "control_mod_folders": "управление хранилищем модов",
+    "other_settings": "другие настройки",
     "quick_start": "Быстрый старт",
     "dirty_copy": "Грязная копия",
     "requirements_met": "Требования мода к игровой копии удовлетворены",
     "use_this_game": "Использовать эту игру",
     "theme_mode": "Цветовая тема: системная, тёмная, светлая",
-    "commod_needs_game": "Для работы ComMod нужна установленная распакованная Ex Machina версии 1.02.",
-    "commod_needs_remaster": "Для работы ComMod нужны файлы Community Remaster\n(папки 'patch', 'remaster', 'libs').",
+    "commod_needs_game": "Для полноценной работы ComMod нужно указать путь к распакованной копии Ex Machina версии 1.02.",
+    "commod_needs_distro": "Для полноценной работы ComMod нужно указать папку для хранения модов и других связанных файлов.",
     "steam_game_found": "Найдена копия игры установленная в Steam, использовать её?",
     "steam_add_hint": "Выберите путь и нажмите кнопку чтобы добавить игру в список",
-    "game_is_running": "Найдена уже запущенная игра",
+    "game_is_running": "Игра запущенна",
     "choose_from_steam": "Выбрать из установленных в Steam",
     "choose_found": "выбрать найденную",
-    "show_path_to": "Указать путь к файлам сейчас?",
     "path_to_game": "Путь к игре",
     "path_to_comrem": "Путь к файлам Community Remaster",
     "open_in_explorer": "Открыть в проводнике",
@@ -156,18 +183,12 @@ local_dict = {
     "already_chosen": "Уже выбран",
     "choose_path": "Указать путь",
     "ask_to_choose_path": "Укажите путь",
-    "choose_path": "Указать путь",
     "choose_game_path_manually": "Указать путь к игре вручную",
     "choose_distro_path": "Указать путь к хранилищу",
-    "later": "Позже",
     "new_name": "Новое имя",
     "edit_name": "Редактировать имя",
     "confirm_choice": "Подтвердить выбор",
-    "finish_setup": "Завершите настройку",
-    "not_yet_added_games_of_type": "Вы пока не добавили подходящие копии игр",
-    "add_game_using_btn": "Указать путь к игре можно кнопкой выше или нажав сюда",
-    "add_distro_using_btn": "Указать путь к файлам Community Remaster можно кнопкой выше или нажав сюда",
-    "you_can_postpone_but": "Вы можете выбрать папки позднее, но без них ComMod не сможет полноценно работать.",
+    "not_yet_added_games_of_type": "Вы пока не добавили подходящие копии игр\n(поддержка M113 и Arcade появится в следующих версиях)",
     "not_a_valid_path": "Указанный путь не существует",
     "target_dir_missing_files": "Указанная папка не содержит все необходимые файлы.",
     "unsupported_exe_version": "Указанная папка содержит не поддерживаемую версию игры",
@@ -205,10 +226,10 @@ def get_strings_dict() -> dict:
     loc_dict = {key: {"eng": value} for key, value in eng.items()}
 
     for key in rus:
-        loc_dict[key]["rus"] = rus[key]
+        loc_dict[key]["ru"] = rus[key]
 
     for key in ukr:
-        loc_dict[key]["ukr"] = ukr[key]
+        loc_dict[key]["ua"] = ukr[key]
 
     return loc_dict
 
@@ -220,8 +241,8 @@ def tr(str_name: str, **kwargs) -> str:
     loc_str = STRINGS.get(str_name)
     if loc_str is not None:
         final_string = loc_str[LANG]
-        if "{VERSION}" in final_string:
-            final_string = final_string.replace("{VERSION}", VERSION)
+        if "{OWN_VERSION}" in final_string:
+            final_string = final_string.replace("{OWN_VERSION}", OWN_VERSION)
         if kwargs:
             final_string = final_string.format(**kwargs)
         return final_string
@@ -236,11 +257,11 @@ def tr(str_name: str, **kwargs) -> str:
 def_locale = locale.getdefaultlocale()[0].replace("_", "-")
 
 if def_locale[-3:] == '-RU':
-    LANG = "rus"
+    LANG = "ru"
 elif def_locale[:2] == "uk" or def_locale[-3:] == '-UA':
-    LANG = "ukr"
+    LANG = "ua"
 elif def_locale[:3] == "ru-":
-    LANG = "rus"
+    LANG = "ru"
 else:
     LANG = "eng"
 

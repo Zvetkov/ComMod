@@ -3,13 +3,17 @@ import math
 from os import system
 from ctypes import windll
 
-DATE = "(Feb 15 2023)"
+OWN_VERSION = "2.0-test"
+
+# version of binary fixes
+# corresponds with the latest ComPatch/Rem release at the time of ComMod compilation
+DATE = "(May 12 2023)"
 VERSION = "1.14"
 
+# main version of exe is dependent on binary fixes, not on ComMod
+# but version string will include ComPatch/Rem build id at the end of the string
 COMPATCH_VER = f"ExMachina - Community Patch build v{VERSION} {DATE}"
-COMPATCH_VER_SHRT = f"ExMachina - ComPatch v{VERSION} {DATE}"
 COMREM_VER = f"ExMachina - Community Remaster build v{VERSION} {DATE}"
-COMREM_VER_SHRT = f"ExMachina - ComRem v{VERSION} {DATE}"
 
 VERSION_BYTES_100_STAR = 0x005A69C2
 
@@ -20,7 +24,6 @@ VERSION_BYTES_103_NOCD = 0x005917D2
 VERSION_BYTES_103_STAR = 0x000103CD
 
 VERSION_BYTES_DEM_LNCH = 0x0000DEAD
-
 
 ENCODING = 'windows-1251'
 
@@ -462,7 +465,7 @@ def is_known_lang(lang: str):
 
 
 def get_title() -> str:
-    return f"DEM Community Mod Manager - v{VERSION} {DATE}"
+    return f"DEM Community Mod Manager {OWN_VERSION}"
 
 
 def set_title() -> None:
@@ -490,4 +493,3 @@ def get_text_offsets(version: str) -> dict:
                     0x5BDCE8: [version_text, 70],
                     0x598DCC: ["169", 3]}
     return offsets_text
-
