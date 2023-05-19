@@ -433,7 +433,7 @@ class GameCopyListItem(UserControl):
                                  weight=ft.FontWeight.W_600,
                                  color=ft.colors.PRIMARY,
                                  text_align=ft.TextAlign.CENTER),
-                            width=120,
+                            width=130,
                             bgcolor=ft.colors.BACKGROUND,
                             border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
                             border_radius=16, padding=ft.padding.only(left=10, right=10, top=5, bottom=5))
@@ -767,6 +767,7 @@ class SettingsScreen(UserControl):
 
         self.no_games_for_filter_warning = ft.Ref[ft.Container]()
         self.filter = Tabs(
+            height=35,
             selected_index=self.app.config.current_game_filter,
             on_change=self.tabs_changed,
             animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
@@ -891,7 +892,8 @@ class SettingsScreen(UserControl):
                                     f"({DEM_DISCORD})  • "
                                     f"[DeusWiki]({WIKI_COMPATCH})",
                                     extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                                    on_tap_link=self.app.home.launch_url, scale=0.9),
+                                    auto_follow_links=True,
+                                    scale=0.9),
                             ],
                            alignment=ft.MainAxisAlignment.CENTER,
                            horizontal_alignment=ft.CrossAxisAlignment.CENTER)
@@ -1180,7 +1182,8 @@ class SettingsScreen(UserControl):
         # TODO: exception handling for add_distribution_dir,
         # check that overwriting distro is working correctly
         loaded_steam_game_paths = self.app.context.current_session.steam_game_paths
-        self.app.context = InstallationContext(self.app.config.current_distro)
+        self.app.context = InstallationContext(self.app.config.current_distro,
+                                               self.app.context.dev_mode)
 
         self.app.context.setup_logging_folder()
         self.app.context.setup_loggers()
@@ -1213,7 +1216,7 @@ class SettingsScreen(UserControl):
                         "but install manifest is missing")
         except HasManifestButUnpatched as ex:
             warning = (f"{tr('install_leftovers')}\n\n" +
-                       f"{tr('error')}: Found existing compatch manifest, but exe version is unexpected: ",
+                       f"{tr('error')}: Found existing compatch manifest, but exe version is unexpected: " +
                        f"{ex.exe_version}")
         except InvalidExistingManifest:
             can_be_added = False
@@ -1233,7 +1236,7 @@ class SettingsScreen(UserControl):
 
         if can_be_added:
             self.view_list_of_games.height = None
-            self.filter.height = None
+            # self.filter.height = None
             self.no_games_for_filter_warning.current.visible = False
             self.list_of_games.height = None
             await self.view_list_of_games.update_async()
@@ -1342,7 +1345,7 @@ class SettingsScreen(UserControl):
         # hide list if there are zero games tracked
         if not self.list_of_games.controls:
             self.view_list_of_games.height = 0
-            self.filter.height = 0
+            # self.filter.height = 0
             self.list_of_games.height = 0
             await self.list_of_games.update_async()
             await self.filter.update_async()
@@ -1645,8 +1648,7 @@ class ModInfo(UserControl):
                 icon.tooltip = mod.lang_label.capitalize()
 
                 if not mod.can_install:
-                    icon.color = ft.colors.BLACK87
-                    icon.color_blend_mode = ft.BlendMode.COLOR
+                    icon.opacity = 0.5
                     icon.tooltip += f' ({tr("cant_be_installed")})'
 
                 flag_btn = ft.IconButton(
@@ -1691,8 +1693,8 @@ class ModInfo(UserControl):
                 screen_widget.src = self.mod.screenshots[self.screenshot_index]["path"]
             await screen_widget.update_async()
 
-    async def launch_url(self, e):
-        await self.app.page.launch_url_async(e.data)
+    # async def launch_url(self, e):
+        # await self.app.page.launch_url_async(e.data)
 
     async def open_home_url(self, e):
         await self.app.page.launch_url_async(self.mod.url)
@@ -1833,6 +1835,8 @@ class ModInfo(UserControl):
             req_errors = [line.strip() for line in req_tuple[2]]
 
             version = req.get("versions")
+            mention_versions = req.get("mention_versions")
+
             if version is None:
                 version = ""
             else:
@@ -1866,10 +1870,10 @@ class ModInfo(UserControl):
                                color=ft.colors.ERROR,
                                tooltip=tr("requirements_not_met"), expand=1)
 
-            if not version:
-                version_string = f'({tr("of_any_version")})'
-            else:
+            if version:
                 version_string = f'({tr("of_version").capitalize()}: {version})'
+            else:
+                version_string = f'({tr("of_any_version")})'
 
             req_list.append(Row([
                 icon,
@@ -1878,7 +1882,8 @@ class ModInfo(UserControl):
                               weight=ft.FontWeight.W_500,
                               color=ft.colors.ON_PRIMARY_CONTAINER),
                          Text(version_string,
-                              weight=ft.FontWeight.W_300),
+                              weight=ft.FontWeight.W_300,
+                              visible=mention_versions),
                          Icon(ft.icons.INFO_OUTLINE_ROUNDED,
                               visible=not ok_status,
                               size=20,
@@ -2037,6 +2042,7 @@ class ModInfo(UserControl):
             ft.Container(
                 content=Column([
                     Tabs(
+                        height=40,
                         selected_index=self.tab_index,
                         animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
                         on_change=self.switch_tab,
@@ -2077,8 +2083,7 @@ class ModInfo(UserControl):
                                                     padding=ft.padding.symmetric(horizontal=6)),
                                                  ft.Container(
                                                      Row([Text(tr("mod_url").replace(":", ""),
-                                                               size=14,
-                                                               weight=ft.FontWeight.NORMAL)],
+                                                               size=14)],
                                                          alignment=ft.MainAxisAlignment.CENTER),
                                                      margin=ft.margin.only(bottom=2), expand=True)
                                                 ],
@@ -2096,8 +2101,7 @@ class ModInfo(UserControl):
                                                      padding=ft.padding.only(left=8, right=8, top=2)),
                                                  ft.Container(
                                                      Row([ft.Text(tr("trailer_watch").capitalize(),
-                                                                  size=14,
-                                                                  weight=ft.FontWeight.NORMAL)],
+                                                                  size=14)],
                                                          alignment=ft.MainAxisAlignment.CENTER),
                                                      margin=ft.margin.only(bottom=2), expand=True)
                                                 ],
@@ -2134,7 +2138,8 @@ class ModInfo(UserControl):
                             ft.Container(
                                 Column([
                                     ft.ResponsiveRow([], ref=self.mod_screens_row,
-                                                     alignment=ft.MainAxisAlignment.CENTER),
+                                                     alignment=ft.MainAxisAlignment.CENTER,
+                                                     vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                     Text("Placeholder", ref=self.screenshot_text)
                                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                 ref=self.screenshots,
@@ -2145,8 +2150,9 @@ class ModInfo(UserControl):
                                     ft.Container(
                                         ft.Markdown(self.mod.change_log_content,
                                                     ref=self.change_log_text,
-                                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                                                    on_tap_link=self.launch_url),
+                                                    auto_follow_links=True,
+                                                    code_theme="atom-one-dark",
+                                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB),
                                         padding=ft.padding.only(right=22))],
                                        scroll=ft.ScrollMode.ADAPTIVE),
                                 ref=self.change_log,
@@ -2159,8 +2165,9 @@ class ModInfo(UserControl):
                                     ft.Container(
                                         ft.Markdown(self.mod.other_info_content,
                                                     ref=self.other_info_text,
-                                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                                                    on_tap_link=self.launch_url),
+                                                    auto_follow_links=True,
+                                                    code_theme="atom-one-dark",
+                                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB),
                                         padding=ft.padding.only(right=22))],
                                        scroll=ft.ScrollMode.ADAPTIVE),
                                 ref=self.other_info,
@@ -2186,6 +2193,7 @@ class ModArchiveItem(UserControl):
         self.parent: LocalModsScreen = parent
         self.archive_path: str = archive_path
         self.mod = mod_dummy
+        self.key = self.mod.id
 
         self.extract_btn = ft.Ref[ft.ElevatedButton]()
         self.about_archived_mod = ft.Ref[ft.OutlinedButton]()
@@ -2227,11 +2235,14 @@ class ModArchiveItem(UserControl):
         if self.expanded:
             self.about_archived_mod.current.text = tr("hide_menu").capitalize()
             self.about_info.current.height = None
+            await self.about_info.current.update_async()
+            await self.parent.mods_list_view.current.scroll_to_async(
+                key=self.mod.id, duration=500)
         else:
             self.about_archived_mod.current.text = tr("about_mod").capitalize()
             self.about_info.current.height = 0
+            await self.about_info.current.update_async()
         await self.about_archived_mod.current.update_async()
-        await self.about_info.current.update_async()
 
     def build(self):
         return ft.Card(
@@ -2300,7 +2311,7 @@ class ModArchiveItem(UserControl):
                                               ref=self.about_archived_mod,
                                               on_click=self.toggle_archived_info)
                             ], col={"xs": 7, "xl": 5}, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-                        ], spacing=10, columns=26),
+                        ], spacing=10, columns=26, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ft.Container(
                         ft.Row([ft.Container(ft.Column([
                             Text(f"{tr('game').capitalize()}: {tr(self.mod.installment)}",
@@ -2331,6 +2342,7 @@ class ModItem(UserControl):
         self.mod = self.main_mod
         self.other_versions = {}
         self.primary = True
+        self.key = self.main_mod.id
 
         self.version_info = ft.Ref[ft.Container]()
         self.install_btn = ft.Ref[ft.ElevatedButton]()
@@ -2362,10 +2374,13 @@ class ModItem(UserControl):
     async def toggle_info(self, e):
         if self.about_mod_btn.current.text == tr("about_mod").capitalize():
             self.about_mod_btn.current.text = tr("hide_menu").capitalize()
+            await self.info_container.current.toggle()
+            await self.app.local_mods.mods_list_view.current.scroll_to_async(
+                key=self.main_mod.id, duration=500)
         else:
             self.about_mod_btn.current.text = tr("about_mod").capitalize()
+            await self.info_container.current.toggle()
         await self.about_mod_btn.current.update_async()
-        await self.info_container.current.toggle()
 
     async def change_lang(self, e=None, lang=None):
         if e is not None:
@@ -2580,10 +2595,10 @@ class ModItem(UserControl):
                                               ref=self.about_mod_btn,
                                               on_click=self.toggle_info)
                             ], col={"xs": 7, "xl": 5}, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-                        ], spacing=7, columns=26),
+                        ], spacing=7, columns=26, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ModInfo(self.app, self.mod, self, ref=self.info_container)
                 ], spacing=0, scroll=ft.ScrollMode.HIDDEN, alignment=ft.MainAxisAlignment.START),
-                margin=13),
+                margin=10),
             margin=ft.margin.symmetric(vertical=1), elevation=3,
             )
 
@@ -2975,8 +2990,11 @@ class ModInstallWizard(UserControl):
             else:
                 status_ok = True
 
+            if mod.config_options:
+                await game.change_config_values(mod.config_options)
+
             if not is_comrem_or_patch:
-                if mod.patcher_options is not None:
+                if mod.patcher_options is not None and not mod.vanilla_mod:
                     file_ops.patch_configurables(game.target_exe, mod.patcher_options)
                     if mod.patcher_options.get('gravity') is not None:
                         file_ops.correct_damage_coeffs(game.game_root_path,
@@ -3000,6 +3018,8 @@ class ModInstallWizard(UserControl):
                     self.app.context.monitor_res,
                     mod.patcher_options if is_comrem else {},
                     self.app.context.under_windows)
+            elif mod.vanilla_mod:
+                changes_description = file_ops.patch_memory(game.target_exe)
 
             if status_ok:
                 er_message = f"Couldn't dump install manifest to '{game.installed_manifest_path}'!"
@@ -3015,7 +3035,7 @@ class ModInstallWizard(UserControl):
                     self.app.logger.error(er_message)
                     return
 
-            if is_comrem_or_patch:
+            if is_comrem_or_patch or mod.vanilla_mod:
                 self.app.game.process_game_install(self.app.game.game_root_path)
         except Exception as ex:
             self.app.logger.error(ex)
@@ -3214,8 +3234,7 @@ class ModInstallWizard(UserControl):
             flag_tooltip = mod.lang_label.capitalize()
 
             if not mod.can_install:
-                icon.color = ft.colors.BLACK87
-                icon.color_blend_mode = ft.BlendMode.COLOR
+                icon.opacity = 0.5
                 flag_tooltip += f' ({tr("cant_be_installed")})'
 
             flag_btn = ft.IconButton(
@@ -3255,6 +3274,8 @@ class ModInstallWizard(UserControl):
                 value = option.default_option
                 if value is None:
                     value = True
+                if not option_card.complex_selector and value == "skip":
+                    value = False
                 if option_card.checkboxes[0].value != value:
                     is_default_install = False
 
@@ -4001,8 +4022,7 @@ class LocalModsScreen(UserControl):
                                 ], spacing=2)
                             ], expand=8)
                    ]), padding=ft.padding.symmetric(horizontal=30, vertical=30)
-               ), elevation=5, margin=ft.margin.only(left=20, right=20, bottom=5),
-               col={"md": 12, "lg": 11, "xxl": 10})
+               ), elevation=5, margin=ft.margin.only(left=20, right=20, bottom=5))
 
         match self.app.game.installment:
             case "exmachina":
@@ -4062,7 +4082,7 @@ class LocalModsScreen(UserControl):
                     ]),
                 padding=ft.padding.symmetric(horizontal=15, vertical=15)
             ), elevation=5, margin=ft.margin.only(left=20, right=20, bottom=5),
-            # surface_tint_color=ft.colors.TERTIARY)
+            surface_tint_color=ft.colors.TERTIARY,
             col={"md": 12, "lg": 11, "xxl": 10})
 
     def build(self):
@@ -4106,7 +4126,8 @@ class LocalModsScreen(UserControl):
                 ft.Column([
                     ft.Container(
                         ft.ResponsiveRow([
-                            ft.Container(ref=self.game_info),
+                            ft.Container(ref=self.game_info,
+                                         col={"md": 12, "lg": 11, "xxl": 10}),
                             Text(tr("no_local_mods_found").capitalize(),
                                  visible=False,
                                  ref=self.no_mods_warning,
@@ -4478,7 +4499,7 @@ class HomeScreen(UserControl):
                             expand=True,
                             code_theme="atom-one-dark",
                             extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                            on_tap_link=self.launch_url,
+                            auto_follow_links=True,
                             ref=self.markdown_content,
                         ), padding=ft.padding.only(left=10, right=22)),
                         ],

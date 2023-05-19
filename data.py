@@ -7,12 +7,13 @@ OWN_VERSION = "2.0-test"
 
 # version of binary fixes
 # corresponds with the latest ComPatch/Rem release at the time of ComMod compilation
-DATE = "(May 12 2023)"
+DATE = "(May 16 2023)"
 VERSION = "1.14"
 
 # main version of exe is dependent on binary fixes, not on ComMod
 # but version string will include ComPatch/Rem build id at the end of the string
 COMPATCH_VER = f"ExMachina - Community Patch build v{VERSION} {DATE}"
+COMPATCH_MIN = f"ExMachina - Minimal ComPatch build 1.02 {DATE}"
 COMREM_VER = f"ExMachina - Community Remaster build v{VERSION} {DATE}"
 
 VERSION_BYTES_100_STAR = 0x005A69C2
@@ -171,6 +172,13 @@ new_icon_header_ends = 0x16
 new_icon_size_offset = 0x60A0BC
 new_icon_group_offset = 0x60A0C8
 
+
+minimal_mm_inserts = {
+              # 4GB patch
+              0x00015E: "2E",
+              # stack size - 4 Mb
+              0x1A8: "00004000"
+              }
 
 mm_inserts = {
               # MemoryManager::MemoryManager
@@ -477,6 +485,8 @@ def get_text_offsets(version: str) -> dict:
         version_text = COMPATCH_VER
     elif version == "remaster":
         version_text = COMREM_VER
+    elif version == "minimal":
+        version_text = COMPATCH_MIN
     else:
         raise NameError(f"Unsupported version '{version}'!")
 

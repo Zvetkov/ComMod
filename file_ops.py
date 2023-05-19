@@ -377,6 +377,24 @@ def get_proc_by_names(proc_names):
     return None
 
 
+def patch_memory(target_exe: str):
+    '''Applies only two memory related binary exe fixes'''
+    with open(target_exe, 'rb+') as f:
+        for offset in data.minimal_mm_inserts.keys():
+            f.seek(offset)
+            f.write(bytes.fromhex(data.minimal_mm_inserts[offset]))
+
+        offsets_text = data.get_text_offsets("minimal")
+        for offset in offsets_text.keys():
+            text_fin = offsets_text[offset][0]
+            text_str = bytes(text_fin, 'utf-8')
+            allowed_len = offsets_text[offset][1]
+            f.seek(offset)
+            f.write(struct.pack(f'{allowed_len}s', text_str))
+
+    return ["mm_inserts_patched"]
+
+
 def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
                    monitor_res: tuple, exe_options: dict = {},
                    under_windows: bool = True) -> list[str]:

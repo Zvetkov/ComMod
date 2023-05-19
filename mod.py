@@ -37,6 +37,7 @@ class Mod:
        and related functions'''
     def __init__(self, yaml_config: dict, distribution_dir: str) -> None:
         try:
+            self.vanilla_mod = False
             self.name = yaml_config.get("name")[:64].replace("/", "").replace("\\", "").replace(".", "").strip()
 
             installment = yaml_config.get("installment")
@@ -180,16 +181,36 @@ class Mod:
             if self.other_info is None:
                 self.other_info = ""
 
+            self.strict_requirements = True
+            strict_requirements = yaml_config.get("strict_requirements")
+            if strict_requirements is not None:
+                if isinstance(strict_requirements, bool):
+                    self.strict_requirements = strict_requirements
+                else:
+                    strict_requirements = str(strict_requirements)
+
+                    if strict_requirements.lower() == "true":
+                        self.strict_requirements = True
+                    elif strict_requirements.lower() == "false":
+                        pass
+                    else:
+                        raise ValueError("'strict_requirements' should be boolean!")
+
             # to simplify hadling of incomps and reqs
             # we always work with them as if they are list of choices
             if self.prerequisites is None:
                 self.prerequisites = []
             elif isinstance(self.prerequisites, list):
+                if not self.prerequisites:
+                    self.strict_requirements = True
                 for prereq in self.prerequisites:
                     if isinstance(prereq.get("name"), str):
                         prereq["name"] = [prereq["name"]]
                     if isinstance(prereq.get("versions"), str):
                         prereq["versions"] = [prereq["versions"]]
+
+            if not self.prerequisites:
+                self.vanilla_mod = True
 
             if self.incompatible is None:
                 self.incompatible = []
@@ -209,6 +230,7 @@ class Mod:
                 self.patcher_version_requirement = [str(ver) for ver in patcher_version_requirement]
 
             self.patcher_options = yaml_config.get("patcher_options")
+            self.config_options = yaml_config.get("config_options")
 
             self.distribution_dir = str(distribution_dir)
             self.options_dict = {}
@@ -664,6 +686,7 @@ class Mod:
                     if error_msg_entry not in error_msg:
                         error_msg.append(error_msg_entry)
         prereq["name_label"] = name_label
+        prereq["mention_versions"] = True
         return validated, error_msg
 
     def check_requirements(self, existing_content: dict, existing_content_descriptions: dict,
@@ -693,6 +716,24 @@ class Mod:
             if mod_error:
                 error_msg.extend(mod_error)
             requirements_met &= validated
+
+        if requirements_met:
+            if self.strict_requirements:
+                # we will handle more complex case in check_incompatibles
+                if self.vanilla_mod:
+                    fake_req = {"name_label": f"{tr('clean').capitalize()} " + tr(self.installment),
+                                "mention_versions": False
+                                }
+                    if set(existing_content.keys()) - set([self.name]):
+                        validated_vanilla_mod = False
+                        mod_error = tr('cant_install_mod_for_vanilla')
+                        error_msg.append(mod_error)
+                    else:
+                        validated_vanilla_mod = True
+                        mod_error = ""
+                    self.individual_require_status.append(
+                        (fake_req, validated_vanilla_mod, [mod_error]))
+                    requirements_met &= validated_vanilla_mod
 
         # if error_msg:
             # error_msg.append(f'\n{tr("check_for_a_new_version")}')
@@ -956,20 +997,37 @@ class Mod:
                 error_msg.extend(mod_error)
             compatible &= (not incompatible_with_game_copy)
 
-        # if error_msg:
-            # error_msg.append(f'\n{tr("check_for_a_new_version")}')
-            # if self.url is not None:
-            #     error_msg.append(f"\n{loc_string('mod_url')} {self.url}")
+        if compatible:
+            if self.strict_requirements and self.prerequisites:
+                self_and_prereqs = [self.name, "community_patch"]
+                for prereq in self.prerequisites:
+                    self_and_prereqs.extend(prereq["name"])
+                existing_other_mods = set(existing_content.keys()) - set(self_and_prereqs)
+                if existing_other_mods:
+                    existing_mods_display_names = []
+                    for name in existing_other_mods:
+                        mod_name = existing_content[name].get("display_name")
+                        if mod_name is None:
+                            mod_name = name
+                        existing_mods_display_names.append(mod_name)
+                    existing_string = ", ".join(existing_mods_display_names)
+                    error_msg.append(f'{tr("cant_install_strict_requirements")}: '
+                                     + existing_string + ".")
+                    compatible = False
+                    fake_incomp = {"name_label": existing_string,
+                                   "mention_versions": False}
+                    self.individual_incomp_status.append(
+                        (fake_incomp, False, [f'{tr("already_installed")}: {existing_string}']))
         return compatible, error_msg
 
     def validate_install_config(install_config: Any, mod_config_path: str,
                                 archive_file_list: Optional[list[ZipInfo]] = None,
                                 root_path: Optional[str] = None) -> bool:
-        logger.debug("--- Validating install config struct ---")
+        logger.info("--- Validating install config struct ---")
         if root_path:
-            logger.debug(f"Path: {root_path}")
+            logger.info(f"Path: {root_path}")
         else:
-            logger.debug(f"Path: {mod_config_path}")
+            logger.info(f"Path: {mod_config_path}")
 
         is_dict = isinstance(install_config, dict)
         if is_dict:
@@ -993,7 +1051,6 @@ class Mod:
                 "safe_reinstall_options": [[bool, str], False],
 
                 "release_date": [[str], False],
-                "url": [[str], False],
                 "trailer_url": [[str], False],
                 "translations": [[list[str]], False],
                 "link": [[str], False],
@@ -1004,7 +1061,9 @@ class Mod:
                 "change_log": [[str], False],
                 "other_info": [[str], False],
                 "patcher_options": [[dict], False],
+                "config_options": [[dict], False],
                 "optional_content": [[list], False],
+                "strict_requirements": [[bool, str], False],
                 "no_base_content": [[bool, str], False],
             }
 
@@ -1019,6 +1078,11 @@ class Mod:
                 "blast_damage_friendly_fire": [[bool, str], False, None],
                 "game_font": [[str], False]
             }
+            schema_config_options = {
+                "firstLevel": [[str], False],
+                "DoNotLoadMainmenuLevel": [[str], False],
+                "weather_AtmoRadius": [[str], False],
+                "weather_ConfigFile": [[str], False]}
             schema_optional_content = {
                 "name": [[str], True],
                 "display_name": [[str], True],
@@ -1039,12 +1103,21 @@ class Mod:
                 logger.info(f"Validating mod '{display_name}' ({mod_name}, lang: {mod_lang})")
                 logger.info("   PASS: Simple manifest validation result")
                 patcher_options = install_config.get("patcher_options")
+                config_options = install_config.get("config_options")
                 optional_content = install_config.get("optional_content")
                 prerequisites = install_config.get("prerequisites")
                 incompatibles = install_config.get("incompatible")
                 if patcher_options is not None:
                     validated &= Mod.validate_dict_constrained(patcher_options, schema_patcher_options)
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: patcher options validation result")
+                    logger.info(f"   {'PASS' if validated else 'FAIL'}: patcher options dict validation result")
+                    validated &= len(set(patcher_options.keys()) - set(schema_patcher_options.keys())) == 0
+                    logger.info(f"   {'PASS' if validated else 'FAIL'}: only supported patcher options validation result")
+
+                if config_options is not None:
+                    validated &= Mod.validate_dict_constrained(config_options, schema_config_options)
+                    logger.info(f"   {'PASS' if validated else 'FAIL'}: config options dict validation result")
+                    validated &= len(set(config_options.keys()) - set(schema_config_options.keys())) == 0
+                    logger.info(f"   {'PASS' if validated else 'FAIL'}: only supported config options validation result")
 
                 if prerequisites is not None:
                     has_forbidden_prerequisites = False

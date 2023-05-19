@@ -659,8 +659,7 @@ class GameCopy:
             version = compatch.get("version")
             if base is None or version is None:
                 return False
-        else:
-            return False
+
         comrem = install_config.get("community_remaster")
         if comrem is not None:
             base = comrem.get("base")
@@ -725,7 +724,7 @@ class GameCopy:
         self.data_path = os.path.join(self.game_root_path, "data")
         self.installed_manifest_path = os.path.join(self.data_path, "mod_manifest.yaml")
 
-        patched_version = ("ComRemaster" in self.exe_version) or ("ComPatch" in self.exe_version)
+        patched_version = (self.exe_version.startswith("ComRemaster")) or (self.exe_version.startswith("ComPatch"))
 
         if self.exe_version != "Unknown" and self.game_root_path:
             self.fullscreen_game = self.get_is_fullscreen()
@@ -837,6 +836,15 @@ class GameCopy:
 
             self.installed_descriptions[content_piece] = description.strip()
 
+    async def change_config_values(self, key_value_pairs):
+        config = get_config(self.game_root_path)
+        for key, value in key_value_pairs.items():
+            current_value = config.attrib.get(key)
+            if current_value is not None:
+                config.attrib[key] = str(value)
+        await save_to_file_async(config,
+                                 os.path.join(self.game_root_path, "data", "config.cfg"))
+
     async def switch_windowed(self, enable=True):
         config = get_config(self.game_root_path)
         current_value = config.attrib.get("r_fullScreen")
@@ -911,6 +919,8 @@ class GameCopy:
                 return "ComPatch 1.13"
             elif version_identifier[:4] == b'1.14':
                 return "ComPatch 1.14"
+            elif version_identifier[:4] == b'1.02':
+                return "ComPatch Mini"
             elif version_identifier[3:7] == b'1.10':
                 return "ComRemaster 1.10"
             elif version_identifier[3:7] == b'1.11':
