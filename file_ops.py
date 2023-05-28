@@ -421,7 +421,7 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
                 f.write(struct.pack("f", round((original_x * data.ENLARGE_UI_COEF * data.PARTIAL_STRETCH)
                                                + (data.PARTIAL_STRETCH_OFFSET * data.TARGET_RES_X))))
 
-            offsets_exe = data.offsets_exe_fixes
+            # offsets_exe = data.offsets_exe_fixes
             offsets_exe.update(data.offsets_exe_ui)
 
             hd_ui.toggle_16_9_UI_xmls(game_root_path, width, height, enable=True)

@@ -7,7 +7,7 @@ OWN_VERSION = "2.0-test"
 
 # version of binary fixes
 # corresponds with the latest ComPatch/Rem release at the time of ComMod compilation
-DATE = "(May 16 2023)"
+DATE = "(May 22 2023)"
 VERSION = "1.14"
 
 # main version of exe is dependent on binary fixes, not on ComMod

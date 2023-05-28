@@ -1,6 +1,7 @@
 import os
 # import winreg
 import logging
+import winreg
 
 import data
 import file_ops
@@ -52,17 +53,6 @@ def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> No
     file_ops.save_to_file(ui_schema, ui_schema_path)
 
     return True
-
-
-# def make_dpi_aware(path_to_exe):
-#     compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
-#     hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
-#     compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_WRITE)
-#     winreg.SetValueEx(compat_settings_reg_value,
-#                       os.path.normpath(path_to_exe), 0, winreg.REG_SZ, "~ HIGHDPIAWARE")
-#     winreg.SetValueEx(compat_settings_reg_value,
-#                       os.path.normpath(path_to_exe), 0, winreg.REG_SZ, "~ HIGHDPIAWARE")
-    # hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
 
 
 def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, enable: bool = True) -> None:

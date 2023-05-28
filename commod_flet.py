@@ -231,14 +231,20 @@ class App:
         self.page.dialog.open = False
         await self.page.update_async()
 
-    async def show_modal(self, text, additional_text="", on_yes=None, on_no=None):
+    async def show_modal(self, text, additional_text="", title=None, on_yes=None, on_no=None):
         if self.page.dialog is not None:
             if self.page.dialog.open:
                 return
 
+        no_options = on_yes is None and on_no is None
+        if title is None:
+            title_text = tr("attention").capitalize()
+        else:
+            title_text = title
+
         dlg = ft.AlertDialog(
             title=Row([Icon(ft.icons.INFO_OUTLINE, color=ft.colors.PRIMARY),
-                       Text(tr("attention").capitalize(), color=ft.colors.PRIMARY)]),
+                       Text(title_text, color=ft.colors.PRIMARY)]),
             shape=ft.buttons.RoundedRectangleBorder(radius=10),
             content=Column([Text(text),
                             Text(additional_text,
@@ -246,9 +252,13 @@ class App:
                            spacing=5,
                            tight=True),
             actions=[
+                ft.TextButton("Ok", on_click=self.close_alert,
+                              visible=no_options),
                 ft.TextButton(tr("yes").capitalize(),
+                              visible=not no_options,
                               on_click=on_yes if on_yes is not None else self.close_alert),
                 ft.TextButton(tr("no").capitalize(),
+                              visible=not no_options,
                               on_click=on_no if on_no is not None else self.close_alert)
                 ],
             actions_padding=ft.padding.only(left=20, bottom=20, right=20)
@@ -488,22 +498,20 @@ class GameCopyListItem(UserControl):
                             wait_duration=300,
                             content=IconButton(
                                 icon=icons.FOLDER_OPEN,
-                                on_click=self.open_clicked),
-                        ),
+                                on_click=self.open_clicked)),
                         ft.Tooltip(
                             message=tr("remove_from_list"),
                             wait_duration=300,
                             content=IconButton(
                                 icons.DELETE_OUTLINE,
-                                on_click=self.delete_clicked)
-                        ),
+                                on_click=self.delete_clicked)),
                         ft.Tooltip(
                             message=tr("edit_name"),
                             wait_duration=300,
                             content=IconButton(
                                 icon=icons.CREATE_OUTLINED,
-                                on_click=self.edit_clicked)
-                        )], spacing=5
+                                on_click=self.edit_clicked))
+                        ], spacing=5
                     )]
                 )
 
@@ -530,7 +538,7 @@ class GameCopyListItem(UserControl):
                             padding=ft.padding.only(right=10),
                             ref=self.item_container)
 
-    async def make_current(self, e):
+    async def make_current(self, e=None):
         if not self.current:
             await self.select_game(self)
         await self.update_async()
@@ -4205,6 +4213,8 @@ class HomeScreen(UserControl):
         self.launch_game_btn_text = ft.Ref[Text]()
         self.launch_prog_ring = ft.Ref[ft.ProgressRing]()
         self.checkbox_windowed_game = ft.Ref[ft.PopupMenuItem]()
+        self.checkbox_hi_dpi_aware = ft.Ref[ft.PopupMenuItem]()
+        self.checkbox_fullsreen_opts = ft.Ref[ft.PopupMenuItem]()
         self.refreshing = False
 
     async def did_mount_async(self):
@@ -4273,12 +4283,59 @@ class HomeScreen(UserControl):
         self.checkbox_windowed_game.current.checked = not self.checkbox_windowed_game.current.checked
         await self.checkbox_windowed_game.current.update_async()
         if self.app.game.game_root_path:
-            # just an additional safeguard, all actions on game are delayed by 1 second after game_change_time
+            # just an additional safeguard, all actions on game
+            # are delayed by 1 second after game_change_time
             self.app.game_change_time = datetime.now()
             await self.app.game.switch_windowed(enable=not self.checkbox_windowed_game.current.checked)
 
         self.launch_game_btn.current.disabled = False
         await self.launch_game_btn.current.update_async()
+
+    async def switch_to_hidpi_aware(self, e):
+        # temporarily disabling game launch
+        self.launch_game_btn.current.disabled = True
+        await self.launch_game_btn.current.update_async()
+
+        self.checkbox_hi_dpi_aware.current.checked = not self.checkbox_hi_dpi_aware.current.checked
+        if self.app.game.game_root_path:
+            # just an additional safeguard, all actions on game
+            # are delayed by 1 second after game_change_time
+            self.app.game_change_time = datetime.now()
+            result_ok = self.app.game.switch_hi_dpi_aware(enable=self.checkbox_hi_dpi_aware.current.checked)
+            if not result_ok:
+                self.checkbox_hi_dpi_aware.current.checked = not self.checkbox_hi_dpi_aware.current.checked
+                await self.app.show_alert(tr("no_access_to_registry_cant_set"))
+
+        await self.checkbox_hi_dpi_aware.current.update_async()
+
+        self.launch_game_btn.current.disabled = False
+        await self.launch_game_btn.current.update_async()
+
+    async def switch_fullscreen_optimizations(self, e):
+        # temporarily disabling game launch
+        self.launch_game_btn.current.disabled = True
+        await self.launch_game_btn.current.update_async()
+
+        self.checkbox_fullsreen_opts.current.checked = not self.checkbox_fullsreen_opts.current.checked
+        if self.app.game.game_root_path:
+            # just an additional safeguard, all actions on game
+            # are delayed by 1 second after game_change_time
+            self.app.game_change_time = datetime.now()
+            result_ok = self.app.game.switch_fullscreen_opts(
+                disable=self.checkbox_fullsreen_opts.current.checked)
+            if not result_ok:
+                self.checkbox_fullsreen_opts.current.checked = \
+                    not self.checkbox_fullsreen_opts.current.checked
+                await self.app.show_alert(tr("no_access_to_registry_cant_set"))
+
+        await self.checkbox_fullsreen_opts.current.update_async()
+
+        self.launch_game_btn.current.disabled = False
+        await self.launch_game_btn.current.update_async()
+
+    async def show_launch_opts_instruction(self, e):
+        await self.app.show_modal(tr("launch_options_instruction_text"),
+                                  title=tr("launch_options_instructions").capitalize())
 
     async def launch_game(self, e):
         current_time = datetime.now()
@@ -4382,6 +4439,44 @@ class HomeScreen(UserControl):
                ), elevation=5, margin=ft.margin.symmetric(horizontal=80))
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
+    async def open_clicked(self, e):
+        # open game directory in Windows Explorer
+        if os.path.isdir(self.app.game.game_root_path):
+            os.startfile(self.app.game.game_root_path)
+        await self.update_async()
+
+    async def select_game_from_home(self, e):
+        try:
+            self.app.game = GameCopy()
+            self.app.game.process_game_install(e.control.data)
+        except PatchedButDoesntHaveManifest:
+            pass
+        except HasManifestButUnpatched:
+            pass
+        except Exception as ex:
+            # TODO: Handle exceptions properly
+            await self.app.show_alert(tr('broken_game'), ex)
+            self.app.logger.error(f"[Game loading error] {ex}")
+            return
+
+        self.app.config.current_game = e.control.data
+        self.app.logger.info(f"Game is now: {e.control.data}")
+
+        if self.app.context.distribution_dir:
+            # self.app.context.validated_mod_configs.clear()
+            loaded_steam_game_paths = self.app.context.current_session.steam_game_paths
+            self.app.context.current_session = InstallationContext.Session()
+            self.app.session = self.app.context.current_session
+            # TODO: maybe do a full steam path reload?
+            # or maybe also copy steam_parsing_error
+            self.app.session.steam_game_paths = loaded_steam_game_paths
+            # self.app.load_distro()
+            await self.app.load_distro_async()
+        else:
+            self.app.logger.debug("No distro dir found in context")
+
+        await self.app.refresh_page(AppSections.LAUNCH.value)
+
     def build(self):
         with open(get_internal_file_path("assets/placeholder.md"), "r", encoding="utf-8") as fh:
             md1 = fh.read()
@@ -4410,10 +4505,72 @@ class HomeScreen(UserControl):
             if not self.app.game.target_exe:
                 return self.get_no_game_placeholder()
 
+            mods_info = Column([])
             if self.app.game.installed_descriptions:
                 mods_text = "\n\n".join(self.app.game.installed_descriptions.values())
+                for value in self.app.game.installed_descriptions.values():
+                    if len(mods_info.controls) > 2:
+                        mods_info.controls.append(
+                            ft.Container(
+                                Text(f"... {tr('and_others')}",
+                                     size=12,
+                                     color=ft.colors.ON_BACKGROUND,
+                                     tooltip=mods_text), margin=ft.margin.only(left=25)))
+                        break
+                    splited = value.split("\n")
+                    if len(splited) > 1:
+                        mods_info.controls.append(
+                            ft.Container(
+                                ft.Row([
+                                    Icon(ft.icons.INFO_OUTLINE_ROUNDED,
+                                         size=12,
+                                         color=ft.colors.SECONDARY,
+                                         expand=1),
+                                    Text(splited[0],
+                                         size=12,
+                                         overflow=ft.TextOverflow.ELLIPSIS,
+                                         expand=10),
+                                   ],
+                                   tight=True,
+                                   spacing=4,
+                                   alignment=ft.MainAxisAlignment.START,
+                                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                tooltip="\n".join(splited)))
+                    else:
+                        mods_info.controls.append(
+                            ft.Row([
+                                    Icon(ft.icons.CIRCLE,
+                                         size=12,
+                                         color=ft.colors.ON_BACKGROUND,
+                                         expand=1),
+                                    Text(value,
+                                         size=12,
+                                         overflow=ft.TextOverflow.ELLIPSIS,
+                                         expand=10),
+                                   ],
+                                   tight=True,
+                                   spacing=5,
+                                   alignment=ft.MainAxisAlignment.START,
+                                   vertical_alignment=ft.CrossAxisAlignment.CENTER))
             else:
                 mods_text = ""
+                mods_info.visible = False
+
+            if len(self.app.config.game_names) == 1:
+                game_selector = Icon(ft.icons.BADGE_ROUNDED, color=ft.colors.PRIMARY, size=20)
+            else:
+                game_selector = ft.PopupMenuButton(
+                                    icon=ft.icons.BADGE_ROUNDED,
+                                    # icon_color=ft.colors.PRIMARY,
+                                    # icon_size=20,
+                                    scale=0.85,
+                                    tooltip=tr("select_other_game").capitalize(),
+                                    items=[])
+                for key, value in self.app.config.game_names.items():
+                    game_selector.items.append(
+                        ft.PopupMenuItem(content=Text(value), data=key, on_click=self.select_game_from_home)
+                    )
+                game_selector = ft.Container(game_selector, margin=ft.margin.only(left=-3))
 
             return ft.Container(
                 ft.ResponsiveRow([
@@ -4424,29 +4581,40 @@ class HomeScreen(UserControl):
                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                 margin=ft.margin.only(top=10)),
                             Row([
-                                Icon(ft.icons.BADGE_ROUNDED, color=ft.colors.PRIMARY, size=20),
+                                game_selector,
                                 ft.Column([Text(self.app.config.game_names[self.app.config.current_game],
                                                 color=ft.colors.PRIMARY,
                                                 overflow=ft.TextOverflow.ELLIPSIS,
                                                 weight=ft.FontWeight.W_400)], expand=True)
-                                ]),
-                            Row([
+                                ], spacing=0, alignment=ft.MainAxisAlignment.START),
+                            ft.Container(Row([
                                 Icon(ft.icons.INFO_ROUNDED, color=ft.colors.PRIMARY, size=20),
                                 Text(self.app.game.exe_version,
                                      color=ft.colors.PRIMARY,
                                      tooltip=tr("exe_version"),
                                      weight=ft.FontWeight.W_700),
-                                ]),
+                                ]), margin=ft.margin.only(left=7)),
                             ft.Tooltip(
                                 message=mods_text,
                                 wait_duration=100,
                                 visible=bool(mods_text),
-                                content=Row([
-                                    Icon(ft.icons.BUILD_ROUNDED, size=20, color=ft.colors.PRIMARY),
-                                    Text(tr("has_mods").capitalize(),
-                                         weight=ft.FontWeight.W_500,
-                                         color=ft.colors.PRIMARY)
-                                    ]))
+                                content=ft.Container(Row([
+                                    Text(tr("has_mods").upper(),
+                                         weight=ft.FontWeight.BOLD,
+                                         color=ft.colors.ON_BACKGROUND)
+                                    ]), margin=ft.margin.only(top=10))),
+                            ft.Container(mods_info),
+                            ft.Container(Column([
+                                Text(tr("actions").upper(),
+                                     weight=ft.FontWeight.BOLD),
+                                ft.Tooltip(
+                                    message=tr("open_in_explorer"),
+                                    wait_duration=300,
+                                    content=ft.TextButton(
+                                        text=tr("open_in_explorer"),
+                                        icon=icons.FOLDER_OPEN,
+                                        on_click=self.open_clicked))
+                            ]), margin=ft.margin.only(top=10))
                         ]), clip_behavior=ft.ClipBehavior.ANTI_ALIAS),
                         # Text(self.app.context.distribution_dir),
                         # Text(self.app.context.commod_version),
@@ -4454,23 +4622,55 @@ class HomeScreen(UserControl):
                         # Text(self.app.game.display_name),
                         Column([
                             Row([Text(tr("launch_params").upper(),
-                                      weight=ft.FontWeight.W_700),
+                                      weight=ft.FontWeight.BOLD),
                                  ft.PopupMenuButton(items=[
                                     ft.PopupMenuItem(
-                                        content=Text(tr("windowed_mode").capitalize(), size=14),
+                                        content=Row([Icon(ft.icons.FULLSCREEN_ROUNDED),
+                                                     Text(tr("windowed_mode").capitalize(),
+                                                          width=160,
+                                                          size=13)]),
                                         checked=not self.app.game.fullscreen_game,
                                         on_click=self.switch_to_windowed,
-                                        ref=self.checkbox_windowed_game)],
+                                        ref=self.checkbox_windowed_game),
+                                    ft.PopupMenuItem(
+                                        content=Row([Icon(ft.icons.FOUR_K_ROUNDED),
+                                                     Text(tr("hi_dpi_aware"),
+                                                          width=160,
+                                                          size=13)]),
+                                        checked=self.app.game.hi_dpi_aware,
+                                        on_click=self.switch_to_hidpi_aware,
+                                        ref=self.checkbox_hi_dpi_aware),
+                                    ft.PopupMenuItem(
+                                        content=Row([Icon(ft.icons.SETTINGS_APPLICATIONS_OUTLINED),
+                                                     Text(tr("fullscreen_optimizations"),
+                                                          width=160,
+                                                          size=13)]),
+                                        checked=self.app.game.fullscreen_opts_disabled,
+                                        on_click=self.switch_fullscreen_optimizations,
+                                        ref=self.checkbox_fullsreen_opts),
+                                    ft.PopupMenuItem(),
+                                    ft.PopupMenuItem(
+                                        content=ft.Container(
+                                            Row([Icon(ft.icons.QUESTION_MARK_OUTLINED,
+                                                      color=ft.colors.ON_BACKGROUND),
+                                                 Text(tr("launch_options_instructions").capitalize(),
+                                                      width=190,
+                                                      size=13)]),
+                                            margin=ft.margin.only(left=15)),
+                                        on_click=self.show_launch_opts_instruction)
+                                    ],
                                     # TODO: is this working as intended?
                                     disabled=self.app.game.exe_version == "Unknown")
                                  ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                            Row([ft.Switch(value=self.app.config.game_with_console,
-                                           scale=0.7,
-                                           on_change=self.game_console_mode_change,
-                                           ref=self.game_console_switch),
-                                 Text(tr("enable_console").capitalize(),
-                                 weight=ft.FontWeight.W_500)],
-                                spacing=0),
+                            ft.Container(
+                                Row([ft.Switch(
+                                        value=self.app.config.game_with_console,
+                                        scale=0.7,
+                                        on_change=self.game_console_mode_change,
+                                        ref=self.game_console_switch),
+                                     Text(tr("enable_console").capitalize(),
+                                          weight=ft.FontWeight.W_500)
+                                     ], spacing=0), margin=ft.margin.only(bottom=10)),
                             ft.FloatingActionButton(
                                 content=ft.Row([
                                     ft.ProgressRing(visible=False,
@@ -4488,7 +4688,7 @@ class HomeScreen(UserControl):
                                 ref=self.launch_game_btn,
                                 on_click=self.launch_game,
                                 aspect_ratio=2.5,
-                            )])
+                            )], spacing=0)
                         ],
                         col={"xs": 8, "xl": 7, "xxl": 6}, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Container(Column([

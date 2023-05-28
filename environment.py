@@ -606,12 +606,15 @@ class InstallationContext:
 class GameCopy:
     '''Stores info about a processed HTA/EM game copy'''
     def __init__(self) -> None:
+        self.logger = logging.getLogger('dem')
         self.installed_content = {}
         self.installed_descriptions = {}
         self.patched_version = False
         self.leftovers = False
         self.target_exe = ""
         self.fullscreen_game = True
+        self.hi_dpi_aware = False
+        self.fullscreen_opts_disabled = False
         self.game_root_path = ""
         self.exe_version = "Unknown"
         self.installment = None
@@ -724,13 +727,16 @@ class GameCopy:
         self.data_path = os.path.join(self.game_root_path, "data")
         self.installed_manifest_path = os.path.join(self.data_path, "mod_manifest.yaml")
 
-        patched_version = (self.exe_version.startswith("ComRemaster")) or (self.exe_version.startswith("ComPatch"))
+        patched_version = (self.exe_version.startswith("ComRemaster")
+                           or self.exe_version.startswith("ComPatch"))
 
         if self.exe_version != "Unknown" and self.game_root_path:
             self.fullscreen_game = self.get_is_fullscreen()
             if self.fullscreen_game is None:
                 # TODO: is not actually InvalidGameDirectory but more like BrokenGameConfig exception
                 raise InvalidGameDirectory(os.path.join(self.game_root_path, "data", "config.cfg"))
+            self.hi_dpi_aware = self.get_is_hidpi_aware()
+            self.fullscreen_opts_disabled = self.get_is_fullscreen_opts_disabled()
 
         # if len(self.game_root_path) > 60:
         #     path_identifier = f"{Path(self.game_root_path).drive}/.../{Path(self.game_root_path).name}"
@@ -871,6 +877,157 @@ class GameCopy:
             return False
         else:
             return None
+
+    def switch_hi_dpi_aware(self, enable=True):
+        compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+        hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
+        try:
+            compat_settings_reg_value_hkcu = winreg.OpenKey(
+                hkcu, compat_settings_reg_path, 0, winreg.KEY_WRITE)
+        except PermissionError:
+            self.logger.debug("Unable to open registry - no access")
+            return False
+
+        if enable:
+            try:
+                if self.fullscreen_opts_disabled:
+                    new_value = "~ DISABLEDXMAXIMIZEDWINDOWEDMODE HIGHDPIAWARE"
+                else:
+                    new_value = "~ HIGHDPIAWARE"
+                winreg.SetValueEx(compat_settings_reg_value_hkcu,
+                                  self.target_exe, 0, winreg.REG_SZ,
+                                  new_value)
+                self.hi_dpi_aware = True
+                return True
+            except PermissionError:
+                self.logger.debug("Unable to set hi_dpi_aware/disable_fullscreen_optimisations - no access")
+                return False
+        else:
+            try:
+                if not self.fullscreen_opts_disabled:
+                    winreg.DeleteValue(compat_settings_reg_value_hkcu,
+                                       self.target_exe)
+                else:
+                    winreg.SetValueEx(compat_settings_reg_value_hkcu,
+                                      self.target_exe, 0, winreg.REG_SZ,
+                                      "~ DISABLEDXMAXIMIZEDWINDOWEDMODE")
+            except FileNotFoundError:
+                pass
+            except PermissionError:
+                return False
+
+            success = not self.get_is_hidpi_aware()
+
+            if success:
+                self.hi_dpi_aware = False
+                return True
+            else:
+                return False
+
+    def get_is_hidpi_aware(self):
+        compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+        hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+        compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
+        try:
+            value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
+            if "HIGHDPIAWARE" in value[0]:
+                return True
+            else:
+                value = None
+        except FileNotFoundError:
+            value = None
+
+        hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
+        compat_settings_reg_value = winreg.OpenKey(hkcu, compat_settings_reg_path, 0, winreg.KEY_READ)
+        try:
+            value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
+            if "HIGHDPIAWARE" in value[0]:
+                return True
+            else:
+                value = None
+        except FileNotFoundError:
+            value = None
+        except IndexError:
+            value = None
+
+        if value is None:
+            return False
+
+    def switch_fullscreen_opts(self, disable=True):
+        compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+        hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
+        try:
+            compat_settings_reg_value_hkcu = winreg.OpenKey(
+                hkcu, compat_settings_reg_path, 0, winreg.KEY_WRITE)
+        except PermissionError:
+            self.logger.debug("Unable to open registry - no access")
+            return False
+
+        if disable:
+            try:
+                if self.hi_dpi_aware:
+                    new_value = "~ DISABLEDXMAXIMIZEDWINDOWEDMODE HIGHDPIAWARE"
+                else:
+                    new_value = "~ DISABLEDXMAXIMIZEDWINDOWEDMODE"
+                winreg.SetValueEx(compat_settings_reg_value_hkcu,
+                                  self.target_exe, 0, winreg.REG_SZ,
+                                  new_value)
+
+                self.fullscreen_opts_disabled = True
+                return True
+            except PermissionError:
+                self.logger.debug("Unable to set hi_dpi_aware/disable_fullscreen_optimisations - no access")
+                return False
+        else:
+            try:
+                if not self.hi_dpi_aware:
+                    winreg.DeleteValue(compat_settings_reg_value_hkcu,
+                                       self.target_exe)
+                else:
+                    winreg.SetValueEx(compat_settings_reg_value_hkcu,
+                                      self.target_exe, 0, winreg.REG_SZ,
+                                      "~ HIGHDPIAWARE")
+            except FileNotFoundError:
+                pass
+            except PermissionError:
+                return False
+
+            success = not self.get_is_fullscreen_opts_disabled()
+
+            if success:
+                self.fullscreen_opts_disabled = False
+                return True
+            else:
+                return False
+
+    def get_is_fullscreen_opts_disabled(self):
+        compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+        hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+        compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
+        try:
+            value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
+            if "DISABLEDXMAXIMIZEDWINDOWEDMODE" in value[0]:
+                return True
+            else:
+                value = None
+        except FileNotFoundError:
+            value = None
+
+        hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
+        compat_settings_reg_value = winreg.OpenKey(hkcu, compat_settings_reg_path, 0, winreg.KEY_READ)
+        try:
+            value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
+            if "DISABLEDXMAXIMIZEDWINDOWEDMODE" in value[0]:
+                return True
+            else:
+                value = None
+        except FileNotFoundError:
+            value = None
+        except IndexError:
+            value = None
+
+        if value is None:
+            return False
 
     @staticmethod
     def is_compatch_compatible_exe(version: str) -> bool:
