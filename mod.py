@@ -15,6 +15,8 @@ from datetime import datetime
 
 from enum import Enum
 
+from py7zr import py7zr
+
 from color import bcolors, fconsole, remove_colors
 from localisation import tr, DEM_DISCORD, COMPATCH_GITHUB, WIKI_COMPATCH
 from data import is_known_lang, get_known_mod_display_name
@@ -1021,7 +1023,7 @@ class Mod:
         return compatible, error_msg
 
     def validate_install_config(install_config: Any, mod_config_path: str,
-                                archive_file_list: Optional[list[ZipInfo]] = None,
+                                archive_file_list: Optional[list[ZipInfo] | py7zr.ArchiveFileList] = None,
                                 root_path: Optional[str] = None) -> bool:
         logger.info("--- Validating install config struct ---")
         if root_path:
@@ -1193,7 +1195,15 @@ class Mod:
                     no_base_config = False
 
                 if archive_file_list is not None:
-                    archive_files = [file.filename for file in archive_file_list]
+                    if isinstance(archive_file_list, py7zr.ArchiveFileList):
+                        archive_files = []
+                        for file in archive_file_list:
+                            if file.emptystream:
+                                archive_files.append(f"{file.filename}/")
+                            else:
+                                archive_files.append(file.filename)
+                    else:
+                        archive_files = [file.filename for file in archive_file_list]
                     if mod_name == "community_remaster":
                         paths_to_check = [
                             mod_config_path.replace("remaster/manifest.yaml", "patch/"),
@@ -1202,7 +1212,7 @@ class Mod:
                         validated_comrem = all(com_path in archive_files for com_path in paths_to_check)
                         validated &= validated_comrem
                         logger.info(f"   {'PASS' if validated_comrem else 'FAIL'}: "
-                                    "ZIPed ComPatch files validation "
+                                    "Archived ComPatch files validation "
                                     "('patch' and 'libs' folders) result")
 
                     if not validated:
@@ -1214,10 +1224,10 @@ class Mod:
                         validated_data_dir = mod_data_path in archive_files
                         validated &= validated_data_dir
                         if not validated_data_dir:
-                            logger.error("   FAIL: ZIPed base mod data folder validation fail, "
+                            logger.error("   FAIL: Archived base mod data folder validation fail, "
                                          f"expected path not found: {mod_data_path}")
                         else:
-                            logger.info("   PASS: ZIPed base mod data folder validation result")
+                            logger.info("   PASS: Archived base mod data folder validation result")
 
                     if not validated:
                         logger.info("<! BASE FILES VALIDATION FAILED, SKIPPING FURTHER CHECKS !>")
@@ -1233,14 +1243,14 @@ class Mod:
                                         "manifest.yaml",
                                         f'{option.get("name")}/{setting.get("name")}/data/') in archive_files
                                     logger.info(f"   {'PASS' if validated else 'FAIL'}: "
-                                                f"ZIPed optional content '{option.get('name')}' "
+                                                f"Archived optional content '{option.get('name')}' "
                                                 f"install setting '{setting.get('name')}' "
                                                 f"data folder validation result")
                             else:
                                 validated &= mod_config_path.replace(
                                     "manifest.yaml", f'{option.get("name")}/data/') in archive_files
                             logger.info(f"   {'PASS' if validated else 'FAIL'}: "
-                                        f"ZIPed optional content '{option.get('name')}' "
+                                        f"Archived optional content '{option.get('name')}' "
                                         "data folder validation result")
                 else:
                     mod_root_dir = Path(mod_config_path).parent
@@ -1608,7 +1618,7 @@ class Mod:
         def __init__(self, description: dict, parent: Mod) -> None:
             self.name = str(description.get("name"))[:64].replace("/", "").replace("\\", "").replace(".", "")
             self.display_name = description.get("display_name")[:64]
-            self.description = description.get("description")[:256].strip()
+            self.description = description.get("description")[:512].strip()
 
             self.install_settings = description.get("install_settings")
             self.default_option = None

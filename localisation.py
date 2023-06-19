@@ -8,6 +8,7 @@ from data import OWN_VERSION
 logger = logging.getLogger('dem')
 
 DEM_DISCORD = "https://discord.gg/jZHxYdF"
+DEM_DISCORD_MODS_DOWNLOAD_SCREEN = "https://discord.gg/deus-ex-machina-522817939616038912"
 COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
 WIKI_COMPATCH = "https://deuswiki.com/w/Community_Patch"
 
@@ -37,17 +38,6 @@ class SupportedLanguages(Enum):
 
 
 local_dict = {
-    "clean": "чистая",
-    "cant_install_mod_for_vanilla": "Установка невозможна, данный мод устанавливается только на чистую игру",
-    "cant_install_strict_requirements": "Установка невозможна, мод не позволяет установку поверх других модов",
-    "hi_dpi_aware": "HiDPI масштабирование",
-    "fullscreen_optimizations": "ВЫКЛ полноэкранные оптимизации",
-    "launch_options_instructions": "информация о параметрах",
-    "launch_options_instruction_text": "HiDPI масштабирование: полезно включать в оконном режиме при масштабировании операционной системы выше 100% (125% и т.д.). Делает приложение 'HiDPI aware', т.е. позволяет ему управлять собственным масштабированием, благодаря чему нет замыливания шрифтов и растягивания всего окна. Не влияет на отображение игры в полноэкранном режиме.\n\nВЫКЛ полноэкранные оптимизации: стоит выбрать этот параметр, если окно игры не исчезает после её закрытия, а остаётся видимым в системе, требуя закрытия через диспетчер задач.",
-    "actions": "действия",
-    "and_others": "и другие",
-    "select_other_game": "выбрать другую копию игры"
-
 }
 
 

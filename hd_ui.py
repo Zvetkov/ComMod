@@ -1,7 +1,6 @@
 import os
 # import winreg
 import logging
-import winreg
 
 import data
 import file_ops
@@ -98,6 +97,13 @@ def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, en
         else:
             new_value = r"data\if\diz\LevelInfo.xml"
         config.attrib["pathToLevelInfo"] = new_value
+
+    if config.attrib.get("g_impostorThreshold") is not None:
+        if enable:
+            new_value = r"1000"
+        else:
+            new_value = r"500"
+        config.attrib["g_impostorThreshold"] = new_value
 
     width = config.attrib.get("r_width")
     height = config.attrib.get("r_height")

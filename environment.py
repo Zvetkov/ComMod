@@ -1,4 +1,5 @@
 from asyncio import gather
+import asyncio
 from ctypes import windll
 import logging
 import os
@@ -6,14 +7,17 @@ import platform
 import subprocess
 import sys
 from enum import Enum
+from typing import Optional
 import zipfile
 import hashlib
-import aiofiles
 from aiopath import AsyncPath
+from flet import Text
 
 from pathlib import Path
 from datetime import datetime
 import winreg
+
+import py7zr
 from color import bcolors, fconsole
 from mod import Mod, GameInstallments
 from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory,\
@@ -57,8 +61,8 @@ class InstallationContext:
         self.distribution_dir = ""
         self.validated_mod_configs = {}
         self.hashed_mod_manifests = {}
-        self.ziped_mods = {}
-        self.zip_manifest_cache = {}
+        self.archived_mods = {}
+        self.archived_manifests_cache = {}
         self.commod_version = OWN_VERSION
         self.os = platform.system()
         self.os_version = platform.release()
@@ -208,10 +212,10 @@ class InstallationContext:
             os.makedirs(mods_path, exist_ok=True)
             raise ModsDirMissing
         # self.logger.debug("get_existing_mods call")
-        mod_configs_paths, ziped_mods = self.get_existing_mods(mods_path)
+        mod_configs_paths, archived_mods = self.get_existing_mods(mods_path)
         self.logger.debug("-- Got existing mods --")
         all_config_paths.extend(mod_configs_paths)
-        if not all_config_paths and not ziped_mods:
+        if not all_config_paths and not archived_mods:
             raise NoModsFound
 
         for mod_config_path in all_config_paths:
@@ -256,13 +260,13 @@ class InstallationContext:
                 self.validated_mod_configs.pop(mod, None)
                 self.hashed_mod_manifests.pop(mod, None)
 
-        if ziped_mods:
-            for path, manifest in ziped_mods.items():
+        if archived_mods:
+            for path, manifest in archived_mods.items():
                 try:
                     mod_dummy = Mod(manifest, Path(path).parent)
-                    self.ziped_mods[path] = mod_dummy
+                    self.archived_mods[path] = mod_dummy
                 except Exception as ex:
-                    self.app.logger.error("Error on ZIP mod preload", ex)
+                    self.logger.error("Error on archived mod preload", exc_info=ex)
                     # TODO: remove raise, need to test
                     raise NotImplementedError
                     continue
@@ -283,10 +287,10 @@ class InstallationContext:
             os.makedirs(mods_path, exist_ok=True)
             raise ModsDirMissing
         # self.logger.debug("get_existing_mods_async call")
-        mod_configs_paths, ziped_mods = await self.get_existing_mods_async(mods_path)
+        mod_configs_paths, archived_mods = await self.get_existing_mods_async(mods_path)
         self.logger.debug("-- Got existing mods --")
         all_config_paths.extend(mod_configs_paths)
-        if not all_config_paths and not ziped_mods:
+        if not all_config_paths and not archived_mods:
             raise NoModsFound
 
         for mod_config_path in all_config_paths:
@@ -331,13 +335,13 @@ class InstallationContext:
                 self.validated_mod_configs.pop(mod, None)
                 self.hashed_mod_manifests.pop(mod, None)
 
-        if ziped_mods:
-            for path, manifest in ziped_mods.items():
+        if archived_mods:
+            for path, manifest in archived_mods.items():
                 try:
                     mod_dummy = Mod(manifest, Path(path).parent)
-                    self.ziped_mods[path] = mod_dummy
+                    self.archived_mods[path] = mod_dummy
                 except Exception as ex:
-                    self.app.logger.error("Error on ZIP mod preload", ex)
+                    self.app.logger.error("Error on archived mod preload", exc)
                     # TODO: remove raise, need to test
                     raise NotImplementedError
                     continue
@@ -345,7 +349,7 @@ class InstallationContext:
         if mod_loading_errors:
             self.logger.error("-- Errors occurred when loading mods! --")
 
-    def get_dir_manifest(self, dir: str, nesting_levels: int = 3, top_level=True) -> str:
+    def get_dir_manifests(self, dir: str, nesting_levels: int = 3, top_level=True) -> str:
         found_manifests = []
         levels_left = nesting_levels - 1
         for entry in os.scandir(dir):
@@ -357,7 +361,7 @@ class InstallationContext:
                         break
                 else:
                     if levels_left != 0:
-                        found_manifests.extend(self.get_dir_manifest(entry, levels_left, top_level=False))
+                        found_manifests.extend(self.get_dir_manifests(entry, levels_left, top_level=False))
         return found_manifests
 
     async def find_manifest_in_dir(self, dir: AsyncPath, nesting_levels: int = 3):
@@ -398,45 +402,73 @@ class InstallationContext:
 
     def get_existing_mods(self, mods_dir: str) -> list[str]:
         # self.logger.debug("Inside get_existing_mods")
-        mod_list = self.get_dir_manifest(mods_dir)
+        mod_list = self.get_dir_manifests(mods_dir)
         # self.logger.debug("Finished get_dir_manifest")
-        zip_dict = {}
-        for entry in os.scandir(mods_dir):
-            if entry.path.endswith(".zip"):
-                # self.logger.debug(f"Getting zip manifest for {entry.path}")
-                manifest = self.get_zip_manifest(entry.path)
-                if manifest:
-                    zip_dict[entry.path] = manifest
-            # self.logger.debug("Added zip manifest to list")
+        archive_dict = {}
+        # for entry in os.scandir(mods_dir):
+        #     if entry.path.endswith(".zip"):
+        #         self.logger.debug(f"Getting zip manifest for {entry.path}")
+        #         manifest = self.get_zip_manifest(entry.path)
+        #         if manifest:
+        #             archive_dict[entry.path] = manifest
+        #     self.logger.debug("Added zip manifest to list")
 
-        # self.logger.debug("Finished get_zip_manifest")
-        return mod_list, zip_dict
+        # for entry in os.scandir(mods_dir):
+        #     if entry.path.endswith(".7z"):
+        #         self.logger.debug(f"Getting 7z manifest for {entry.path}")
+        #         manifest = self.get_7z_manifest(entry.path)
+        #         if manifest:
+        #             archive_dict[entry.path] = manifest
+        #     self.logger.debug("Added 7z manifest to list")
+
+        # self.logger.debug("Finished get_archived_manifests")
+        return mod_list, archive_dict
 
     async def get_existing_mods_async(self, mods_dir: str) -> list[str]:
         # self.logger.debug("Inside get_existing_mods async")
         # mod_list = await self.get_dir_manifest_async(mods_dir)
-        mod_list = self.get_dir_manifest(mods_dir)
+        mod_list = self.get_dir_manifests(mods_dir)
         # self.logger.debug("Finished get_dir_manifest")
-        zip_dict = {}
-        async for entry in AsyncPath(mods_dir).glob("*.zip"):
-            # self.logger.debug(f"Working on zip {entry}")
-            if entry.suffix == ".zip":
-                # self.logger.debug(f"Getting zip manifest for {entry}")
-                manifest = await self.get_zip_manifest_async(entry)
-                if manifest:
-                    zip_dict[entry] = manifest
-            # self.logger.debug("Added zip manifest to list")
+        archive_dict = {}
+        # async for entry in AsyncPath(mods_dir).glob("*.zip"):
+        #     self.logger.debug(f"Working on zip {entry}")
+        #     if entry.suffix == ".zip":
+        #         self.logger.debug(f"Getting zip manifest for {entry}")
+        #         manifest = await self.get_zip_manifest_async(entry)
+        #         if manifest:
+        #             archive_dict[entry] = manifest
+        #     self.logger.debug("Added zip manifest to list")
 
-        # self.logger.debug("Finished get_zip_manifest")
-        return mod_list, zip_dict
+        # async for entry in AsyncPath(mods_dir).glob("*.7z"):
+        #     self.logger.debug(f"Working on 7z {entry}")
+        #     if entry.suffix == ".7z":
+        #         self.logger.debug(f"Getting 7z manifest for {entry}")
+        #         manifest = await self.get_7z_manifest_async(entry)
+        #         if manifest:
+        #             archive_dict[entry] = manifest
+        #     self.logger.debug("Added 7z manifest to list")
 
-    def get_zip_manifest(self, zip_path, ignore_cache=False):
+        # self.logger.debug("Finished get_archived_manifests")
+        return mod_list, archive_dict
+
+    async def get_zip_manifest_async(self, archive_path, ignore_cache=False,
+                                     loading_text: Optional[Text] = None):
+        if isinstance(archive_path, str):
+            archive_path = AsyncPath(archive_path)
         if not ignore_cache:
-            cached = self.zip_manifest_cache.get(zip_path)
+            cached = self.archived_manifests_cache.get(archive_path)
             if cached is not None:
                 return cached
         try:
-            with zipfile.ZipFile(zip_path, "r") as archive:
+            with zipfile.ZipFile(archive_path, "r") as archive:
+                if loading_text is not None:
+                    uncompressed = sum([file.file_size for file in archive.filelist])
+                    compressed = sum([file.compress_size for file in archive.filelist])
+                    loading_text.value = (f'[ZIP] '
+                                          f'{compressed:.1f} MB -> '
+                                          f'{uncompressed:.1f} MB')
+                    await loading_text.update_async()
+                    await asyncio.sleep(0.01)
                 file_list = archive.filelist
                 manifests = [file for file in file_list
                              if "manifest.yaml" in file.filename]
@@ -446,42 +478,53 @@ class InstallationContext:
                         manifest = load_yaml(manifest_b)
                         if Mod.validate_install_config(manifest, manifests[0].filename,
                                                        archive_file_list=file_list,
-                                                       root_path=zip_path):
-                            self.zip_manifest_cache[zip_path] = manifest
+                                                       root_path=archive_path):
+                            self.archived_manifests_cache[archive_path] = manifest
                             return manifest
-                        self.zip_manifest_cache[zip_path] = {}
+                        self.archived_manifests_cache[archive_path] = {}
                         return {}
         except Exception as ex:
-            self.logger.error(ex)
-            self.zip_manifest_cache[zip_path] = {}
+            self.logger.error("Error on ZIP manifest check", exc_info=ex)
+            self.archived_manifests_cache[archive_path] = {}
             return {}
 
-    async def get_zip_manifest_async(self, zip_path, ignore_cache=False):
-        if isinstance(zip_path, str):
-            zip_path = AsyncPath(zip_path)
+    async def get_7z_manifest_async(self, archive_path, ignore_cache=False,
+                                    loading_text: Optional[Text] = None):
+        if isinstance(archive_path, str):
+            archive_path = AsyncPath(archive_path)
         if not ignore_cache:
-            cached = self.zip_manifest_cache.get(zip_path)
+            cached = self.archived_manifests_cache.get(archive_path)
             if cached is not None:
                 return cached
         try:
-            with zipfile.ZipFile(zip_path, "r") as archive:
-                file_list = archive.filelist
-                manifests = [file for file in archive.filelist
+            await asyncio.sleep(0.01)
+            with py7zr.SevenZipFile(str(archive_path), "r") as archive:
+                if loading_text is not None:
+                    info = archive.archiveinfo()
+                    loading_text.value = (f'[{info.method_names[0]}] '
+                                          f'{info.size/1024/1024:.1f} MB -> '
+                                          f'{info.uncompressed/1024/1024:.1f} MB')
+                    await loading_text.update_async()
+                    await asyncio.sleep(0.01)
+                file_list = archive.files
+                manifests = [file for file in file_list
                              if "manifest.yaml" in file.filename]
                 if manifests:
-                    manifest_b = archive.read(manifests[0])
+                    manifests_read_dict = archive.read(targets=[manifests[0].filename])
+                    if manifests_read_dict.values():
+                        manifest_b = list(manifests_read_dict.values())[0]
                     if manifest_b:
                         manifest = load_yaml(manifest_b)
                         if Mod.validate_install_config(manifest, manifests[0].filename,
                                                        archive_file_list=file_list,
-                                                       root_path=zip_path):
-                            self.zip_manifest_cache[zip_path] = manifest
+                                                       root_path=archive_path):
+                            self.archived_manifests_cache[archive_path] = manifest
                             return manifest
-                        self.zip_manifest_cache[zip_path] = {}
+                        self.archived_manifests_cache[archive_path] = {}
                         return {}
         except Exception as ex:
-            self.logger.error(ex)
-            self.zip_manifest_cache[zip_path] = {}
+            self.logger.error("Error on 7z manifest check", exc_info=ex)
+            self.archived_manifests_cache[archive_path] = {}
             return {}
 
     def setup_loggers(self, stream_only: bool = False) -> None:
@@ -490,6 +533,7 @@ class InstallationContext:
         if self.logger.handlers and len(self.logger.handlers) > 1:
             self.logger.debug("Logger already exists, will use it with existing settings")
         else:
+            self.logger.handlers.clear()
             self.logger.setLevel(logging.DEBUG)
             formatter = logging.Formatter('%(asctime)s: %(levelname)-7s - '
                                           '%(module)-11s - line %(lineno)-4d: %(message)s')
@@ -556,13 +600,28 @@ class InstallationContext:
 
                 # game can be installed in main Steam dir or in any of the libraries specified in config
                 library_folders_config = os.path.join(steam_install_path, "SteamApps", "libraryfolders.vdf")
-                library_folders = [steam_install_path]
+                library_folder_config = os.path.join(steam_install_path, "SteamApps", "libraryfolder.vdf")
+                if os.path.isdir(steam_install_path):
+                    library_folders = [steam_install_path]
+                else:
+                    library_folders = []
                 game_folders = []
+                if os.path.exists(library_folders_config):
+                    library_config_path = library_folders_config
+                elif os.path.exists(library_folder_config):
+                    library_config_path = library_folder_config
+                else:
+                    return False
 
-                with open(library_folders_config, 'r') as f:
+                if not os.path.exists(library_config_path):
+                    return False
+
+                with open(library_config_path, 'r', encoding="utf-8") as f:
                     lines = f.readlines()
                     if '"libraryfolders"\n' in lines:
                         library_folders = [line for line in lines if '"path"' in line]
+                    elif '"libraryfolder"\n' in lines:
+                        pass
 
                     for lib in library_folders:
                         striped_lib = lib.replace('path', "").replace('"', '').strip()
@@ -597,6 +656,9 @@ class InstallationContext:
                                 validated_dirs.append(str(entry))
             except FileNotFoundError:
                 self.steam_parsing_error = "FileNotFound/RegistryNotFound"
+                return False
+            except Exception as ex:
+                self.steam_parsing_error = f"General error when parsing Steam paths: {ex}"
                 return False
 
             self.steam_game_paths = validated_dirs
@@ -688,21 +750,30 @@ class GameCopy:
 
     def process_game_install(self, target_dir: str) -> None:
         '''Parse game install to know the version and current state of it'''
+        self.logger.debug(f"Checking that {target_dir} is dir")
         if not os.path.isdir(target_dir):
             raise WrongGameDirectoryPath
         else:
+            self.logger.debug(f"Starting dir validation {target_dir} is dir")
             valid_base_dir, missing_path = self.validate_game_dir(target_dir)
+            self.logger.debug(f"Validation for base dir status: {valid_base_dir}")
+            if missing_path:
+                self.logger.debug(f"Missing path: '{missing_path}'")
             if not valid_base_dir:
                 raise InvalidGameDirectory(missing_path)
 
+        self.logger.debug("Trying to get exe name from target dir")
         exe_path = self.get_exe_name(target_dir)
+        self.logger.debug(f"Exe path: '{exe_path}'")
 
         if exe_path is not None:
             self.target_exe = exe_path
         else:
             raise ExeNotFound
 
+        self.logger.debug("Getting exe version")
         self.exe_version = self.get_exe_version(self.target_exe)
+        self.logger.debug(f"Exe version: {self.exe_version}")
         if self.exe_version is None:
             self.exe_version = ""
             raise ExeIsRunning
@@ -720,9 +791,11 @@ class GameCopy:
             self.installment = "exmachina"
             self.installment_id = 1
 
+        self.logger.debug("Checking compatch compatibility")
         if not self.is_compatch_compatible_exe(self.exe_version):
             raise ExeNotSupported(self.exe_version)
 
+        self.logger.debug("Is compatch compatible")
         self.game_root_path = target_dir
         self.data_path = os.path.join(self.game_root_path, "data")
         self.installed_manifest_path = os.path.join(self.data_path, "mod_manifest.yaml")
@@ -736,17 +809,18 @@ class GameCopy:
                 # TODO: is not actually InvalidGameDirectory but more like BrokenGameConfig exception
                 raise InvalidGameDirectory(os.path.join(self.game_root_path, "data", "config.cfg"))
             self.hi_dpi_aware = self.get_is_hidpi_aware()
+            self.logger.debug(f"HiDPI awareness status: {self.hi_dpi_aware}")
             self.fullscreen_opts_disabled = self.get_is_fullscreen_opts_disabled()
+            self.logger.debug(f"Fullscreen optimisations disabled status: {self.fullscreen_opts_disabled}")
 
-        # if len(self.game_root_path) > 60:
-        #     path_identifier = f"{Path(self.game_root_path).drive}/.../{Path(self.game_root_path).name}"
-        # else:
-        #     path_identifier = self.game_root_path
         version_str = self.exe_version.replace("Remaster", "Rem")
         self.display_name = f"[{version_str}] {shorten_path(self.game_root_path, 45)}"
 
+        self.logger.debug(f"Checking mod manifest: {self.installed_manifest_path}")
         if os.path.exists(self.installed_manifest_path):
+            self.logger.debug("Reading manifest")
             install_manifest = read_yaml(self.installed_manifest_path)
+            self.logger.debug("Validating manifest")
             valid_manifest = self.validate_install_manifest(install_manifest)
             if valid_manifest and patched_version:
                 for manifest in install_manifest.values():
@@ -768,6 +842,8 @@ class GameCopy:
             self.installed_content = {}
             self.leftovers = True
             raise PatchedButDoesntHaveManifest(self.exe_version)
+
+        self.logger.debug("Finished process_game_install")
 
     def is_modded(self) -> bool:
         if not self.installed_content:
@@ -879,6 +955,7 @@ class GameCopy:
             return None
 
     def switch_hi_dpi_aware(self, enable=True):
+        self.logger.debug("Setting hidpi awareness")
         compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
         hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
         try:
@@ -887,6 +964,8 @@ class GameCopy:
         except PermissionError:
             self.logger.debug("Unable to open registry - no access")
             return False
+        except OSError as ex:
+            self.logger.debug("OS error, key probably doesn't exist", exc_info=ex)
 
         if enable:
             try:
@@ -915,6 +994,8 @@ class GameCopy:
                 pass
             except PermissionError:
                 return False
+            except OSError:
+                return False
 
             success = not self.get_is_hidpi_aware()
 
@@ -925,32 +1006,49 @@ class GameCopy:
                 return False
 
     def get_is_hidpi_aware(self):
-        compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
-        hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
-        compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
         try:
-            value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
-            if "HIGHDPIAWARE" in value[0]:
-                return True
-            else:
+            self.logger.debug("Checking hidpi awareness status")
+            compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+            hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+            try:
+                compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
+                value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
+                if "HIGHDPIAWARE" in value[0]:
+                    self.logger.debug("Found key in HKLM")
+                    return True
+                else:
+                    value = None
+            except FileNotFoundError:
                 value = None
-        except FileNotFoundError:
-            value = None
-
-        hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
-        compat_settings_reg_value = winreg.OpenKey(hkcu, compat_settings_reg_path, 0, winreg.KEY_READ)
-        try:
-            value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
-            if "HIGHDPIAWARE" in value[0]:
-                return True
-            else:
+                self.logger.debug("Key not found in HKLM")
+            except OSError as ex:
+                self.logger.debug("General os error", exc_info=ex)
                 value = None
-        except FileNotFoundError:
-            value = None
-        except IndexError:
-            value = None
+            except IndexError:
+                value = None
 
-        if value is None:
+            hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
+            try:
+                compat_settings_reg_value = winreg.OpenKey(hkcu, compat_settings_reg_path, 0, winreg.KEY_READ)
+                value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
+                if "HIGHDPIAWARE" in value[0]:
+                    self.logger.debug("Found key in HKCU")
+                    return True
+                else:
+                    value = None
+            except FileNotFoundError:
+                value = None
+                self.logger.debug("Key not found in HKCU")
+            except OSError as ex:
+                value = None
+                self.logger.debug("General os error", exc_info=ex)
+            except IndexError:
+                value = None
+
+            if value is None:
+                return False
+        except Exception as ex:
+            self.logger.error("General error when trying to get hidpi status", exc_info=ex)
             return False
 
     def switch_fullscreen_opts(self, disable=True):
@@ -1001,32 +1099,49 @@ class GameCopy:
                 return False
 
     def get_is_fullscreen_opts_disabled(self):
-        compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
-        hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
-        compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
         try:
-            value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
-            if "DISABLEDXMAXIMIZEDWINDOWEDMODE" in value[0]:
-                return True
-            else:
+            self.logger.debug("Checking fullscreen optimisations status")
+            compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+            hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+            try:
+                compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
+                value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
+                if "DISABLEDXMAXIMIZEDWINDOWEDMODE" in value[0]:
+                    self.logger.debug("Found key in HKLM")
+                    return True
+                else:
+                    value = None
+            except FileNotFoundError:
                 value = None
-        except FileNotFoundError:
-            value = None
-
-        hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
-        compat_settings_reg_value = winreg.OpenKey(hkcu, compat_settings_reg_path, 0, winreg.KEY_READ)
-        try:
-            value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
-            if "DISABLEDXMAXIMIZEDWINDOWEDMODE" in value[0]:
-                return True
-            else:
+                self.logger.debug("Key not found in HKLM")
+            except OSError as ex:
                 value = None
-        except FileNotFoundError:
-            value = None
-        except IndexError:
-            value = None
+                self.logger.debug("General os error", exc_info=ex)
+            except IndexError:
+                value = None
 
-        if value is None:
+            hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
+            try:
+                compat_settings_reg_value = winreg.OpenKey(hkcu, compat_settings_reg_path, 0, winreg.KEY_READ)
+                value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
+                if "DISABLEDXMAXIMIZEDWINDOWEDMODE" in value[0]:
+                    self.logger.debug("Found key in HKCU")
+                    return True
+                else:
+                    value = None
+            except FileNotFoundError:
+                value = None
+                self.logger.debug("Key not found in HKCU")
+            except OSError as ex:
+                value = None
+                self.logger.debug("General os error", exc_info=ex)
+            except IndexError:
+                value = None
+
+            if value is None:
+                return False
+        except Exception as ex:
+            self.logger.error("General error when gettings fullscreen optimisations status", exc_info=ex)
             return False
 
     @staticmethod
@@ -1042,7 +1157,6 @@ class GameCopy:
         for exe_path in possible_exe_paths:
             if os.path.exists(exe_path):
                 return os.path.normpath(exe_path)
-
         return None
 
     @staticmethod
