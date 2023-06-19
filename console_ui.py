@@ -161,7 +161,7 @@ class ConsoleUX:
                         os.system('cls')
         except KeyboardInterrupt:
             self.switch_header("default")
-            self.simple_end("installation_aborted")
+            self.simple_end("installation_aborted_by_user")
             sys.exit()
 
         return user_choice
@@ -207,7 +207,7 @@ class ConsoleUX:
                                   console=True)
         except KeyboardInterrupt:
             self.switch_header("default")
-            self.simple_end("installation_aborted")
+            self.simple_end("installation_aborted_by_user")
             sys.exit()
 
     @staticmethod
@@ -250,10 +250,12 @@ class ConsoleUX:
         else:
             developer_title = "author"
 
-        return (f"{fconsole(tr(developer_title), bcolors.OKBLUE)} "
-                f"{mod.authors}\n"
-                f"{fconsole(tr('mod_url'), bcolors.OKBLUE)} "
-                f"{fconsole(mod.url, bcolors.HEADER)}\n")
+        mod_info = (f"{fconsole(tr(developer_title), bcolors.OKBLUE)} "
+                    f"{mod.authors}\n")
+        if mod.url:
+            mod_info += (f"{fconsole(tr('mod_url'), bcolors.OKBLUE)} "
+                         f"{fconsole(mod.url, bcolors.HEADER)}\n")
+        return mod_info
 
     def notify_on_mod_with_errors(self, mod: Mod, errors: list[str]) -> None:
         description = self.format_mod_description(mod)
@@ -283,7 +285,7 @@ class ConsoleUX:
         else:
             custom_header = "remaster_custom"
 
-        if mod.optional_content is not None:
+        if mod.optional_content:
             for option in mod.optional_content:
                 if option.install_settings is not None and option.default_option is None:
                     # if any option doesn't have a default, we will ask user to make a choice
@@ -329,7 +331,7 @@ class ConsoleUX:
 
         custom_install_prompt = None
 
-        if mod.optional_content is not None:
+        if mod.optional_content:
             if not requres_custom_install:
                 default_options = []
                 for option in mod.optional_content:

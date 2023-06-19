@@ -1,5 +1,6 @@
 # Commod config
 commod.yaml
+mod_descriptions_in_menu_prototype/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

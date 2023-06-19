@@ -1,21 +1,36 @@
-from typing import Any
+from math import ceil, floor
+import math
+from typing import Any, Awaitable, Callable, Coroutine, Optional
+
+import aiofiles
 import data
 import os
 import sys
 import shutil
+import aioshutil
+import psutil
 
 # import winreg
+import asyncio
 import logging
 import yaml
 import struct
+import html
+import zipfile
+import py7zr
 from pathlib import Path
 
 from lxml import etree, objectify
+from flet import Text
+import markdownify
 
 import progbar
 import hd_ui
 
 logger = logging.getLogger('dem')
+
+TARGEM_POSITIVE = ["yes", "yeah", "yep", "true"]
+TARGEM_NEGATIVE = ["no", "nope", "none", "false"]
 
 
 def shorten_path(path: str | Path, length: int = 60) -> str:
@@ -39,6 +54,7 @@ def shorten_path(path: str | Path, length: int = 60) -> str:
         return "../" + path_to_shorten.stem
     else:
         return "../" + path_to_shorten.stem[:length-4] + "~"
+
 
 def child_from_xml_node(xml_node: objectify.ObjectifiedElement, child_name: str, do_not_warn: bool = False):
     '''Get child from ObjectifiedElement by name'''
@@ -132,17 +148,29 @@ def save_to_file(objectify_tree: objectify.ObjectifiedElement, path,
                                 pretty_print=True,
                                 doctype='<?xml version="1.0" encoding="windows-1251" standalone="yes" ?>',
                                 encoding="windows-1251")
-    with open(path, "wb") as writer:
+    with open(path, "wb") as fh:
         if machina_beautify:
-            writer.write(machina_xml_beautify(xml_string))
+            fh.write(machina_xml_beautify(xml_string))
         else:
-            writer.write(xml_string)
+            fh.write(xml_string)
 
 
-def makedirs(dest: str) -> None:
-    if not os.path.exists(dest):
-        os.makedirs(dest)
-
+async def save_to_file_async(objectify_tree: objectify.ObjectifiedElement, path,
+                             machina_beautify: bool = True) -> None:
+    ''' Asynchronously writes (not generates) ObjectifiedElement tree to file at path,will format and
+    beautify file in the style very similar to original EM dynamicscene.xml
+    files by default. Can skip beautifier and save raw
+    lxml formated file.
+    '''
+    xml_string = etree.tostring(objectify_tree,
+                                pretty_print=True,
+                                doctype='<?xml version="1.0" encoding="windows-1251" standalone="yes" ?>',
+                                encoding="windows-1251")
+    async with aiofiles.open(path, "wb") as fh:
+        if machina_beautify:
+            await fh.write(machina_xml_beautify(xml_string))
+        else:
+            await fh.write(xml_string)
 
 def count_files(directory: str) -> int:
     files = []
@@ -164,7 +192,7 @@ def copy_from_to(from_path_list: list[str], to_path: str, console: bool = False)
         for path, dirs, filenames in os.walk(from_path):
             for directory in dirs:
                 destDir = path.replace(from_path, to_path)
-                makedirs(os.path.join(destDir, directory))
+                os.makedirs(os.path.join(destDir, directory), exist_ok=True)
         for path, dirs, filenames in os.walk(from_path):
             for sfile in filenames:
                 dest_file = os.path.join(path.replace(from_path, to_path), sfile)
@@ -177,14 +205,210 @@ def copy_from_to(from_path_list: list[str], to_path: str, console: bool = False)
                 file_num += 1
 
 
-def read_yaml(yaml_path: str) -> Any:
-    yaml_config = None
-    with open(yaml_path, 'r', encoding="utf-8") as stream:
+async def copy_from_to_async(from_path_list: list[str], to_path: str, callback_progbar: callable) -> None:
+    files_count = 0
+    for from_path in from_path_list:
+        logger.debug(f"Copying files from '{from_path}' to '{to_path}'")
+        files_count += count_files(from_path)
+    file_num: int = 1
+    for from_path in from_path_list:
+        for path, dirs, filenames in os.walk(from_path):
+            for directory in dirs:
+                destDir = path.replace(from_path, to_path)
+                os.makedirs(os.path.join(destDir, directory), exist_ok=True)
+        for path, dirs, filenames in os.walk(from_path):
+            for sfile in filenames:
+                dest_file = os.path.join(path.replace(from_path, to_path), sfile)
+                file_size = round(Path(os.path.join(path, sfile)).stat().st_size / 1024, 2)
+                await aioshutil.copy2(os.path.join(path, sfile), dest_file)
+                await callback_progbar(file_num, files_count, sfile, file_size)
+                file_num += 1
+
+
+async def copy_file_and_call_async(path, file_num, sfile, from_path, to_path, files_count, callback_progbar):
+    dest_file = os.path.join(path.replace(from_path, to_path), sfile)
+    file_size = round(Path(os.path.join(path, sfile)).stat().st_size / 1024, 2)
+    await aioshutil.copy2(os.path.join(path, sfile), dest_file)
+    await callback_progbar(file_num[0], files_count, sfile, file_size)
+    await asyncio.sleep(0.001)
+    file_num[0] += 1
+
+
+async def copy_from_to_async_fast(from_path_list: list[str], to_path: str, callback_progbar: callable) -> None:
+    files_count = 0
+    for from_path in from_path_list:
+        logger.debug(f"Copying files from '{from_path}' to '{to_path}'")
+        files_count += count_files(from_path)
+    file_num = []
+    file_num.append(1)
+    for from_path in from_path_list:
+        for path, dirs, filenames in os.walk(from_path):
+            for directory in dirs:
+                destDir = path.replace(from_path, to_path)
+                os.makedirs(os.path.join(destDir, directory), exist_ok=True)
+        for path, dirs, filenames in os.walk(from_path):
+            await asyncio.gather(*[
+                copy_file_and_call_async(path, file_num, sfile,
+                                         from_path, to_path, files_count,
+                                         callback_progbar) for sfile in filenames])
+
+
+async def extract_files(archive, file_names, path, callback=None, files_num=1):
+    '''Extract and save to disk'''
+    for file_name in file_names:
+        data = archive.read(file_name)
         try:
-            yaml_config = yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            logger.error(exc)
-    return yaml_config
+            file_name.encode('cp437').decode('ascii')
+        except UnicodeDecodeError:
+            file_name = file_name.encode('cp437').decode('cp866')
+        except UnicodeEncodeError:
+            pass
+        filepath = Path(path, file_name)
+        async with aiofiles.open(str(filepath), 'wb') as fd:
+            await fd.write(data)
+        if callable is not None:
+            await callback(files_num)
+
+
+async def extract_7z_files(archive: py7zr.SevenZipFile, file_names, path,
+                           callback=None, files_num=1, chunksize=1):
+    '''Extract and save to disk'''
+    archive.reset()
+    archive.extract(path, targets=file_names)
+    if callable is not None:
+        await callback(files_num, chunksize)
+        await asyncio.sleep(0.01)
+
+
+async def extract_from_to(archive_path, to_path, callback=None,
+                          loading_text: Optional[Text] = None):
+    extension = Path(archive_path).suffix
+    match extension:
+        case ".7z":
+            await extract_7z_from_to(archive_path, to_path, callback, loading_text)
+        case ".zip":
+            await extract_zip_from_to(archive_path, to_path, callback, loading_text)
+        case _:
+            raise NotImplementedError(f"Unsupported archive type: {archive_path}")
+
+
+async def extract_zip_from_to(archive_path, to_path,
+                              callback: Optional[Coroutine] = None,
+                              loading_text: Optional[Text] = None):
+    '''Unzip archive to disk asynchronously'''
+    os.makedirs(to_path, exist_ok=True)
+    with zipfile.ZipFile(archive_path, 'r') as archive:
+        only_files = []
+
+        total_size = 0
+        total_compressed_size = 0
+        compression_label = "ZIP"
+
+        namelist = archive.namelist()
+        workers = 100
+        chunksize = ceil(len(namelist) / workers)
+        if chunksize == 0:
+            chunksize = 1
+        tasks = []
+        for file in archive.filelist:
+            file_path = file.filename
+            if file.is_dir():
+                try:
+                    file_path.encode('cp437').decode('ascii')
+                except UnicodeDecodeError:
+                    file_path = file_path.encode('cp437').decode('cp866')
+                os.makedirs(Path(to_path) / file_path, exist_ok=True)
+            else:
+                only_files.append(file_path)
+                if loading_text is not None:
+                    total_size += file.file_size
+                    total_compressed_size += file.compress_size
+                    if compression_label == "ZIP":
+                        match file.compress_type:
+                            case 8:
+                                compression_label = "DEFLATE"
+                            case 12:
+                                compression_label = "BZIP2"
+                            case 14:
+                                compression_label = "LZMA"
+                            case _:
+                                pass
+
+        if loading_text is not None:
+            loading_text.value = (f'[{compression_label}] '
+                                  f'{total_compressed_size/1024/1024:.1f}MB -> '
+                                  f'{total_size/1024/1024:.1f}MB')
+            await loading_text.update_async()
+            await asyncio.sleep(0.01)
+
+        files_num = len(only_files)
+        for i in range(0, files_num, chunksize):
+            file_names = only_files[i:(i + chunksize)]
+            tasks.append(extract_files(archive, file_names, to_path, callback, files_num))
+        await asyncio.gather(*tasks)
+
+
+async def extract_7z_from_to(archive_path, to_path,
+                             callback: Optional[Coroutine] = None,
+                             loading_text: Optional[Text] = None):
+    os.makedirs(to_path, exist_ok=True)
+    with py7zr.SevenZipFile(str(archive_path), 'r') as archive:
+        if loading_text is not None:
+            info = archive.archiveinfo()
+            loading_text.value = (f'[{info.method_names[0]}] '
+                                  f'{info.size/1024/1024:.1f}MB -> '
+                                  f'{info.uncompressed/1024/1024:.1f}MB')
+            await loading_text.update_async()
+            await asyncio.sleep(0.01)
+        all_files = archive.files
+        dirs = []
+        files = []
+        for file in all_files:
+            if file.emptystream:
+                dirs.append(file.filename)
+            else:
+                files.append(file.filename)
+
+        for dir in dirs:
+            os.makedirs(Path(to_path) / dir, exist_ok=True)
+
+        archive_size = archive.archiveinfo().uncompressed
+        # chunk extraction for every 32MB of internal data to show some kind of progress
+        # if file is big, extract it in 5 chunks
+        chunk_file_size = archive_size / 5
+        default_chunk_file_size = 1024 * 1024 * 32
+
+        if chunk_file_size > default_chunk_file_size:
+            workers = round(archive_size / chunk_file_size)
+        else:
+            workers = round(archive_size / default_chunk_file_size)
+
+        if workers == 0:
+            workers = 1
+
+        chunksize = ceil(len(files) / workers)
+        if chunksize == 0:
+            chunksize = 1
+
+        files_num = len(files)
+        for i in range(0, files_num, chunksize):
+            file_names = files[i:(i + chunksize)]
+            await extract_7z_files(archive, file_names, to_path, callback, files_num, chunksize)
+
+
+def load_yaml(stream) -> Any:
+    try:
+        yaml_content = yaml.safe_load(stream)
+        return yaml_content
+    except yaml.YAMLError as exc:
+        logger.error(exc)
+        return None
+
+
+def read_yaml(yaml_path: str) -> Any:
+    with open(yaml_path, 'r', encoding="utf-8") as stream:
+        yaml_loaded = load_yaml(stream)
+        return yaml_loaded
 
 
 def dump_yaml(data, path, sort_keys=True) -> bool:
@@ -201,19 +425,121 @@ def get_internal_file_path(file_name: str) -> str:
     return os.path.join(os.path.dirname(__file__), file_name)
 
 
-def patch_offsets(f, offsets_dict: dict) -> None:
+def process_markdown(md_raw):
+    md_result = html.unescape(md_raw)
+    md_result = md_result.replace('<p align="right">(<a href="#top">перейти наверх</a>)</p>', '')
+    md_result = markdownify.markdownify(md_result, convert=['a', 'b', 'img'], escape_asterisks=False)
+    return md_result
+
+
+def patch_offsets(f, offsets_dict: dict, enlarge_coeff: float = 1.0, raw_strings=False) -> None:
     for offset in offsets_dict.keys():
         f.seek(offset)
         if type(offsets_dict[offset]) == int:
-            f.write(struct.pack("i", offsets_dict[offset]))
-        elif type(offsets_dict[offset]) == str:  # hex address
-            f.write(struct.pack('<L', int(offsets_dict[offset], base=16)))
+            if not math.isclose(enlarge_coeff, 1.0):
+                new_value = round(offsets_dict[offset] * enlarge_coeff)
+            else:
+                new_value = offsets_dict[offset]
+            f.write(struct.pack("i", new_value))
+        elif type(offsets_dict[offset]) == str:
+            if raw_strings:  # write as is, binary insert strings 
+                f.write(bytes.fromhex(offsets_dict[offset]))
+            else:  # hex address to convert to pointer
+                f.write(struct.pack('<L', int(offsets_dict[offset], base=16)))
         elif type(offsets_dict[offset]) == float:
-            f.write(struct.pack("f", offsets_dict[offset]))
+            if not math.isclose(enlarge_coeff, 1.0):
+                new_value = round(offsets_dict[offset] * enlarge_coeff)
+            else:
+                new_value = offsets_dict[offset]
+            f.write(struct.pack("f", new_value))
         elif type(offsets_dict[offset]) == bool:
             f.write(struct.pack("b", offsets_dict[offset]))
         elif type(offsets_dict[offset]) == tuple:
             f.write(struct.pack("b", offsets_dict[offset][0]))
+
+
+def patch_remaster_icon(f):
+    f.seek(data.size_of_rsrc_offset)
+    old_rsrc_size = int.from_bytes(f.read(4), byteorder='little')
+
+    if old_rsrc_size == 6632:
+        # patching new icon
+        icon_raw: bytes
+        with open(get_internal_file_path("icons/hta_comrem.ico"), 'rb+') as ficon:
+            ficon.seek(data.new_icon_header_ends)
+            icon_raw = ficon.read()
+
+        if icon_raw:
+            size_of_icon = len(icon_raw)
+
+            block_size_overflow = len(icon_raw) % 0x10
+            padding_size = 0x10 - block_size_overflow
+
+            # reading reloc struct to write in at the end of the rsrc latter on
+            f.seek(data.offset_of_reloc_offset)
+            reloc_offset = int.from_bytes(f.read(4), byteorder='little') - data.rva_offset
+            f.seek(data.size_of_reloc_offset)
+            reloc_size = int.from_bytes(f.read(4), byteorder='little')
+
+            f.seek(reloc_offset)
+            reloc = f.read(reloc_size)
+
+            # writing icon
+            f.seek(data.em_102_icon_offset)
+            f.write(icon_raw)
+            f.write(b"\x00" * padding_size)
+
+            # writing icon group and saving address to write it to table below
+            new_icon_group_address = f.tell()
+            f.write(bytes.fromhex(data.new_icon_group_info))
+            end_rscr_address = f.tell()
+            f.write(b"\x00" * 8)  # padding for icon group
+
+            current_size = f.tell() - data.offset_of_rsrc
+            block_size_overflow = current_size % 0x1000
+
+            # padding rsrc to 4Kb block size
+            padding_size_rsrc = 0x1000 - block_size_overflow
+            raw_size_of_rsrc = current_size + padding_size_rsrc
+            f.write(b"\x00" * padding_size_rsrc)
+
+            # now writing reloc struct and saving its address to write to table below
+            new_reloc_address_raw = f.tell()
+            new_reloc_address = new_reloc_address_raw + data.rva_offset
+
+            # padding reloc to 4Kb block size
+            block_size_overflow = len(reloc) % 0x1000
+            padding_size = 0x1000 - block_size_overflow
+            f.write(reloc)
+            f.write(b"\x00" * padding_size)
+            size_of_image = f.tell()
+
+            # updating pointers in PE header for rsrc struct and reloc struct
+            f.seek(data.size_of_rsrc_offset)
+            # old_rsrc_size = int.from_bytes(f.read(4), byteorder='little')
+            size_of_rscs = end_rscr_address - data.offset_of_rsrc
+            f.write(size_of_rscs.to_bytes(4, byteorder='little'))
+            f.seek(data.resource_dir_size)
+            f.write(size_of_rscs.to_bytes(4, byteorder='little'))
+
+            f.seek(data.raw_size_of_rsrc_offset)
+            f.write(raw_size_of_rsrc.to_bytes(4, byteorder='little'))
+
+            f.seek(data.offset_of_reloc_offset)
+            f.write(new_reloc_address.to_bytes(4, byteorder='little'))
+
+            # updating size of resource for icon and pointer to icon group resource
+            f.seek(data.new_icon_size_offset)
+            f.write(size_of_icon.to_bytes(4, byteorder='little'))
+
+            f.seek(data.new_icon_group_offset)
+            f.write((new_icon_group_address+data.rva_offset).to_bytes(4, byteorder='little'))
+
+            f.seek(data.offset_of_reloc_raw)
+            f.write(new_reloc_address_raw.to_bytes(4, byteorder='little'))
+
+            f.seek(data.size_of_image)
+            f.write((size_of_image+data.rva_offset).to_bytes(4, byteorder='little'))
 
 
 def get_config(root_dir: str) -> objectify.ObjectifiedElement:
@@ -232,6 +558,37 @@ def get_glob_props_path(root_dir: str) -> str:
     return glob_props_path
 
 
+def get_proc_by_names(proc_names):
+    '''Returns one proccess matching given list of names or None'''
+    for p in psutil.process_iter():
+        name = ""
+        try:
+            name = p.name()
+        except (psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+        except psutil.NoSuchProcess:
+            continue
+        if name in proc_names:
+            return p
+    return None
+
+
+def patch_memory(target_exe: str):
+    '''Applies only two memory related binary exe fixes'''
+    with open(target_exe, 'rb+') as f:
+        patch_offsets(f, data.minimal_mm_inserts, raw_strings=True)
+
+        offsets_text = data.get_text_offsets("minimal")
+        for offset in offsets_text.keys():
+            text_fin = offsets_text[offset][0]
+            text_str = bytes(text_fin, 'utf-8')
+            allowed_len = offsets_text[offset][1]
+            f.seek(offset)
+            f.write(struct.pack(f'{allowed_len}s', text_str))
+
+    return ["mm_inserts_patched"]
+
+
 def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
                    monitor_res: tuple, exe_options: dict = {},
                    under_windows: bool = True) -> list[str]:
@@ -240,128 +597,35 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
     changes_description = []
     with open(target_exe, 'rb+') as f:
         game_root_path = Path(target_exe).parent
-        offsets_exe = data.offsets_exe_fixes
         width, height = monitor_res
 
         if version_choice == "remaster":
-            for offset in data.offsets_abs_sizes.keys():
-                f.seek(offset)
-                if type(data.offsets_abs_sizes[offset]) == int:
-                    f.write(struct.pack("i", round(data.offsets_abs_sizes[offset] * data.ENLARGE_UI_COEF)))
-                elif type(data.offsets_abs_sizes[offset]) == str:  # hex address
-                    f.write(struct.pack('<L', int(data.offsets_abs_sizes[offset], base=16)))
-                elif type(data.offsets_abs_sizes[offset]) == float:
-                    f.write(struct.pack("f", round(data.offsets_abs_sizes[offset] * data.ENLARGE_UI_COEF)))
-            for offset in data.offsets_abs_move_x.keys():
-                original_x = data.offsets_abs_move_x[offset]
-                f.seek(offset)
-                f.write(struct.pack("f", round((original_x * data.ENLARGE_UI_COEF * data.PARTIAL_STRETCH)
-                                               + (data.PARTIAL_STRETCH_OFFSET * data.TARGET_RES_X))))
-
-            offsets_exe = data.offsets_exe_fixes
-            offsets_exe.update(data.offsets_exe_ui)
+            patch_offsets(f, data.offsets_comrem_relative, data.ENLARGE_UI_COEF)
+            patch_offsets(f, data.offsets_comrem_absolute)
 
             hd_ui.toggle_16_9_UI_xmls(game_root_path, width, height, enable=True)
             hd_ui.toggle_16_9_glob_prop(game_root_path, enable=True)
             changes_description.append("widescreen_interface_patched")
 
-        for offset in data.binary_inserts.keys():
-            f.seek(offset)
-            f.write(bytes.fromhex(data.binary_inserts[offset]))
+        patch_offsets(f, data.binary_inserts, raw_strings=True)
         changes_description.append("binary_inserts_patched")
+        changes_description.append("spawn_freezes_fix")
+        changes_description.append("camera_patched")
 
-        for offset in data.mm_inserts.keys():
-            f.seek(offset)
-            f.write(bytes.fromhex(data.mm_inserts[offset]))
+        patch_offsets(f, data.minimal_mm_inserts, raw_strings=True)
+        patch_offsets(f, data.additional_mm_inserts, raw_strings=True)
         changes_description.append("mm_inserts_patched")
 
-        patch_offsets(f, offsets_exe)
+        patch_offsets(f, data.offsets_exe_fixes)
 
         changes_description.append("numeric_fixes_patched")
-        changes_description.append("general_compatch_fixes")
+
+        patch_offsets(f, data.offsets_draw_dist, raw_strings=True)
+        patch_offsets(f, data.offset_draw_dist_numerics)
+        changes_description.append("draw_distance_patched")
 
         if version_choice == "remaster":
-            f.seek(data.size_of_rsrc_offset)
-            old_rsrc_size = int.from_bytes(f.read(4), byteorder='little')
-
-            if old_rsrc_size == 6632:
-                # patching new icon
-                icon_raw: bytes
-                with open(get_internal_file_path("icons/hta_comrem.ico"), 'rb+') as ficon:
-                    ficon.seek(data.new_icon_header_ends)
-                    icon_raw = ficon.read()
-
-                if icon_raw:
-                    size_of_icon = len(icon_raw)
-
-                    block_size_overflow = len(icon_raw) % 0x10
-                    padding_size = 0x10 - block_size_overflow
-
-                    # reading reloc struct to write in at the end of the rsrc latter on
-                    f.seek(data.offset_of_reloc_offset)
-                    reloc_offset = int.from_bytes(f.read(4), byteorder='little') - data.rva_offset
-                    f.seek(data.size_of_reloc_offset)
-                    reloc_size = int.from_bytes(f.read(4), byteorder='little')
-
-                    f.seek(reloc_offset)
-                    reloc = f.read(reloc_size)
-
-                    # writing icon
-                    f.seek(data.em_102_icon_offset)
-                    f.write(icon_raw)
-                    f.write(b"\x00" * padding_size)
-
-                    # writing icon group and saving address to write it to table below
-                    new_icon_group_address = f.tell()
-                    f.write(bytes.fromhex(data.new_icon_group_info))
-                    end_rscr_address = f.tell()
-                    f.write(b"\x00" * 8)  # padding for icon group
-
-                    current_size = f.tell() - data.offset_of_rsrc
-                    block_size_overflow = current_size % 0x1000
-
-                    # padding rsrc to 4Kb block size
-                    padding_size_rsrc = 0x1000 - block_size_overflow
-                    raw_size_of_rsrc = current_size + padding_size_rsrc
-                    f.write(b"\x00" * padding_size_rsrc)
-
-                    # now writing reloc struct and saving its address to write to table below
-                    new_reloc_address_raw = f.tell()
-                    new_reloc_address = new_reloc_address_raw + data.rva_offset
-
-                    # padding reloc to 4Kb block size
-                    block_size_overflow = len(reloc) % 0x1000
-                    padding_size = 0x1000 - block_size_overflow
-                    f.write(reloc)
-                    f.write(b"\x00" * padding_size)
-                    size_of_image = f.tell()
-
-                    # updating pointers in PE header for rsrc struct and reloc struct
-                    f.seek(data.size_of_rsrc_offset)
-                    # old_rsrc_size = int.from_bytes(f.read(4), byteorder='little')
-                    size_of_rscs = end_rscr_address - data.offset_of_rsrc
-                    f.write(size_of_rscs.to_bytes(4, byteorder='little'))
-                    f.seek(data.resource_dir_size)
-                    f.write(size_of_rscs.to_bytes(4, byteorder='little'))
-
-                    f.seek(data.raw_size_of_rsrc_offset)
-                    f.write(raw_size_of_rsrc.to_bytes(4, byteorder='little'))
-
-                    f.seek(data.offset_of_reloc_offset)
-                    f.write(new_reloc_address.to_bytes(4, byteorder='little'))
-
-                    # updating size of resource for icon and pointer to icon group resource
-                    f.seek(data.new_icon_size_offset)
-                    f.write(size_of_icon.to_bytes(4, byteorder='little'))
-
-                    f.seek(data.new_icon_group_offset)
-                    f.write((new_icon_group_address+data.rva_offset).to_bytes(4, byteorder='little'))
-
-                    f.seek(data.offset_of_reloc_raw)
-                    f.write(new_reloc_address_raw.to_bytes(4, byteorder='little'))
-
-                    f.seek(data.size_of_image)
-                    f.write((size_of_image+data.rva_offset).to_bytes(4, byteorder='little'))
+            patch_remaster_icon(f)
 
             if under_windows:
                 if exe_options.get("game_font") is not None:
@@ -412,9 +676,9 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
             f.seek(offset)
             f.write(struct.pack(f'{allowed_len}s', text_str))
 
-        correct_damage_coeffs(game_root_path, data.GRAVITY)
+        correct_damage_coeffs(game_root_path, data.DEFAULT_COMREM_GRAVITY)
         # increase_phys_step might not have an intended effect, need to verify
-        increase_phys_step(game_root_path)
+        # increase_phys_step(game_root_path)
         logger.info("damage coeff patched")
 
     patch_configurables(target_exe, exe_options)
@@ -424,7 +688,7 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
 def patch_configurables(target_exe: str, exe_options: dict = {}) -> None:
     '''Applies binary exe fixes which support configuration'''
     with open(target_exe, 'rb+') as f:
-        configurable_values = {"gravity": data.GRAVITY,
+        configurable_values = {"gravity": data.DEFAULT_COMREM_GRAVITY,
                                "skins_in_shop_0": (8,),
                                "skins_in_shop_1": (8,),
                                "skins_in_shop_2": (8,),

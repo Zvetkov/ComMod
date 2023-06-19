@@ -1,5 +1,4 @@
 import argparse
-import asyncio
 import logging
 import os
 import platform
@@ -26,7 +25,7 @@ import commod_flet
 from mod import Mod
 
 
-def main_gui(options: argparse.Namespace) -> None:
+def main_gui() -> None:
     commod_flet.start()
 
 
@@ -124,7 +123,7 @@ def main_console(options: argparse.Namespace) -> None:
     try:
         game.load_installed_descriptions(context.validated_mod_configs, colourise=True)
 
-        remaster_mod = Mod(context.remaster_config, context.remaster_path,)
+        remaster_mod = Mod(context.remaster_config, context.remaster_path)
 
         commod_compatible, commod_compat_err = remaster_mod.compatible_with_mod_manager(
             context.commod_version)
@@ -193,7 +192,7 @@ def main_console(options: argparse.Namespace) -> None:
             if reinstall_prompt == "exit":
                 logger.info("Exited normally")
                 console.switch_header("default")
-                console.simple_end("installation_aborted")
+                console.simple_end("installation_aborted_by_user")
                 return
 
             if reinstall_prompt == "mods":
@@ -247,12 +246,13 @@ def main_console(options: argparse.Namespace) -> None:
 
         session.content_in_processing["community_patch"] = {"base": "yes",
                                                             "version": remaster_mod.version,
+                                                            "installment": remaster_mod.installment,
                                                             "build": remaster_mod.build,
+                                                            "language": remaster_mod.language,
                                                             "display_name": "Community Patch"}
 
         if version_choice == "patch":
-            logger.info("***")
-            logger.info("Starting installation of ComPatch")
+            logger.info("- Starting installation of ComPatch -")
             logger.info(session.content_in_processing)
             console.copy_patch_files(context.distribution_dir, game.game_root_path)
             patch_description = [tr(line) for line in install_base(version_choice, game, context)]
@@ -271,6 +271,8 @@ def main_console(options: argparse.Namespace) -> None:
             session.content_in_processing["community_remaster"] = installed_remaster_settings.copy()
             session.content_in_processing["community_remaster"]["version"] = remaster_mod.version
             session.content_in_processing["community_remaster"]["build"] = remaster_mod.build
+            session.content_in_processing["community_remaster"]["language"] = remaster_mod.language
+            session.content_in_processing["community_remaster"]["installment"] = remaster_mod.installment
             session.content_in_processing["community_remaster"]["display_name"] = remaster_mod.display_name
             exe_options = remaster_mod.patcher_options
 
@@ -406,8 +408,8 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
         if not mod_install_settings:
             continue
 
-        if (mod_install_settings.get("base") == "yes") or (mod_install_settings.get("base") == "no"
-                                                           and len(mod_install_settings) > 1):
+        if (mod_install_settings.get("base") == "yes"
+           or (mod_install_settings.get("base") == "no" and len(mod_install_settings) > 1)):
             logger.info("***")
             if console.auto_clear:
                 os.system('cls')
@@ -423,7 +425,7 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                                                         console=True)
             except KeyboardInterrupt:
                 console.switch_header("mod_manager")
-                console.simple_end("installation_aborted")
+                console.simple_end("installation_aborted_by_user")
                 sys.exit()
 
             if not status_ok:
@@ -433,11 +435,13 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                 session.content_in_processing[mod.name] = mod_install_settings.copy()
                 session.content_in_processing[mod.name]["version"] = mod.version
                 session.content_in_processing[mod.name]["build"] = mod.build
+                session.content_in_processing[mod.name]["language"] = mod.language
+                session.content_in_processing[mod.name]["installment"] = mod.installment
                 session.content_in_processing[mod.name]["display_name"] = mod.display_name
                 if mod.patcher_options is not None:
                     file_ops.patch_configurables(game.target_exe, mod.patcher_options)
                     if mod.patcher_options.get('gravity') is not None:
-                        file_ops.correct_damage_coeffs(options.game_root_path,
+                        file_ops.correct_damage_coeffs(game.game_root_path,
                                                        mod.patcher_options.get('gravity'))
             if mod_error_msgs:
                 session.mod_installation_errors.extend(mod_error_msgs)
@@ -492,8 +496,6 @@ def _init_input_parser():
                         action="store_true", default=False, required=False)
     parser.add_argument('-console', help='run in console',
                         action="store_true", default=False, required=False)
-    parser.add_argument('-skip_wizard', help='skips quick setup wizzard in GUI mode',
-                        default=False, required=False, action="store_true")
     installation_option = parser.add_mutually_exclusive_group()
     installation_option.add_argument('-compatch', help='base ComPatch setup, no console interaction required',
                                      action="store_true", default=False)
@@ -505,9 +507,9 @@ def _init_input_parser():
 
 if __name__ == '__main__':
     options = _init_input_parser().parse_args()
+    if "Windows" in platform.system():
+        windll.shcore.SetProcessDpiAwareness(2)
     if options.console:
-        if "Windows" in platform.system():
-            windll.shcore.SetProcessDpiAwareness(2)
         sys.exit(main_console(options))
     else:
-        sys.exit(main_gui(options))
+        sys.exit(main_gui())
