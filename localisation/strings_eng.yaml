@@ -171,6 +171,7 @@
 "confirm_choice": "Confirm choice"
 "not_yet_added_games_of_type": "You haven't added this type of game yet\n(support fom RoC and Arcade will be added in the upcoming version)"
 "not_a_valid_path": "Path doesn't exist"
+"forced_option": "Required content"
 "target_dir_missing_files": "Chosen directory is missing some necessary files"
 "unsupported_exe_version": "Chosen directory doesn't contain supported game version"
 "no_base_content_mod_requires_options": "This mod consists of different options, need to choose at least one of those"

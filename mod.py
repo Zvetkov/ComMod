@@ -1091,6 +1091,7 @@ class Mod:
                 "description": [[str], True],
 
                 "default_option": [[str], False],
+                "forced_option": [[bool, str], False],
                 "install_settings": [[list], False],
             }
             schema_install_settins = {
@@ -1610,9 +1611,9 @@ class Mod:
                         <
                         (int(other.major), int(other.minor), int(other.patch)))
             else:
-                return ((self.major.lower(), self.minor.lower(), self.path.lower())
+                return ((self.major.lower(), self.minor.lower(), self.patch.lower())
                         <
-                        (self.major.lower(), self.minor.lower(), self.path.lower()))
+                        (self.major.lower(), self.minor.lower(), self.patch.lower()))
 
     class OptionalContent:
         def __init__(self, description: dict, parent: Mod) -> None:
@@ -1622,6 +1623,7 @@ class Mod:
 
             self.install_settings = description.get("install_settings")
             self.default_option = None
+            self.forced_option = False
             default_option = description.get("default_option")
 
             if self.install_settings is not None:
@@ -1651,6 +1653,26 @@ class Mod:
                         er_message = (f"Incorrect default option '{default_option}' "
                                       f"for '{self.name}' in content manifest. "
                                       f"Only 'skip' or 'install' is allowed for simple options!")
+
+            forced_option = description.get("forced_option")
+            if forced_option is not None:
+                if isinstance(forced_option, bool):
+                    self.forced_option = forced_option
+                else:
+                    forced_option = str(forced_option)
+
+                    if forced_option.lower() == "true":
+                        self.forced_option = True
+                    elif forced_option.lower() == "false":
+                        pass  # default
+                    else:
+                        raise ValueError("'forced_option' should be boolean!")
+
+            if self.default_option is not None and self.forced_option:
+                er_message = (f"Mod option {self.name} specifies both default_option and forced_option flags!"
+                              " Should only have one or another.")
+                logger.error(er_message)
+                raise KeyError(er_message)
 
             patcher_options = description.get("patcher_options")
             if patcher_options is not None:

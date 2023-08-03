@@ -2463,7 +2463,7 @@ class ModItem(UserControl):
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER)]),
                 bgcolor=ft.colors.BLACK87)
 
-            fg = ModInstallWizard(self, self.app, self.main_mod)
+            fg = ModInstallWizard(self, self.app, self.main_mod, self.mod.language)
 
             self.app.page.overlay.clear()
             self.app.page.overlay.append(bg)
@@ -2610,11 +2610,13 @@ class ModItem(UserControl):
                               col={"xs": 8, "xl": 6},
                               border_radius=6),
                         ft.Container(col={"xs": 0, "xl": 1}),
-                        Column([
+                        ft.Container(Column([
                             Row([Text(self.mod.display_name,
                                       ref=self.mod_name_text,
                                       weight=ft.FontWeight.W_700,
-                                      size=18),
+                                      size=18,
+                                      no_wrap=True,
+                                      overflow=ft.TextOverflow.ELLIPSIS),
                                  ft.Container(
                                     Icon(ft.icons.INFO_OUTLINE_ROUNDED,
                                          color=ft.colors.ERROR,
@@ -2647,8 +2649,7 @@ class ModItem(UserControl):
                                          tooltip=", ".join(tr_tags),
                                          visible=len(self.mod.tags) > 3)],
                                 wrap=True, spacing=5, run_spacing=5)
-                            ],
-                            col={"xs": 11, "xl": 14}),
+                            ]), clip_behavior=ft.ClipBehavior.HARD_EDGE, col={"xs": 11, "xl": 14}),
                         Column([
                             Column([Row([ft.Container(
                                     Text(f"{self.mod.version} [{self.mod.build}]",
@@ -2703,12 +2704,13 @@ class ModItem(UserControl):
 
 
 class ModInstallWizard(UserControl):
-    def __init__(self, parent: ModItem, app: App, mod: Mod, **kwargs):
+    def __init__(self, parent: ModItem, app: App, mod: Mod, language: str, **kwargs):
         super().__init__(self, **kwargs)
         self.mod_item = parent
         self.app: App = app
         self.main_mod: Mod | None = mod
-        self.mod: Mod | None = None
+        self.mod: Mod | None = self.main_mod.translations_loaded[language]
+        self.current_lang = language
         self.current_screen = None
         self.options = []
 
@@ -2721,8 +2723,8 @@ class ModInstallWizard(UserControl):
         self.ok_button = ft.Ref[ft.ElevatedButton]()
 
         self.mod_title = ft.Ref[Text]()
-        self.mod_title_text = (f"{tr('installation')} {self.main_mod.display_name} - "
-                               f"{tr('version')} {self.main_mod.version}")
+        self.mod_title_text = (f"{tr('installation')} {self.mod.display_name} - "
+                               f"{tr('version')} {self.mod.version}")
 
         self.can_have_custom_install = False
         self.requires_custom_install = False
@@ -2852,7 +2854,7 @@ class ModInstallWizard(UserControl):
                     value = self.option.default_option is None
 
                 selector = ft.Checkbox(data='default',
-                                       disabled=bool(self.existing_content)
+                                       disabled=bool(self.existing_content or self.option.forced_option)
                                        and self.existing_content != "skip",
                                        value=value,
                                        on_change=self.checkbox_action)
@@ -2907,8 +2909,12 @@ class ModInstallWizard(UserControl):
                                  opacity=0.8),
                             Text(tr("cant_change_choice").capitalize(),
                                  color=ft.colors.ERROR,
-                                 visible=bool(self.existing_content)
+                                 visible=bool(self.existing_content) and not self.option.forced_option
                                  and self.existing_content != "skip",
+                                 opacity=0.8),
+                            Text(tr("forced_option").capitalize(),
+                                 color=ft.colors.TERTIARY,
+                                 visible=self.option.forced_option,
                                  opacity=0.8)
                             ], wrap=True, run_spacing=5),
                         Row([
@@ -2945,7 +2951,6 @@ class ModInstallWizard(UserControl):
             # TODO: handle gracefully or remove entirely
             raise NoModsFound("No available for installation versions")
         # elif num_valid_translations == 1:
-        self.mod = validated_translations[0]
         await self.show_welcome_mod_screen()
 
     async def agree_to_install(self, e):

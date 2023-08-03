@@ -599,8 +599,11 @@ class InstallationContext:
                 steam_install_path = winreg.QueryValueEx(steam_install_reg_value, 'InstallPath')[0]
 
                 # game can be installed in main Steam dir or in any of the libraries specified in config
-                library_folders_config = os.path.join(steam_install_path, "SteamApps", "libraryfolders.vdf")
-                library_folder_config = os.path.join(steam_install_path, "SteamApps", "libraryfolder.vdf")
+                library_folders_config = os.path.join(steam_install_path, "config", "libraryfolders.vdf")
+                library_folders_config_steamapps = os.path.join(steam_install_path, "SteamApps",
+                                                                "libraryfolders.vdf")
+                library_folder_config_steamapps = os.path.join(steam_install_path, "SteamApps",
+                                                               "libraryfolder.vdf")
                 if os.path.isdir(steam_install_path):
                     library_folders = [steam_install_path]
                 else:
@@ -608,8 +611,10 @@ class InstallationContext:
                 game_folders = []
                 if os.path.exists(library_folders_config):
                     library_config_path = library_folders_config
-                elif os.path.exists(library_folder_config):
-                    library_config_path = library_folder_config
+                elif os.path.exists(library_folders_config_steamapps):
+                    library_config_path = library_folders_config_steamapps
+                elif os.path.exists(library_folder_config_steamapps):
+                    library_config_path = library_folder_config_steamapps
                 else:
                     return False
 

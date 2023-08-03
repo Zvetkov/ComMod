@@ -2,11 +2,11 @@
 from os import system
 from ctypes import windll
 
-OWN_VERSION = "2.0.7-rc2"
+OWN_VERSION = "2.0.9"
 
+DATE = "(July 18 2023)"
 # version of binary fixes
 # corresponds with the latest ComPatch/Rem release at the time of ComMod compilation
-DATE = "(June 18 2023)"
 VERSION = "1.14"
 
 # main version of exe is dependent on binary fixes, not on ComMod
