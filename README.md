@@ -18,14 +18,16 @@
 </div>
 
 <!-- About the project -->
-# Usage
+
 **ComMod** is a mod manager and installer that allows you to apply binary patches to game files necessary for [Community Remaster](https://github.com/DeusExMachinaTeam/EM-CommunityPatch) and complex mods based on it, e.g. [Improved Storyline](https://github.com/zatinu322/ImprovedStoryline/).
 
-* Show the user information about the mod (description, screenshots, list of changes, links from the author, etc.)
-* Streamlines installation of mods for the HTA game series, allowing them to choose which optional content to install
+* Shows the user information about the mod (description, screenshots, list of changes, links from the author, etc.)
+* Streamlines installation of mods, allowing user to choose which optional content to install
+* Multiple versions of the same mod are conveniently shown as a single entity in Library
+* Managing multiple game copies and launching the game in different modes is easy from Launcher app page
 
-On the modder side you get a support for:
-* A choice of binary patches that can be easily configured in mod manifest
+Distributing mod as ComMod package gives modders support for:
+* A choice of binary patches which can be easily enabled or disabled via mod manifest
 * Packaging of different mod versions and localisations as a single archive, reusing common files between versions
 * Support not only for an optional content but different mutually exclusive 'variants' of the same option, reducing the chances of user error and incorrect installation
 * Setting up compatibility rules (name, version, the presence of optional content) with other mods for the game
@@ -35,15 +37,14 @@ On the modder side you get a support for:
 ![Community Remaster installation][patcher_tutorial]
 *Installing Community Remaster with ComMod - Russian localisation shown*
 
-
 <p align="right">(<a href="#top">to the top</a>)</p>
 
 ## Making mods compatible
-Making a mod compatible with ComMod is easy - just place the files in the archive as specified in the documentation and prepare a special manifest.yaml file describing for ComMod how the mod should be displayed to the user and how to install.
+Making a mod compatible with ComMod is easy - just place the files in the zip or 7z  archive as specified in the documentation with a special manifest.yaml file, describing to ComMod how the mod should be displayed to the user and how it should be installed.
 
-Packing the mod in an archive with the ComMod manifest is the preferred way to distribute mods for Compatch and Comrem.
+Packing the mod in an archive with the ComMod manifest is the preferred way to distribute mods for ComPatch and ComRemaster.
 
-ComMod also allows the installation of old mods that were developed for the clean version of the game. When installing them via ComMod, a minimal set of edits will be applied to the game exe to fix common game crashes ("ComPatch Mini").
+ComMod also allows the installation of old mods that were developed for the clean version of the game. When installing them via ComMod, a minimal set of edits will be applied to the game exe to fix common game crashes ("ComPatch Mini"). These mod will need a simple manifest added to work with ComMod.
 
 ComMod is translated into English, Russian and Ukrainian.
 
@@ -70,7 +71,7 @@ In the installation process, the program patches the original exe of the game by
 <details>
 <summary>License information</summary>
 <ol>
-project license is loosely based on MIT license but forbidding commerical usage and adding an additional clause about attribution in case of redistribution of the code.
+Project license is loosely based on MIT license but forbidding commerical usage and adding an additional clause about specifics of attribution in case of redistribution of the code.
 
 <br />
 For details, please see the full license in the LICENSE file.
