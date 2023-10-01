@@ -29,6 +29,7 @@ def main_gui() -> None:
     commod_flet.start()
 
 
+# to be deprecated
 def main_console(options: argparse.Namespace) -> None:
     data.set_title()
     # helper to interact with user through console

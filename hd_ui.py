@@ -1,6 +1,7 @@
 import os
 # import winreg
 import logging
+from pathlib import Path
 
 import data
 import file_ops
@@ -14,12 +15,16 @@ def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> No
     ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
     ui_schema = file_ops.xml_to_objfy(ui_schema_path)
 
-    listed_system_fonts = [font.lower() for font in os.listdir(r'C:\Windows\fonts')]
-
     if not custom_font:
         font_alias = "Arial"
     else:
         font_alias = custom_font
+
+    fonts_path = Path(Path.home().drive + "/", "Windows", "fonts")
+    if fonts_path.exists():
+        listed_system_fonts = [font.lower() for font in os.listdir(fonts_path)]
+    else:
+        listed_system_fonts = []
 
     font_available = f"{font_alias.lower().replace(' ', '')}.ttf" in listed_system_fonts
 

@@ -2,9 +2,9 @@
 from os import system
 from ctypes import windll
 
-OWN_VERSION = "2.0.9"
+OWN_VERSION = "2.0.10"
 
-DATE = "(July 18 2023)"
+DATE = "(Sept 24 2023)"
 # version of binary fixes
 # corresponds with the latest ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"
@@ -55,7 +55,7 @@ ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
 # OFFSET_UI_Y = round((TARGET_RES_Y - ORIG_RES_Y * ENLARGE_UI_COEF) / 2)
 
 
-# table of used available empty spaces in binary
+# cheat sheet table of used available empty spaces in binary
 # 0x5E2BCB
 # 0x5E300C
 # 0x5E306C # 0.08 move fog start closer to camera
@@ -133,6 +133,15 @@ additional_mm_inserts = {
     0x2368C0: "C3CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
     }
 
+# to do:
+# petrovich keep throttle
+# 1DAC06: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (auto throttle 1.0 -> 0.01)
+# 0x1DAC06: "E8599E00",
+# 1DAC81: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (handbrake 1.0 -> 0.01)
+# 0x1DAC81: "E8599E00",
+# 0017DB: default (00 00 80 BF) -> (0A D7 23 BC)  -  (break -1.0 - -0.1)
+# 0x0017DB: "CDCCCCBD",
+
 binary_inserts = {
     # ConstantDLLName "library.dll"
     0x5FED63: "6C6962726172792E646C6C00",
@@ -150,10 +159,10 @@ binary_inserts = {
     # ai::BreakableObjectPrototypeInfo::LoadFromXML
     0x452D6C: "6A06",
 
-    # near plane fix 1.0 -> 0.1 (looks like it's not working!)
+    # near plane fix 1.0 -> 0.1 (TODO: seems like it doesn't have an intended effect)
     0x3AB7FB: "68CDCCCC3D",
 
-    # test animation moveframe (vehichle spawn freeze fix)
+    # animation moveframe (vehichle spawn freeze fix)
     0x30A620: "515355568BF1578B7E2485FF0F84AF00000033ED4566396F040F8CA20000008B5E2C2B5C2418834E60FF895E2C85DB0F8F900000000FBF4F048BC399F7F98B4E282BE803CD894E280FBF47040FAFC5894C241803C389462C0FBF470289442410483BC87C440FBF5F0885DB7911C74664010000000FBF470248894628EB2B8B4E206A342BB99C0000008BC79959F7F93BC3750E8B44241899F77C2410895628EB08538BCEE877FDFFFF8B46682BC5837E6C00894668740E85C0790A83666C00EB04836628005F5E5D5B59C204000400CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
 
     # CFile free errors
