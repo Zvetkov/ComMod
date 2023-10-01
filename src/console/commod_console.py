@@ -5,18 +5,20 @@ import sys
 from pathlib import Path
 
 import console.console_ui as console_ui
-import data
-import file_ops
 from console.color import bcolors, fconsole
-from environment import GameCopy, InstallationContext
-from errors import (CorruptedRemasterFiles, DistributionNotFound,
-                    DXRenderDllNotFound, ExeIsRunning, ExeNotFound,
-                    ExeNotSupported, FileLoggingSetupError,
-                    HasManifestButUnpatched, InvalidExistingManifest,
-                    InvalidGameDirectory, ModsDirMissing, NoModsFound,
-                    PatchedButDoesntHaveManifest, WrongGameDirectoryPath)
-from localisation import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH, tr
-from mod import Mod
+from game import data
+from game.environment import GameCopy, InstallationContext
+from game.mod import Mod
+from helpers import file_ops
+from helpers.errors import (CorruptedRemasterFiles, DistributionNotFound,
+                            DXRenderDllNotFound, ExeIsRunning, ExeNotFound,
+                            ExeNotSupported, FileLoggingSetupError,
+                            HasManifestButUnpatched, InvalidExistingManifest,
+                            InvalidGameDirectory, ModsDirMissing, NoModsFound,
+                            PatchedButDoesntHaveManifest,
+                            WrongGameDirectoryPath)
+from localisation.service import (COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH,
+                                  tr)
 
 
 # Console UI to be deprecated in future release

@@ -3,8 +3,8 @@ import platform
 import sys
 from ctypes import windll
 
-import commod_console
-import commod_flet
+from console import commod_console
+from gui import commod_flet
 
 
 def main_gui() -> None:

@@ -18,21 +18,25 @@ from flet import (Column, FloatingActionButton, Icon, IconButton, Image, Page,
                   Row, Tab, Tabs, Text, TextField, Theme, ThemeVisualDensity,
                   UserControl, colors, icons)
 
-import file_ops
-import localisation
 from commod import _init_input_parser
-from data import DATE, OWN_VERSION, get_title, is_known_lang
-from environment import DistroStatus, GameCopy, GameStatus, InstallationContext
-from errors import (DXRenderDllNotFound, ExeIsRunning, HasManifestButUnpatched,
-                    InvalidExistingManifest, ModsDirMissing, NoModsFound,
-                    PatchedButDoesntHaveManifest)
-from file_ops import (dump_yaml, extract_from_to, get_internal_file_path,
-                      get_proc_by_names, load_yaml, process_markdown,
-                      read_yaml)
-from localisation import (COMPATCH_GITHUB, DEM_DISCORD,
-                          DEM_DISCORD_MODS_DOWNLOAD_SCREEN, WIKI_COMPATCH,
-                          LangFlags, SupportedLanguages, tr)
-from mod import GameInstallments, Mod
+from game.data import DATE, OWN_VERSION, get_title, is_known_lang
+from game.environment import (DistroStatus, GameCopy, GameStatus,
+                              InstallationContext)
+from game.mod import GameInstallments, Mod
+from helpers import file_ops
+from helpers.errors import (DXRenderDllNotFound, ExeIsRunning,
+                            HasManifestButUnpatched, InvalidExistingManifest,
+                            ModsDirMissing, NoModsFound,
+                            PatchedButDoesntHaveManifest)
+from helpers.file_ops import (dump_yaml, extract_from_to,
+                              get_internal_file_path, get_proc_by_names,
+                              load_yaml, process_markdown, read_yaml)
+import localisation.service as localisation
+
+from localisation.service import (COMPATCH_GITHUB, DEM_DISCORD,
+                                  DEM_DISCORD_MODS_DOWNLOAD_SCREEN,
+                                  WIKI_COMPATCH, LangFlags, SupportedLanguages,
+                                  tr)
 
 
 class AppSections(Enum):
@@ -618,6 +622,7 @@ class SettingsScreen(UserControl):
         self.refreshing = False
 
     async def change_app_lang(self, e):
+        # TODO: hacky, probably need to replace
         localisation.LANG = e.data
         self.app.config.lang = e.data
         self.app.config.prefered_mod_lang = e.data

@@ -6,8 +6,8 @@ def progress_percentage(perc, width=None):
     # this is a gradient of incompleteness
     INCOMPLETE_BLOCK_GRAD = ['░', '▒', '▓']
 
-    assert(isinstance(perc, float))
-    assert(0. <= perc <= 100.)
+    # assert(isinstance(perc, float))
+    # assert(0. <= perc <= 100.)
     # if width unset use full terminal
     if width is None:
         width = os.get_terminal_size().columns
@@ -15,7 +15,7 @@ def progress_percentage(perc, width=None):
     max_perc_widget = '[100.00%]'  # 100% is max
     separator = ' '
     blocks_widget_width = width - len(separator) - len(max_perc_widget)
-    assert(blocks_widget_width >= 10)  # not very meaningful if not
+    # assert(blocks_widget_width >= 10)  # not very meaningful if not
     perc_per_block = 100.0/blocks_widget_width
     # epsilon is the sensitivity of rendering a gradient block
     epsilon = 1e-6

@@ -15,10 +15,13 @@ from pathvalidate import sanitize_filename
 from py7zr import py7zr
 
 from console.color import bcolors, fconsole, remove_colors
-from data import get_known_mod_display_name, is_known_lang
-from file_ops import (copy_from_to, copy_from_to_async_fast,
-                      get_internal_file_path, process_markdown, read_yaml)
-from localisation import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH, tr
+from helpers.file_ops import (copy_from_to, copy_from_to_async_fast,
+                              get_internal_file_path, process_markdown,
+                              read_yaml)
+from localisation.service import (COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH,
+                                  tr)
+
+from .data import get_known_mod_display_name, is_known_lang
 
 logger = logging.getLogger('dem')
 

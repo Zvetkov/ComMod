@@ -20,9 +20,8 @@ import yaml
 from flet import Text
 from lxml import etree, objectify
 
-import data
-import hd_ui
 from console import progbar
+from game import data, hd_ui
 
 logger = logging.getLogger('dem')
 
@@ -422,7 +421,7 @@ def dump_yaml(data, path, sort_keys=True) -> bool:
 
 
 def get_internal_file_path(file_name: str) -> str:
-    return os.path.join(os.path.dirname(__file__), file_name)
+    return Path(__file__).parent.parent / file_name
 
 
 def process_markdown(md_raw):

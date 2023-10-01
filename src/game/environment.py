@@ -19,20 +19,23 @@ from aiopath import AsyncPath
 from flet import Text
 
 from console.color import bcolors, fconsole
-from data import (OS_SCALE_FACTOR, OWN_VERSION, VERSION_BYTES_100_STAR,
-                  VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,
-                  VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR,
-                  VERSION_BYTES_DEM_LNCH)
-from errors import (CorruptedRemasterFiles, DistributionNotFound, ExeIsRunning,
-                    ExeNotFound, ExeNotSupported, FileLoggingSetupError,
-                    HasManifestButUnpatched, InvalidExistingManifest,
-                    InvalidGameDirectory, ModsDirMissing, NoModsFound,
-                    PatchedButDoesntHaveManifest, WrongGameDirectoryPath)
-from file_ops import (TARGEM_NEGATIVE, TARGEM_POSITIVE, get_config, load_yaml,
-                      read_yaml, running_in_venv, save_to_file_async,
-                      shorten_path)
-from localisation import tr
-from mod import GameInstallments, Mod
+from helpers.errors import (CorruptedRemasterFiles, DistributionNotFound,
+                            ExeIsRunning, ExeNotFound, ExeNotSupported,
+                            FileLoggingSetupError, HasManifestButUnpatched,
+                            InvalidExistingManifest, InvalidGameDirectory,
+                            ModsDirMissing, NoModsFound,
+                            PatchedButDoesntHaveManifest,
+                            WrongGameDirectoryPath)
+from helpers.file_ops import (TARGEM_NEGATIVE, TARGEM_POSITIVE, get_config,
+                              load_yaml, read_yaml, running_in_venv,
+                              save_to_file_async, shorten_path)
+from localisation.service import tr
+
+from .data import (OS_SCALE_FACTOR, OWN_VERSION, VERSION_BYTES_100_STAR,
+                   VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,
+                   VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR,
+                   VERSION_BYTES_DEM_LNCH)
+from .mod import GameInstallments, Mod
 
 
 class GameStatus(Enum):

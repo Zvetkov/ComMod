@@ -1,6 +1,6 @@
-# import math
-from os import system
+# flake8: noqa
 from ctypes import windll
+from os import system
 
 OWN_VERSION = "2.0.11"
 
