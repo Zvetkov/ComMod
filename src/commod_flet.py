@@ -1,54 +1,38 @@
 
-from asyncio import create_task, gather, create_subprocess_exec
 import asyncio
-from datetime import datetime
-import subprocess
-from typing import Optional
-import aiofiles.os
-import aioshutil
 import os
+import subprocess
 import tempfile
-
+from asyncio import create_subprocess_exec, create_task, gather
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import Optional
 
+import aiofiles.os
+import aioshutil
+import flet as ft
 from asyncio_requests.asyncio_request import request
-import localisation
+from flet import (Column, FloatingActionButton, Icon, IconButton, Image, Page,
+                  Row, Tab, Tabs, Text, TextField, Theme, ThemeVisualDensity,
+                  UserControl, colors, icons)
 
+import file_ops
+import localisation
 from commod import _init_input_parser
 from data import DATE, OWN_VERSION, get_title, is_known_lang
-from environment import InstallationContext, GameCopy, GameStatus, DistroStatus
-import file_ops
-from file_ops import dump_yaml, extract_from_to, get_internal_file_path, get_proc_by_names,\
-                     load_yaml, read_yaml, process_markdown
-from localisation import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH, DEM_DISCORD_MODS_DOWNLOAD_SCREEN,\
-                         tr, SupportedLanguages, LangFlags
-from mod import Mod, GameInstallments
-
-from errors import ExeIsRunning, HasManifestButUnpatched, PatchedButDoesntHaveManifest,\
-                   InvalidExistingManifest, ModsDirMissing, NoModsFound, DXRenderDllNotFound
-
-
-import flet as ft
-from flet import (
-    Column,
-    FloatingActionButton,
-    IconButton,
-    Page,
-    Row,
-    Tab,
-    Tabs,
-    Text,
-    Image,
-    Icon,
-    TextField,
-    UserControl,
-    colors,
-    icons,
-    ThemeVisualDensity,
-    Theme
-)
+from environment import DistroStatus, GameCopy, GameStatus, InstallationContext
+from errors import (DXRenderDllNotFound, ExeIsRunning, HasManifestButUnpatched,
+                    InvalidExistingManifest, ModsDirMissing, NoModsFound,
+                    PatchedButDoesntHaveManifest)
+from file_ops import (dump_yaml, extract_from_to, get_internal_file_path,
+                      get_proc_by_names, load_yaml, process_markdown,
+                      read_yaml)
+from localisation import (COMPATCH_GITHUB, DEM_DISCORD,
+                          DEM_DISCORD_MODS_DOWNLOAD_SCREEN, WIKI_COMPATCH,
+                          LangFlags, SupportedLanguages, tr)
+from mod import GameInstallments, Mod
 
 
 class AppSections(Enum):
@@ -495,7 +479,8 @@ class GameCopyListItem(UserControl):
                             bgcolor=ft.colors.ERROR_CONTAINER,
                             border_radius=15, padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
                             visible=bool(self.warning)),
-                    )], spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER), padding=ft.padding.symmetric(vertical=5)),
+                    )], spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                        padding=ft.padding.symmetric(vertical=5)),
                     ft.Tooltip(
                         message=self.game_path,
                         content=ft.Container(
@@ -1455,7 +1440,7 @@ class SettingsScreen(UserControl):
                         self.app.logger.debug(f"Getting exe version for exe path: {exe_name}")
                         exe_version = GameCopy.get_exe_version(exe_name)
                         if exe_version is not None:
-                            self.app.logger.debug(f"Checking exe compatibility for exe version: {exe_version}")
+                            self.app.logger.debug(f"Checking compatibility for exe version: {exe_version}")
                             validated_exe = GameCopy.is_compatch_compatible_exe(exe_version)
                             if validated_exe:
                                 status = GameStatus.COMPATIBLE
@@ -4395,7 +4380,8 @@ class HomeScreen(UserControl):
                     self.app.logger.error("Online news loading: Couldn't get current lang from lang mappings")
 
                 response = await request(
-                    url=f"https://raw.githubusercontent.com/DeusExMachinaTeam/ComModNews/main/{dem_news_stem}",
+                    url=(f"https://raw.githubusercontent.com/DeusExMachinaTeam/ComModNews/main/"
+                         f"{dem_news_stem}"),
                     protocol="HTTPS",
                     protocol_info={
                         "request_type": "GET",
@@ -4763,7 +4749,8 @@ class HomeScreen(UserControl):
 
             if len(self.app.config.game_names) == 1:
                 game_selector = ft.Container(
-                    Icon(ft.icons.BADGE_ROUNDED, color=ft.colors.PRIMARY, size=20), margin=ft.margin.only(left=7, right=8))
+                    Icon(ft.icons.BADGE_ROUNDED, color=ft.colors.PRIMARY, size=20),
+                    margin=ft.margin.only(left=7, right=8))
             else:
                 game_selector = ft.PopupMenuButton(
                                     icon=ft.icons.BADGE_ROUNDED,
@@ -5051,8 +5038,8 @@ async def main(page: Page):
     # if app.config.known_games:
     target_dir = app.config.current_game
     # else:
-        # TODO: rework for this default to work as expected, should detect the game and add to the list as current
-        # target_dir = InstallationContext.get_local_path()
+    # TODO: rework for this default to work as expected, should detect the game and add to the list as current
+    # target_dir = InstallationContext.get_local_path()
 
     distribution_dir = app.config.current_distro
 

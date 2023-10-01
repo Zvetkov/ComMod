@@ -1,6 +1,5 @@
-import os
-# import winreg
 import logging
+import os
 from pathlib import Path
 
 import data

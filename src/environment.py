@@ -1,34 +1,38 @@
-from asyncio import gather
 import asyncio
-from ctypes import windll
+import hashlib
 import logging
 import os
 import platform
 import subprocess
 import sys
-from enum import Enum
-from typing import Optional
+import winreg
 import zipfile
-import hashlib
+from asyncio import gather
+from ctypes import windll
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Optional
+
+import py7zr
 from aiopath import AsyncPath
 from flet import Text
 
-from pathlib import Path
-from datetime import datetime
-import winreg
-
-import py7zr
-from color import bcolors, fconsole
-from mod import Mod, GameInstallments
-from errors import ExeIsRunning, ExeNotFound, ExeNotSupported, HasManifestButUnpatched, InvalidGameDirectory,\
-                  DistributionNotFound, FileLoggingSetupError, InvalidExistingManifest, ModsDirMissing,\
-                  NoModsFound, CorruptedRemasterFiles, PatchedButDoesntHaveManifest, WrongGameDirectoryPath
-from data import OWN_VERSION, VERSION_BYTES_100_STAR, VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,\
-                 VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR, OS_SCALE_FACTOR, VERSION_BYTES_DEM_LNCH
+from console.color import bcolors, fconsole
+from data import (OS_SCALE_FACTOR, OWN_VERSION, VERSION_BYTES_100_STAR,
+                  VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,
+                  VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR,
+                  VERSION_BYTES_DEM_LNCH)
+from errors import (CorruptedRemasterFiles, DistributionNotFound, ExeIsRunning,
+                    ExeNotFound, ExeNotSupported, FileLoggingSetupError,
+                    HasManifestButUnpatched, InvalidExistingManifest,
+                    InvalidGameDirectory, ModsDirMissing, NoModsFound,
+                    PatchedButDoesntHaveManifest, WrongGameDirectoryPath)
+from file_ops import (TARGEM_NEGATIVE, TARGEM_POSITIVE, get_config, load_yaml,
+                      read_yaml, running_in_venv, save_to_file_async,
+                      shorten_path)
 from localisation import tr
-from file_ops import TARGEM_NEGATIVE, TARGEM_POSITIVE,\
-                    get_config, running_in_venv, read_yaml, load_yaml,\
-                    save_to_file_async, shorten_path
+from mod import GameInstallments, Mod
 
 
 class GameStatus(Enum):
@@ -341,7 +345,7 @@ class InstallationContext:
                     mod_dummy = Mod(manifest, Path(path).parent)
                     self.archived_mods[path] = mod_dummy
                 except Exception as ex:
-                    self.app.logger.error("Error on archived mod preload", exc)
+                    self.logger.error("Error on archived mod preload", exc_info=ex)
                     # TODO: remove raise, need to test
                     raise NotImplementedError
                     continue

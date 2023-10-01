@@ -458,6 +458,7 @@ new_icon_header_ends = 0x16
 new_icon_size_offset = 0x60A0BC
 new_icon_group_offset = 0x60A0C8
 
+
 def get_known_mod_display_name(service_name):
     known_names = {"community_patch": "Community Patch",
                    "community_remaster": "Community Remaster"}

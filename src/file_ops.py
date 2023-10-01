@@ -1,31 +1,28 @@
-from math import ceil, floor
+import asyncio
+import html
+import logging
 import math
-from typing import Any, Awaitable, Callable, Coroutine, Optional
+import os
+import shutil
+import struct
+import sys
+import zipfile
+from math import ceil
+from pathlib import Path
+from typing import Any, Coroutine, Optional
 
 import aiofiles
-import data
-import os
-import sys
-import shutil
 import aioshutil
-import psutil
-
-# import winreg
-import asyncio
-import logging
-import yaml
-import struct
-import html
-import zipfile
-import py7zr
-from pathlib import Path
-
-from lxml import etree, objectify
-from flet import Text
 import markdownify
+import psutil
+import py7zr
+import yaml
+from flet import Text
+from lxml import etree, objectify
 
-import progbar
+import data
 import hd_ui
+from console import progbar
 
 logger = logging.getLogger('dem')
 
@@ -172,6 +169,7 @@ async def save_to_file_async(objectify_tree: objectify.ObjectifiedElement, path,
         else:
             await fh.write(xml_string)
 
+
 def count_files(directory: str) -> int:
     files = []
 
@@ -234,7 +232,9 @@ async def copy_file_and_call_async(path, file_num, sfile, from_path, to_path, fi
     file_num[0] += 1
 
 
-async def copy_from_to_async_fast(from_path_list: list[str], to_path: str, callback_progbar: callable) -> None:
+async def copy_from_to_async_fast(from_path_list: list[str],
+                                  to_path: str,
+                                  callback_progbar: callable) -> None:
     files_count = 0
     for from_path in from_path_list:
         logger.debug(f"Copying files from '{from_path}' to '{to_path}'")
@@ -442,7 +442,7 @@ def patch_offsets(f, offsets_dict: dict, enlarge_coeff: float = 1.0, raw_strings
                 new_value = offsets_dict[offset]
             f.write(struct.pack("i", new_value))
         elif type(offsets_dict[offset]) == str:
-            if raw_strings:  # write as is, binary insert strings 
+            if raw_strings:  # write as is, binary insert strings
                 f.write(bytes.fromhex(offsets_dict[offset]))
             else:  # hex address to convert to pointer
                 f.write(struct.pack('<L', int(offsets_dict[offset], base=16)))

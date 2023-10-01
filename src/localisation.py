@@ -1,9 +1,9 @@
-from enum import Enum
 import locale
 import logging
+from enum import Enum
 
-from file_ops import read_yaml, get_internal_file_path
 from data import OWN_VERSION
+from file_ops import get_internal_file_path, read_yaml
 
 logger = logging.getLogger('dem')
 

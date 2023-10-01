@@ -1,27 +1,24 @@
 from __future__ import annotations
-from functools import total_ordering
 
 import logging
 import operator
 import os
-from pathlib import Path
-from zipfile import ZipInfo
-from pathvalidate import sanitize_filename
 import typing
-
-from typing import Optional, Awaitable, Any
-
 from datetime import datetime
-
 from enum import Enum
+from functools import total_ordering
+from pathlib import Path
+from typing import Any, Awaitable, Optional
+from zipfile import ZipInfo
 
+from pathvalidate import sanitize_filename
 from py7zr import py7zr
 
-from color import bcolors, fconsole, remove_colors
-from localisation import tr, DEM_DISCORD, COMPATCH_GITHUB, WIKI_COMPATCH
-from data import is_known_lang, get_known_mod_display_name
-from file_ops import read_yaml, process_markdown, get_internal_file_path,\
-                     copy_from_to, copy_from_to_async_fast
+from console.color import bcolors, fconsole, remove_colors
+from data import get_known_mod_display_name, is_known_lang
+from file_ops import (copy_from_to, copy_from_to_async_fast,
+                      get_internal_file_path, process_markdown, read_yaml)
+from localisation import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH, tr
 
 logger = logging.getLogger('dem')
 
@@ -40,7 +37,8 @@ class Mod:
     def __init__(self, yaml_config: dict, distribution_dir: str) -> None:
         try:
             self.vanilla_mod = False
-            self.name = yaml_config.get("name")[:64].replace("/", "").replace("\\", "").replace(".", "").strip()
+            self.name = \
+                yaml_config.get("name")[:64].replace("/", "").replace("\\", "").replace(".", "").strip()
 
             installment = yaml_config.get("installment")
             if installment is None:
@@ -651,7 +649,8 @@ class Mod:
 
                         error_msg.append(requirement_name)
                     else:
-                        logger.info(f"   PASS: content requirement met: {option} - of required mod: {name_label}")
+                        logger.info(f"   PASS: content requirement met: {option} "
+                                    f"- of required mod: {name_label}")
 
         validated = name_validated and version_validated and optional_content_validated
 
@@ -1112,15 +1111,19 @@ class Mod:
                 incompatibles = install_config.get("incompatible")
                 if patcher_options is not None:
                     validated &= Mod.validate_dict_constrained(patcher_options, schema_patcher_options)
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: patcher options dict validation result")
+                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                                "patcher options dict validation result")
                     validated &= len(set(patcher_options.keys()) - set(schema_patcher_options.keys())) == 0
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: only supported patcher options validation result")
+                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                                "only supported patcher options validation result")
 
                 if config_options is not None:
                     validated &= Mod.validate_dict_constrained(config_options, schema_config_options)
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: config options dict validation result")
+                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                                "config options dict validation result")
                     validated &= len(set(config_options.keys()) - set(schema_config_options.keys())) == 0
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: only supported config options validation result")
+                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                                "only supported config options validation result")
 
                 if prerequisites is not None:
                     has_forbidden_prerequisites = False
