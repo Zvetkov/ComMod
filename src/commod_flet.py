@@ -649,17 +649,17 @@ class SettingsScreen(UserControl):
         )
 
     def build(self):
-        game_icon = Image(src=get_internal_file_path("icons/hta_comrem.png"),
+        game_icon = Image(src=get_internal_file_path("assets/icons/hta_comrem.png"),
                           width=24,
                           height=24,
                           fit=ft.ImageFit.FIT_HEIGHT)
 
-        dem_icon = Image(src=get_internal_file_path("icons/dem_logo.svg"),
+        dem_icon = Image(src=get_internal_file_path("assets/icons/dem_logo.svg"),
                          width=24,
                          height=24,
                          fit=ft.ImageFit.FIT_HEIGHT)
 
-        steam_icon = Image(src=get_internal_file_path("icons/steampowered.svg"),
+        steam_icon = Image(src=get_internal_file_path("assets/icons/steampowered.svg"),
                            width=24,
                            height=24,
                            fit=ft.ImageFit.FIT_HEIGHT)
@@ -933,7 +933,7 @@ class SettingsScreen(UserControl):
             ft.Container(
                 Row([
                     Column([
-                        Image(src=get_internal_file_path("icons/dem_logo.svg"),
+                        Image(src=get_internal_file_path("assets/icons/dem_logo.svg"),
                               fit=ft.ImageFit.CONTAIN),
                         ft.Text(f'{(tr("version").capitalize())} {OWN_VERSION}\n{DATE}',
                                 size=10, weight=ft.FontWeight.W_300, text_align=ft.TextAlign.CENTER),
@@ -4148,13 +4148,13 @@ class LocalModsScreen(UserControl):
         match self.app.game.installment:
             case "exmachina":
                 if self.app.game.patched_version:
-                    ico_path = get_internal_file_path("icons/hta_comrem.png")
+                    ico_path = get_internal_file_path("assets/icons/hta_comrem.png")
                 else:
-                    ico_path = get_internal_file_path("icons/original_hta.png")
+                    ico_path = get_internal_file_path("assets/icons/original_hta.png")
             case "m113":
-                ico_path = get_internal_file_path("icons/original_m113.png")
+                ico_path = get_internal_file_path("assets/icons/original_m113.png")
             case "arcade":
-                ico_path = get_internal_file_path("icons/original_arcade.png")
+                ico_path = get_internal_file_path("assets/icons/original_arcade.png")
 
         if self.app.game.installed_descriptions:
             mods_text = "\n\n".join(self.app.game.installed_descriptions.values())
@@ -4309,7 +4309,7 @@ class DownloadModsScreen(UserControl):
                         ft.Divider(),
                         Text(tr("download_at_dem_gallery")),
                         ft.TextButton(content=ft.Row([
-                            Image(src=get_internal_file_path("icons/discord-icon-svgrepo.svg"),
+                            Image(src=get_internal_file_path("assets/icons/discord-icon-svgrepo.svg"),
                                   color=ft.colors.PRIMARY,
                                   fit=ft.ImageFit.FILL, height=30),
                             Text(tr("go_to_dem_server"))],
@@ -4317,7 +4317,7 @@ class DownloadModsScreen(UserControl):
                             height=38),
                             url=DEM_DISCORD_MODS_DOWNLOAD_SCREEN),
                         ft.TextButton(content=ft.Row([
-                            Image(src=get_internal_file_path("icons/github_invertocat.svg"),
+                            Image(src=get_internal_file_path("assets/icons/github_invertocat.svg"),
                                   color=ft.colors.PRIMARY,
                                   fit=ft.ImageFit.FILL, height=27),
                             Text(tr("our_github"))],
@@ -5150,7 +5150,7 @@ async def main(page: Page):
         ft.Row(
             [ft.WindowDragArea(ft.Container(
                  ft.Row([
-                     Image(src=get_internal_file_path("icons/dem_logo.svg"),
+                     Image(src=get_internal_file_path("assets/icons/dem_logo.svg"),
                            width=20,
                            height=20,
                            fit=ft.ImageFit.COVER),

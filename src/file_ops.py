@@ -465,7 +465,7 @@ def patch_remaster_icon(f):
     if old_rsrc_size == 6632:
         # patching new icon
         icon_raw: bytes
-        with open(get_internal_file_path("icons/hta_comrem.ico"), 'rb+') as ficon:
+        with open(get_internal_file_path("assets/icons/hta_comrem.ico"), 'rb+') as ficon:
             ficon.seek(data.new_icon_header_ends)
             icon_raw = ficon.read()
 

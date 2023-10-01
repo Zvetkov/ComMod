@@ -2,7 +2,7 @@
 from os import system
 from ctypes import windll
 
-OWN_VERSION = "2.0.10"
+OWN_VERSION = "2.0.11"
 
 DATE = "(Sept 24 2023)"
 # version of binary fixes
