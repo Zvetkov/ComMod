@@ -26,9 +26,9 @@ def _init_input_parser():
     parser.add_argument('-console', help='run in console',
                         action="store_true", default=False, required=False)
     installation_option = parser.add_mutually_exclusive_group()
-    installation_option.add_argument('-compatch', help='base ComPatch setup, no console interaction required',
+    installation_option.add_argument('-compatch', help='base ComPatch setup, silent console mode',
                                      action="store_true", default=False)
-    installation_option.add_argument('-comremaster', help='base ComRemaster, no console interaction required',
+    installation_option.add_argument('-comremaster', help='base ComRemaster, silent console mode',
                                      action="store_true", default=False)
 
     return parser

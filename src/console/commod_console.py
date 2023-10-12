@@ -29,7 +29,7 @@ def main(options: argparse.Namespace) -> None:
 
     # creating installation context - description of content versions we can install
     try:
-        context = InstallationContext(options.distribution_dir, dev_mode=options.dev)
+        context = InstallationContext(options.distribution_dir, dev_mode=options.dev, legacy_checks=True)
         session = context.current_session
     except DistributionNotFound as er:
         console.simple_end('missing_distribution', er)

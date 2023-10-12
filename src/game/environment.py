@@ -63,7 +63,8 @@ class InstallationContext:
     (dir where installation files are located) and some details about ComMod
     '''
     def __init__(self, distribution_dir: str = "",
-                 dev_mode: bool = False, can_skip_adding_distro: bool = False) -> None:
+                 dev_mode: bool = False, can_skip_adding_distro: bool = False,
+                 legacy_checks: bool = False) -> None:
         self.dev_mode = dev_mode
         self.distribution_dir = ""
         self.validated_mod_configs = {}
@@ -76,11 +77,11 @@ class InstallationContext:
 
         if distribution_dir:
             try:
-                self.add_distribution_dir(distribution_dir)
+                self.add_distribution_dir(distribution_dir, legacy_checks=True)
             except EnvironmentError:
                 logging.error(f"Couldn't add '{distribution_dir = }'")
         elif not can_skip_adding_distro:
-            self.add_default_distribution_dir()
+            self.add_default_distribution_dir(legacy_checks=True)
 
         self.current_session = self.Session()
 
@@ -115,12 +116,14 @@ class InstallationContext:
             return config
         return None
 
-    def add_distribution_dir(self, distribution_dir: str, ignore_invalid: bool = False) -> None:
+    def add_distribution_dir(self, distribution_dir: str,
+                             ignore_invalid: bool = False,
+                             legacy_checks: bool = False) -> None:
         '''
         Distribution dir is a location of files available for installation
         By default it's ComPatch and ComRemaster files, but can also contain mods
         '''
-        if self.validate_distribution_dir(distribution_dir):
+        if self.validate_distribution_dir(distribution_dir, legacy_checks=legacy_checks):
             self.distribution_dir = os.path.normpath(distribution_dir)
             self.short_path = shorten_path(self.distribution_dir, 45)
         elif not ignore_invalid:
@@ -182,6 +185,7 @@ class InstallationContext:
     @staticmethod
     def get_local_path():
         sys_exe = str(Path(sys.executable).resolve())
+        \
         # check if we are running as py script, compiled exe, or in venv
         if ".exe" in sys_exe and not running_in_venv():
             # Nuitka way
@@ -190,17 +194,18 @@ class InstallationContext:
             # distribution_dir = Path(sys.executable).resolve().parent
         elif running_in_venv():
             # probably running in venv
-            exe_path = Path(__file__).resolve().parent
+            exe_path = Path(__file__).parent.parent
+            
         else:
             raise EnvironmentError
 
         return str(exe_path)
 
-    def add_default_distribution_dir(self) -> None:
+    def add_default_distribution_dir(self, legacy_checks=False) -> None:
         '''Looks for distribution files arround exe and sets as distribution dir if its validated'''
         exe_path = self.get_local_path()
 
-        if self.validate_distribution_dir(exe_path):
+        if self.validate_distribution_dir(exe_path, legacy_checks=legacy_checks):
             self.distribution_dir = exe_path
             self.short_path = shorten_path(self.distribution_dir, 45)
         else:
