@@ -30,12 +30,7 @@ TARGEM_NEGATIVE = ["no", "nope", "none", "false"]
 
 
 def shorten_path(path: str | Path, length: int = 60) -> str:
-    if isinstance(path, str):
-        path_to_shorten = Path(path)
-    elif isinstance(path, Path):
-        path_to_shorten = path
-    else:
-        raise TypeError(f"Path is of type {type(path)}: {path}")
+    path_to_shorten = Path(path)
 
     final_str = path_to_shorten.as_posix()
     if len(final_str) <= length:
@@ -50,7 +45,15 @@ def shorten_path(path: str | Path, length: int = 60) -> str:
         return "../" + path_to_shorten.stem
     else:
         return "../" + path_to_shorten.stem[:length-4] + "~"
-
+    
+def parse_simple_relative_path(path: str | Path):
+    parsed_path = str(path).replace("\\","/").strip()
+    while parsed_path.endswith("/"):
+        parsed_path = parsed_path[:-1].strip()
+    while parsed_path.startswith("/") or parsed_path.startswith("."):
+        parsed_path = parsed_path[1:].strip()
+    return parsed_path
+    
 
 def child_from_xml_node(xml_node: objectify.ObjectifiedElement, child_name: str, do_not_warn: bool = False):
     '''Get child from ObjectifiedElement by name'''

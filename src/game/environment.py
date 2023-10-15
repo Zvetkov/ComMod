@@ -77,7 +77,7 @@ class InstallationContext:
 
         if distribution_dir:
             try:
-                self.add_distribution_dir(distribution_dir, legacy_checks=True)
+                self.add_distribution_dir(distribution_dir, legacy_checks=legacy_checks)
             except EnvironmentError:
                 logging.error(f"Couldn't add '{distribution_dir = }'")
         elif not can_skip_adding_distro:
@@ -289,9 +289,10 @@ class InstallationContext:
     async def load_mods_async(self) -> None:
         # self.logger.debug("Load_mods entry")
         all_config_paths = []
-        legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
-        if os.path.exists(legacy_comrem):
-            all_config_paths.append(legacy_comrem)
+        # TODO: deprecate all code related to legacy comrem file structure
+        # legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
+        # if os.path.exists(legacy_comrem):
+            # all_config_paths.append(legacy_comrem)
 
         mod_loading_errors = self.current_session.mod_loading_errors
         mods_path = os.path.join(self.distribution_dir, "mods")
@@ -437,6 +438,7 @@ class InstallationContext:
         return mod_list, archive_dict
 
     async def get_existing_mods_async(self, mods_dir: str) -> list[str]:
+        # TODO: review this commented out code
         # self.logger.debug("Inside get_existing_mods async")
         # mod_list = await self.get_dir_manifest_async(mods_dir)
         mod_list = self.get_dir_manifests(mods_dir)

@@ -19,11 +19,10 @@ def _init_input_parser():
     parser = argparse.ArgumentParser(description='DEM Community Mod Manager')
     parser.add_argument('-target_dir', help='path to game directory', required=False)
     parser.add_argument('-distribution_dir',
-                        help=('path to root folder where "patch", "remaster", "libs" '
-                              'and an optional folder "mods" are located'), required=False)
+                        help=('path to folder where "mods" library is located'), required=False)
     parser.add_argument('-dev', help='developer mode',
                         action="store_true", default=False, required=False)
-    parser.add_argument('-console', help='run in console',
+    parser.add_argument('-console', help='run in console, not currently fully supported with modern mods',
                         action="store_true", default=False, required=False)
     installation_option = parser.add_mutually_exclusive_group()
     installation_option.add_argument('-compatch', help='base ComPatch setup, silent console mode',

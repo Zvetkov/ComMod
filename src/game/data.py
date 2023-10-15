@@ -2,9 +2,9 @@
 from ctypes import windll
 from os import system
 
-OWN_VERSION = "2.0.11"
+OWN_VERSION = "2.1"
 
-DATE = "(Sept 24 2023)"
+DATE = "(Oct 12 2023)"
 # version of binary fixes
 # corresponds with the latest ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"

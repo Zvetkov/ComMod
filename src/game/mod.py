@@ -17,7 +17,7 @@ from py7zr import py7zr
 from console.color import bcolors, fconsole, remove_colors
 from helpers.file_ops import (copy_from_to, copy_from_to_async_fast,
                               get_internal_file_path, process_markdown,
-                              read_yaml)
+                              read_yaml, parse_simple_relative_path)
 from localisation.service import (COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH,
                                   tr)
 
@@ -253,6 +253,24 @@ class Mod:
                     else:
                         raise ValueError("'no_base_content' should be boolean!")
 
+            if self.no_base_content:
+                self.base_dirs = []
+            else:
+                self.base_dirs = ["data"]
+            base_dirs = yaml_config.get("base_dirs")
+            if base_dirs is not None:
+                self.base_dirs = [parse_simple_relative_path(dir) for dir in base_dirs]
+
+            self.libs_dirs = []
+            libs_dirs = yaml_config.get("libs_dirs")
+            if libs_dirs is not None:
+                self.libs_dirs = [parse_simple_relative_path(dir) for dir in libs_dirs]
+
+            self.options_base_dir = ""
+            options_base_dir = yaml_config.get("options_base_dir")
+            if options_base_dir is not None:
+                self.options_base_dir = parse_simple_relative_path(options_base_dir)
+
             self.optional_content = []
 
             optional_content = yaml_config.get("optional_content")
@@ -294,6 +312,7 @@ class Mod:
                                          f"'{mod_tr.name}' name specified for translation, "
                                          f"but main mod name is '{self.name}'! "
                                          f"(Mod: {self.name}) (Translation: {mod_tr.language})")
+                    # TODO: is this an actually valid limitation? Might want to allow that
                     if mod_tr.version != self.version:
                         raise ValueError("Version mismatch: "
                                          f"'{mod_tr.version}' specified for translation, "
@@ -496,11 +515,13 @@ class Mod:
             elif install_base == "skip":
                 logger.debug("No base content will be installed")
             else:
-                base_path = os.path.join(self.distribution_dir, "data")
+                libs_paths = [Path(self.distribution_dir, dir) for dir in self.libs_dirs]
+                base_paths = [Path(self.distribution_dir, dir) for dir in self.base_dirs]
                 await callback_status(tr("copying_base_files_please_wait"))
-                mod_files.append(base_path)
+                mod_files.extend(base_paths)
                 start = datetime.now()
                 await copy_from_to_async_fast(mod_files, game_data_path, callback_progbar)
+                await copy_from_to_async_fast(libs_paths, Path(game_data_path).parent, callback_progbar)
                 end = datetime.now()
                 logger.debug(f"{(end - start).microseconds / 1000000} seconds took fast copy")
                 mod_files.clear()
@@ -510,7 +531,7 @@ class Mod:
                     continue
                 else:
                     wip_setting = self.options_dict[install_setting]
-                    base_work_path = os.path.join(self.distribution_dir, wip_setting.name, "data")
+                    base_work_path = Path(self.distribution_dir, self.options_base_dir, wip_setting.name, "data")
                     installation_decision = install_settings[install_setting]
                     if installation_decision == "yes":
                         mod_files.append(base_work_path)
@@ -519,10 +540,12 @@ class Mod:
                         continue
                     else:
                         custom_install_method = install_settings[install_setting]
-                        custom_install_work_path = os.path.join(self.distribution_dir,
-                                                                wip_setting.name,
-                                                                custom_install_method,
-                                                                "data")
+                        custom_install_work_path = os.path.join(
+                            self.distribution_dir,
+                            self.options_base_dir,
+                            wip_setting.name,
+                            custom_install_method,
+                            "data")
 
                         mod_files.append(base_work_path)
                         mod_files.append(custom_install_work_path)
@@ -652,7 +675,7 @@ class Mod:
 
                         error_msg.append(requirement_name)
                     else:
-                        logger.info(f"   PASS: content requirement met: {option} "
+                        logger.info(f"\tPASS: content requirement met: {option} "
                                     f"- of required mod: {name_label}")
 
         validated = name_validated and version_validated and optional_content_validated
@@ -1056,6 +1079,7 @@ class Mod:
 
                 "release_date": [[str], False],
                 "trailer_url": [[str], False],
+                "variants": [[list[str]], False],
                 "translations": [[list[str]], False],
                 "link": [[str], False],
                 "tags": [[list[str]], False],
@@ -1069,6 +1093,8 @@ class Mod:
                 "optional_content": [[list], False],
                 "strict_requirements": [[bool, str], False],
                 "no_base_content": [[bool, str], False],
+                "base_dirs": [[list[str]], False],
+                "options_base_dir": [[str], False]
             }
 
             schema_prereqs = {
@@ -1102,6 +1128,10 @@ class Mod:
             }
             validated = Mod.validate_dict(install_config, schema_fieds_top)
             if validated:
+
+                # TODO: minimize and wrap comrem specific checks as legacy logic,
+                # add proper checks for new base_dirs functionality
+
                 display_name = install_config.get("display_name")
                 mod_name = install_config.get("name")
                 mod_lang = install_config.get("language")
@@ -1114,21 +1144,22 @@ class Mod:
                 incompatibles = install_config.get("incompatible")
                 if patcher_options is not None:
                     validated &= Mod.validate_dict_constrained(patcher_options, schema_patcher_options)
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                 "patcher options dict validation result")
                     validated &= len(set(patcher_options.keys()) - set(schema_patcher_options.keys())) == 0
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                 "only supported patcher options validation result")
 
                 if config_options is not None:
                     validated &= Mod.validate_dict_constrained(config_options, schema_config_options)
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                 "config options dict validation result")
                     validated &= len(set(config_options.keys()) - set(schema_config_options.keys())) == 0
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                 "only supported config options validation result")
 
                 if prerequisites is not None:
+                    # TODO: probably not needed anymore, compatch is a generic mod now
                     has_forbidden_prerequisites = False
                     for prereq_entry in prerequisites:
                         validated &= Mod.validate_dict(prereq_entry, schema_prereqs)
@@ -1142,13 +1173,13 @@ class Mod:
                                                             and bool(entry_optional_content)
                                                             and entry_optional_content is not None)
                     if has_forbidden_prerequisites:
-                        logger.error("   FAIL: prerequisites which include ComPatch "
+                        logger.error("\tFAIL: prerequisites which include ComPatch "
                                      "can't specify optional content")
                     validated &= not has_forbidden_prerequisites
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: prerequisites validation result")
+                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: prerequisites validation result")
 
                 if incompatibles is not None:
-                    has_forbidden_icompabilities = False
+                    has_forbidden_icompatibles = False
                     for incompatible_entry in incompatibles:
                         validated &= Mod.validate_dict(incompatible_entry, schema_prereqs)
                         if validated:
@@ -1156,40 +1187,40 @@ class Mod:
                                 incompatible_entry_checked = [incompatible_entry["name"]]
                             else:
                                 incompatible_entry_checked = incompatible_entry["name"]
-                            has_forbidden_icompabilities |= bool(set(incompatible_entry_checked)
+                            has_forbidden_icompatibles |= bool(set(incompatible_entry_checked)
                                                                  & set(["community_patch"]))
-                    if has_forbidden_icompabilities:
-                        logger.error("   FAIL: incompatibles can't contain ComPatch, "
+                    if has_forbidden_icompatibles:
+                        logger.error("\tFAIL: incompatibles can't contain ComPatch, "
                                      "should just have ComRem prereq if mod is ComRem exclusive")
-                    validated &= not has_forbidden_icompabilities
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                    validated &= not has_forbidden_icompatibles
+                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                 "incompatible content validation result")
 
                 if optional_content is not None:
                     validated &= Mod.validate_list(optional_content, schema_optional_content)
-                    logger.info(f"   {'PASS' if validated else 'FAIL'}: optional content validation result")
+                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: optional content validation result")
                     if validated:
                         for option in optional_content:
                             if option.get("name") in ["base", "display_name", "build", "version"]:
                                 validated = False
-                                logger.error(f"   FAIL: optional content name '"
+                                logger.error(f"\tFAIL: optional content name '"
                                              f"{option.get('name')}' is one of the reserved service names, "
                                              f"can't load mod properly!")
                             install_settings = option.get("install_settings")
                             if install_settings is not None:
                                 validated &= (len(install_settings) > 1)
-                                logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                                logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                             "multiple install settings exists for complex optional content '"
                                             f"{option.get('name')}' validation result")
                                 validated &= Mod.validate_list(install_settings, schema_install_settins)
-                                logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                                logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                             f"install settings for content '{option.get('name')}' "
                                             "validation result")
                             patcher_options_additional = option.get('patcher_options')
                             if patcher_options_additional is not None:
                                 validated &= Mod.validate_dict_constrained(patcher_options_additional,
                                                                            schema_patcher_options)
-                                logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                                logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                             "patcher options for additional content "
                                             "validation result")
 
@@ -1197,9 +1228,36 @@ class Mod:
                     logger.info("<! MOD MANIFEST FAILED VALIDATION, SKIPPING DATA CHECK !>")
                     return validated
 
-                no_base_config = install_config.get("no_base_content")
-                if no_base_config is None:
-                    no_base_config = False
+                no_base_content = install_config.get("no_base_content")
+                if no_base_content is None:
+                    no_base_content = False
+                base_dirs = install_config.get("base_dirs")
+                if not base_dirs:
+                    # moved legacy hardcoded paths for old comrem version here from installation logic
+                    if mod_name == "community_patch":
+                        base_dirs = ["patch"]
+                    elif mod_name == "community_remaster":
+                        base_dirs = ["patch", "remaster/data"]
+                    else:
+                        base_dirs = "data"
+                else:
+                    base_dirs = [parse_simple_relative_path(dir) for dir in base_dirs]
+
+                libs_dirs = install_config.get("libs_dirs")
+                if libs_dirs:
+                    libs_dirs = [parse_simple_relative_path(dir) for dir in libs_dirs]
+                elif mod_name in ("community_path", "community_remaster"):
+                    libs_dirs = ["libs"]
+
+                options_base_dir = install_config.get("options_base_dir")
+                if not options_base_dir:
+                    if mod_name == "community_remaster":
+                        options_base_dir = "remaster"
+                    else:
+                        options_base_dir = ""
+                else:
+                    options_base_dir = parse_simple_relative_path(options_base_dir)
+
 
                 if archive_file_list is not None:
                     if isinstance(archive_file_list, py7zr.ArchiveFileList):
@@ -1211,28 +1269,37 @@ class Mod:
                                 archive_files.append(file.filename)
                     else:
                         archive_files = [file.filename for file in archive_file_list]
-                    if mod_name == "community_remaster":
-                        paths_to_check = [
-                            mod_config_path.replace("remaster/manifest.yaml", "patch/"),
-                            mod_config_path.replace("remaster/manifest.yaml", "libs/library.dll"),
-                            mod_config_path.replace("remaster/manifest.yaml", "libs/library.pdb")]
-                        validated_comrem = all(com_path in archive_files for com_path in paths_to_check)
-                        validated &= validated_comrem
-                        logger.info(f"   {'PASS' if validated_comrem else 'FAIL'}: "
-                                    "Archived ComPatch files validation "
-                                    "('patch' and 'libs' folders) result")
+                    # if mod_name == "community_remaster":
+                    #     paths_to_check = [
+                    #         mod_config_path.replace("remaster/manifest.yaml", "patch/"),
+                    #         mod_config_path.replace("remaster/manifest.yaml", "libs/library.dll"),
+                    #         mod_config_path.replace("remaster/manifest.yaml", "libs/library.pdb")]
+                    #     validated_comrem = all(com_path in archive_files for com_path in paths_to_check)
+                    #     validated &= validated_comrem
+                    #     logger.info(f"\t{'PASS' if validated_comrem else 'FAIL'}: "
+                    #                 "Archived ComPatch files validation "
+                    #                 "('patch' and 'libs' folders) result")
 
-                    if not validated:
-                        logger.info("<! COMPATCH FILES VALIDATION FAILED, SKIPPING FURTHER CHECKS !>")
-                        return validated
+                    # if not validated:
+                        # logger.info("<! COMPATCH FILES VALIDATION FAILED, SKIPPING FURTHER CHECKS !>")
+                        # return validated
 
-                    if not no_base_config:
-                        mod_data_path = mod_config_path.replace("manifest.yaml", "data/")
-                        validated_data_dir = mod_data_path in archive_files
+                    if not no_base_content:
+                        mod_base_paths = []
+                        if base_dirs:
+                            # TODO: check that using Path instead of str is not breaking checks here
+                            mod_base_paths = [Path(mod_config_path).parent / dir for dir in base_dirs]
+                        else:
+                            mod_base_paths.append(Path(mod_config_path).parent / "data")
+                        
+                        if libs_dirs:
+                            mod_base_paths.extend(Path(mod_config_path).parent / dir for dir in libs_dirs)
+
+                        validated_data_dir = all(base_path in archive_files for base_path in mod_base_paths)
                         validated &= validated_data_dir
                         if not validated_data_dir:
                             logger.error("   FAIL: Archived base mod data folder validation fail, "
-                                         f"expected path not found: {mod_data_path}")
+                                         f"expected path not found: {mod_base_paths}")
                         else:
                             logger.info("   PASS: Archived base mod data folder validation result")
 
@@ -1243,72 +1310,85 @@ class Mod:
                     if optional_content is not None:
                         for option in optional_content:
                             validated &= mod_config_path.replace(
-                                "manifest.yaml", f'{option.get("name")}/') in archive_files
+                                "manifest.yaml", f'{options_base_dir}{option.get("name")}/') in archive_files
                             if option.get("install_settings") is not None:
                                 for setting in option.get("install_settings"):
                                     validated &= mod_config_path.replace(
                                         "manifest.yaml",
                                         f'{option.get("name")}/{setting.get("name")}/data/') in archive_files
-                                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                                 f"Archived optional content '{option.get('name')}' "
                                                 f"install setting '{setting.get('name')}' "
                                                 f"data folder validation result")
                             else:
                                 validated &= mod_config_path.replace(
                                     "manifest.yaml", f'{option.get("name")}/data/') in archive_files
-                            logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                            logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                         f"Archived optional content '{option.get('name')}' "
                                         "data folder validation result")
                 else:
                     mod_root_dir = Path(mod_config_path).parent
-                    if mod_name == "community_remaster":
-                        comrem_root = mod_root_dir.parent
-                        paths_to_check = [Path(comrem_root, "patch"),
-                                          Path(comrem_root, "remaster"),
-                                          Path(comrem_root, "remaster", "data"),
-                                          Path(comrem_root, "remaster", "manifest.yaml"),
-                                          Path(comrem_root, "libs", "library.dll"),
-                                          Path(comrem_root, "libs", "library.pdb")]
-                        validated_comrem = all(com_path.exists() for com_path in paths_to_check)
-                        validated &= validated_comrem
-                        logger.info(f"   {'PASS' if validated_comrem else 'FAIL'}: "
-                                    "ComRem/Patch files validation "
-                                    "('patch', 'remaster' and 'libs' folders) result")
+                    # TOREMOVE, comrem magic logic
+                    # if mod_name == "community_remaster":
+                    #     comrem_root = mod_root_dir.parent
+                    #     paths_to_check = [Path(comrem_root, "patch"),
+                    #                       Path(comrem_root, "remaster"),
+                    #                       Path(comrem_root, "remaster", "data"),
+                    #                       Path(comrem_root, "remaster", "manifest.yaml"),
+                    #                       Path(comrem_root, "libs", "library.dll"),
+                    #                       Path(comrem_root, "libs", "library.pdb")]
+                    #     validated_comrem = all(com_path.exists() for com_path in paths_to_check)
+                    #     validated &= validated_comrem
+                    #     logger.info(f"\t{'PASS' if validated_comrem else 'FAIL'}: "
+                    #                 "ComRem/Patch files validation "
+                    #                 "('patch', 'remaster' and 'libs' folders) result")
 
-                    if not no_base_config:
-                        validated_data_dir = Path(mod_root_dir, "data").is_dir()
+                    if not no_base_content:
+                        mod_base_paths = []
+                        if base_dirs:
+                            mod_base_paths = [Path(mod_root_dir) / dir for dir in base_dirs]
+                        
+                        if libs_dirs:
+                            mod_base_paths.extend(Path(mod_root_dir) / dir for dir in libs_dirs)
+
+                        # TODO: is checking for is_dir enough? How it works for non existing but valid paths?
+                        validated_data_dir = all(base_path.is_dir() for base_path in mod_base_paths)
+                            
                         validated &= validated_data_dir
                         if not validated_data_dir:
-                            logger.error('   FAIL: base mod data folder validation fail, '
+                            logger.error('\tFAIL: base mod data folders validation fail, '
                                          'expected path not exists: '
                                          f'{Path(mod_root_dir, "data")}')
                         else:
-                            logger.info("   PASS: base mod data folder validation result")
-                    if optional_content is not None:
+                            logger.info("\tPASS: base mod data folders validation result")
+
+                    if optional_content is not None:                            
                         for option in optional_content:
-                            validated &= Path(mod_root_dir, option.get("name")).is_dir()
+                            validated &= Path(mod_root_dir, options_base_dir, option.get("name")).is_dir()
                             if option.get("install_settings") is not None:
                                 for setting in option.get("install_settings"):
                                     validated &= Path(mod_root_dir,
+                                                      options_base_dir,
                                                       option.get("name"),
                                                       setting.get("name"),
                                                       "data").is_dir()
-                                    logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                                 f"optional content '{option.get('name')}' "
                                                 f"install setting '{setting.get('name')}' "
                                                 f"data folder validation result")
                             else:
                                 validated &= Path(mod_root_dir,
+                                                  options_base_dir,
                                                   option.get("name"),
                                                   "data").is_dir()
-                            logger.info(f"   {'PASS' if validated else 'FAIL'}: "
+                            logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                         f"optional content '{option.get('name')}' "
                                         "data folder validation result")
 
             logger.info("< MOD MANIFEST VALIDATED >" if validated else "<! MOD MANIFEST FAILED VALIDATION !>")
             return validated
         else:
-            logger.error("   FAIL: broken config encountered, couldn't be read as dictionary")
+            logger.error("\tFAIL: broken config encountered, couldn't be read as dictionary")
             return False
 
     def compatible_with_mod_manager(self, patcher_version: str | float) -> bool:

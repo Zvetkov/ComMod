@@ -2861,47 +2861,47 @@ class ModInstallWizard(UserControl):
 
         try:
             if is_comrem_or_patch:
-                session.content_in_processing["community_patch"] = {
-                    "base": "yes",
-                    "version": mod.version,
-                    "installment": mod.installment,
-                    "build": mod.build,
-                    "language": mod.language,
-                    "display_name": "Community Patch"
-                }
+                # session.content_in_processing["community_patch"] = {
+                #     "base": "yes",
+                #     "version": mod.version,
+                #     "installment": mod.installment,
+                #     "build": mod.build,
+                #     "language": mod.language,
+                #     "display_name": "Community Patch"
+                # }
 
-                await self.callable_for_status(tr("copying_patch_files_please_wait"))
+                # await self.callable_for_status(tr("copying_patch_files_please_wait"))
 
-                await file_ops.copy_from_to_async_fast(
-                    [os.path.join(distribution_dir, "patch")],
-                    os.path.join(game_root, "data"),
-                    self.callable_for_progbar)
+                # await file_ops.copy_from_to_async_fast(
+                #     [os.path.join(distribution_dir, "patch")],
+                #     os.path.join(game_root, "data"),
+                #     self.callable_for_progbar)
 
-                await file_ops.copy_from_to_async_fast(
-                    [os.path.join(distribution_dir, "libs")],
-                    game_root,
-                    self.callable_for_progbar)
+                # await file_ops.copy_from_to_async_fast(
+                #     [os.path.join(distribution_dir, "libs")],
+                #     game_root,
+                #     self.callable_for_progbar)
                 file_ops.rename_effects_bps(game_root)
 
-            status_ok = False
-            if not is_compatch:
-                status_ok = await mod.install_async(
-                    game.data_path,
-                    install_settings,
-                    game.installed_content,
-                    self.callable_for_progbar,
-                    self.callable_for_status
-                    )
-                self.app.logger.info(f'Installation status: {"ok" if status_ok else "error"}')
+            # status_ok = False
+            # if not is_compatch:
+            status_ok = await mod.install_async(
+                game.data_path,
+                install_settings,
+                game.installed_content,
+                self.callable_for_progbar,
+                self.callable_for_status
+                )
+            self.app.logger.info(f'Installation status: {"ok" if status_ok else "error"}')
 
-                session.content_in_processing[mod.name] = install_settings.copy()
-                session.content_in_processing[mod.name]["version"] = mod.version
-                session.content_in_processing[mod.name]["build"] = mod.build
-                session.content_in_processing[mod.name]["language"] = mod.language
-                session.content_in_processing[mod.name]["installment"] = mod.installment
-                session.content_in_processing[mod.name]["display_name"] = mod.display_name
-            else:
-                status_ok = True
+            session.content_in_processing[mod.name] = install_settings.copy()
+            session.content_in_processing[mod.name]["version"] = mod.version
+            session.content_in_processing[mod.name]["build"] = mod.build
+            session.content_in_processing[mod.name]["language"] = mod.language
+            session.content_in_processing[mod.name]["installment"] = mod.installment
+            session.content_in_processing[mod.name]["display_name"] = mod.display_name
+            # else:
+                # status_ok = True
 
             if mod.config_options:
                 await game.change_config_values(mod.config_options)
