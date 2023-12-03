@@ -2978,11 +2978,11 @@ class ModInstallWizard(UserControl):
         mod_display_name = self.mod.display_name
         mod_description = self.mod.description
 
-        if self.mod.name == "community_remaster":
-            if set(mod_names) != set(["community_patch", "community_remaster"]):
-                mod_name = "community_patch"
-                mod_display_name = "Community Patch"
-                mod_description = tr("compatch_description")
+        # if self.mod.name == "community_remaster":
+        #     if set(mod_names) != set(["community_patch", "community_remaster"]):
+        #         mod_name = "community_patch"
+        #         mod_display_name = "Community Patch"
+        #         mod_description = tr("compatch_description")
 
         install_info = self.app.session.content_in_processing[mod_name]
         mod_basic_info.append(Text(mod_display_name,
@@ -3270,19 +3270,19 @@ class ModInstallWizard(UserControl):
             on_click=self.show_comrem_welcome,
             width=170, height=60,
             scale=1.0 if not is_compatch else 0.95)
-        patch_button = ft.FloatingActionButton(
-            content=Row([
-                Icon(ft.icons.CHECK, visible=is_compatch),
-                Text("ComPatch")
-            ], alignment=ft.MainAxisAlignment.CENTER),
-            bgcolor=ft.colors.PRIMARY_CONTAINER if is_compatch else ft.colors.SECONDARY_CONTAINER,
-            data="compatch",
-            disabled=disable_compatch_install,
-            opacity=0.7 if disable_compatch_install else 1.0,
-            tooltip=disable_compatch_install_tooltip,
-            on_click=self.show_comrem_welcome,
-            width=170, height=60,
-            scale=1.0 if is_compatch else 0.95)
+        # patch_button = ft.FloatingActionButton(
+        #     content=Row([
+        #         Icon(ft.icons.CHECK, visible=is_compatch),
+        #         Text("ComPatch")
+        #     ], alignment=ft.MainAxisAlignment.CENTER),
+        #     bgcolor=ft.colors.PRIMARY_CONTAINER if is_compatch else ft.colors.SECONDARY_CONTAINER,
+        #     data="compatch",
+        #     disabled=disable_compatch_install,
+        #     opacity=0.7 if disable_compatch_install else 1.0,
+        #     tooltip=disable_compatch_install_tooltip,
+        #     on_click=self.show_comrem_welcome,
+        #     width=170, height=60,
+        #     scale=1.0 if is_compatch else 0.95)
 
         if mod.optional_content:
             self.can_have_custom_install = True
@@ -3347,7 +3347,7 @@ class ModInstallWizard(UserControl):
             ft.ResponsiveRow([
                 ft.Container(Column([
                     Text(description, no_wrap=False),
-                    ft.Row([remaster_button, patch_button],
+                    ft.Row([remaster_button], #, patch_button],
                            visible=is_comrem,
                            alignment=ft.MainAxisAlignment.CENTER),
                     ]), padding=ft.padding.only(bottom=5),

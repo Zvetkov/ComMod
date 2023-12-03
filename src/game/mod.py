@@ -253,18 +253,27 @@ class Mod:
                     else:
                         raise ValueError("'no_base_content' should be boolean!")
 
+            # TODO: fix horrible duplication for verification and loading the mod
             if self.no_base_content:
                 self.base_dirs = []
             else:
-                self.base_dirs = ["data"]
-            base_dirs = yaml_config.get("base_dirs")
-            if base_dirs is not None:
-                self.base_dirs = [parse_simple_relative_path(dir) for dir in base_dirs]
+                base_dirs = yaml_config.get("base_dirs")
+                if base_dirs:
+                    self.base_dirs = [parse_simple_relative_path(dir) for dir in base_dirs]
+                elif self.name == "community_patch":
+                    base_dirs = ["patch"]
+                elif self.name == "community_remaster":
+                    base_dirs = ["patch", "remaster/data"]
+                else:
+                    base_dirs = ["data"]
 
-            self.libs_dirs = []
+            # TODO: add verification, fix naming of libs_dirs param
+            self.bin_dirs = []
             libs_dirs = yaml_config.get("libs_dirs")
             if libs_dirs is not None:
-                self.libs_dirs = [parse_simple_relative_path(dir) for dir in libs_dirs]
+                self.bin_dirs = [parse_simple_relative_path(dir) for dir in libs_dirs]
+            elif self.name in ("community_path", "community_remaster"):
+                self.bin_dirs = ["libs"]
 
             self.options_base_dir = ""
             options_base_dir = yaml_config.get("options_base_dir")
@@ -449,7 +458,7 @@ class Mod:
                 existing_content: dict,
                 existing_content_descriptions: dict,
                 console: bool = False) -> tuple[bool, list]:
-        '''Returns bool success status of install and errors list in case mod requirements are not met'''
+        '''Returns bool success result of install and errors list in case mod requirements are not met'''
         try:
             logger.info(f"Existing content at the start of install: {existing_content}")
             mod_files = []
@@ -504,7 +513,7 @@ class Mod:
                             install_settings: dict,
                             existing_content: dict,
                             callback_progbar: Awaitable,
-                            callback_status: Awaitable):
+                            callback_status: Awaitable) -> bool:
         '''Uses fast async copy, returns bool success status of install'''
         try:
             logger.info(f"Existing content at the start of install: {existing_content}")
@@ -515,13 +524,13 @@ class Mod:
             elif install_base == "skip":
                 logger.debug("No base content will be installed")
             else:
-                libs_paths = [Path(self.distribution_dir, dir) for dir in self.libs_dirs]
+                bin_paths = [Path(self.distribution_dir, dir) for dir in self.bin_dirs]
                 base_paths = [Path(self.distribution_dir, dir) for dir in self.base_dirs]
                 await callback_status(tr("copying_base_files_please_wait"))
                 mod_files.extend(base_paths)
                 start = datetime.now()
                 await copy_from_to_async_fast(mod_files, game_data_path, callback_progbar)
-                await copy_from_to_async_fast(libs_paths, Path(game_data_path).parent, callback_progbar)
+                await copy_from_to_async_fast(bin_paths, Path(game_data_path).parent, callback_progbar)
                 end = datetime.now()
                 logger.debug(f"{(end - start).microseconds / 1000000} seconds took fast copy")
                 mod_files.clear()
@@ -566,6 +575,7 @@ class Mod:
     def check_requirement(self, prereq: dict, existing_content: dict,
                           existing_content_descriptions: dict,
                           is_compatch_env: bool) -> tuple[bool, str]:
+        '''Returns bool check success result and an error message string'''
         error_msg = []
         required_mod_name = None
 
@@ -717,7 +727,8 @@ class Mod:
         return validated, error_msg
 
     def check_requirements(self, existing_content: dict, existing_content_descriptions: dict,
-                           patcher_version: str | float = '') -> tuple[bool, list]:
+                           patcher_version: str | float = '') -> tuple[bool, list[str]]:
+        '''Returns bool for cumulative check success result and a list of error message string'''
         error_msg = []
 
         requirements_met = True
@@ -1229,25 +1240,30 @@ class Mod:
                     return validated
 
                 no_base_content = install_config.get("no_base_content")
+                # TODO: check unexpected type handling, empty string of empty list
                 if no_base_content is None:
                     no_base_content = False
-                base_dirs = install_config.get("base_dirs")
-                if not base_dirs:
+                    base_dirs = []
+                else:
+                    base_dirs = install_config.get("base_dirs")
+                    # TODO: normalize to always be a list
+                    if base_dirs:
+                        base_dirs = [parse_simple_relative_path(dir) for dir in base_dirs]
                     # moved legacy hardcoded paths for old comrem version here from installation logic
-                    if mod_name == "community_patch":
+                    elif mod_name == "community_patch":
                         base_dirs = ["patch"]
                     elif mod_name == "community_remaster":
                         base_dirs = ["patch", "remaster/data"]
                     else:
-                        base_dirs = "data"
-                else:
-                    base_dirs = [parse_simple_relative_path(dir) for dir in base_dirs]
+                        base_dirs = ["data"]
 
-                libs_dirs = install_config.get("libs_dirs")
-                if libs_dirs:
-                    libs_dirs = [parse_simple_relative_path(dir) for dir in libs_dirs]
+                bin_dirs = install_config.get("bin_dirs")
+                if bin_dirs:
+                    bin_dirs = [parse_simple_relative_path(dir) for dir in bin_dirs]
+                # TODO: better to move to some kind of "load_legacy_defaults" type of function,
+                # same for base_dirs loading higher up
                 elif mod_name in ("community_path", "community_remaster"):
-                    libs_dirs = ["libs"]
+                    bin_dirs = ["libs"]
 
                 options_base_dir = install_config.get("options_base_dir")
                 if not options_base_dir:
@@ -1257,7 +1273,6 @@ class Mod:
                         options_base_dir = ""
                 else:
                     options_base_dir = parse_simple_relative_path(options_base_dir)
-
 
                 if archive_file_list is not None:
                     if isinstance(archive_file_list, py7zr.ArchiveFileList):
@@ -1292,8 +1307,8 @@ class Mod:
                         else:
                             mod_base_paths.append(Path(mod_config_path).parent / "data")
                         
-                        if libs_dirs:
-                            mod_base_paths.extend(Path(mod_config_path).parent / dir for dir in libs_dirs)
+                        if bin_dirs:
+                            mod_base_paths.extend(Path(mod_config_path).parent / dir for dir in bin_dirs)
 
                         validated_data_dir = all(base_path in archive_files for base_path in mod_base_paths)
                         validated &= validated_data_dir
@@ -1348,8 +1363,8 @@ class Mod:
                         if base_dirs:
                             mod_base_paths = [Path(mod_root_dir) / dir for dir in base_dirs]
                         
-                        if libs_dirs:
-                            mod_base_paths.extend(Path(mod_root_dir) / dir for dir in libs_dirs)
+                        if bin_dirs:
+                            mod_base_paths.extend(Path(mod_root_dir) / dir for dir in bin_dirs)
 
                         # TODO: is checking for is_dir enough? How it works for non existing but valid paths?
                         validated_data_dir = all(base_path.is_dir() for base_path in mod_base_paths)

@@ -747,7 +747,7 @@ class GameCopy:
         comrem = install_config.get("community_remaster")
         if comrem is not None:
             base = comrem.get("base")
-            version = compatch.get("version")
+            version = comrem.get("version")
             if base is None or version is None:
                 return False
 
