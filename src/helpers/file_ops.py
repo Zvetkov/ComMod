@@ -234,9 +234,12 @@ async def copy_file_and_call_async(path, file_num, sfile, from_path, to_path, fi
     file_num[0] += 1
 
 
-async def copy_from_to_async_fast(from_path_list: list[str],
-                                  to_path: str,
+async def copy_from_to_async_fast(from_path_list: list[str | Path],
+                                  to_path: str | Path,
                                   callback_progbar: callable) -> None:
+    from_path_list = [str(path_entry) for path_entry in from_path_list]
+    to_path = str(to_path)
+
     files_count = 0
     for from_path in from_path_list:
         logger.debug(f"Copying files from '{from_path}' to '{to_path}'")
@@ -246,8 +249,8 @@ async def copy_from_to_async_fast(from_path_list: list[str],
     for from_path in from_path_list:
         for path, dirs, filenames in os.walk(from_path):
             for directory in dirs:
-                destDir = path.replace(from_path, to_path)
-                os.makedirs(os.path.join(destDir, directory), exist_ok=True)
+                dest_dir = path.replace(from_path, to_path)
+                os.makedirs(os.path.join(dest_dir, directory), exist_ok=True)
         for path, dirs, filenames in os.walk(from_path):
             await asyncio.gather(*[
                 copy_file_and_call_async(path, file_num, sfile,
