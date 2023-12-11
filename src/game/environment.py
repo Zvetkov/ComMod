@@ -5,10 +5,12 @@ import os
 import platform
 import subprocess
 import sys
-import winreg
+#import winreg
 import zipfile
 from asyncio import gather
-from ctypes import windll
+import ctypes
+from helpers.get_system_fonts import getmember
+#from ctypes import windll
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -137,6 +139,7 @@ class InstallationContext:
         if "Windows" in platform.system():
             success = False
             retry_count = 10
+            windll = getmember(ctypes,"windll")
             for retry in range(retry_count):
                 res_x = windll.user32.GetSystemMetrics(0)
                 res_y = windll.user32.GetSystemMetrics(1)
@@ -154,8 +157,10 @@ class InstallationContext:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
             p2 = subprocess.Popen(cmd2, stdin=p.stdout, stdout=subprocess.PIPE)
             p.stdout.close()
-            resolution_string, junk = p2.communicate()
+            resolution_byte, junk = p2.communicate()
+            resolution_string = resolution_byte.decode('utf-8')
             resolution = resolution_string.split()[0]
+            self.logger.warning(f"resolution:{resolution}")
             res_x, res_y = resolution.split('x')
 
         monitor_res = int(res_x), int(res_y)
@@ -184,7 +189,7 @@ class InstallationContext:
         sys_exe = str(Path(sys.executable).resolve())
         # check if we are running as py script, compiled exe, or in venv
         if ".exe" in sys_exe and not running_in_venv():
-            # Nuitka way
+            # windows Nuitka way
             exe_path = Path(sys.argv[0]).resolve().parent
             # PyInstaller compatible way
             # distribution_dir = Path(sys.executable).resolve().parent
@@ -192,8 +197,8 @@ class InstallationContext:
             # probably running in venv
             exe_path = Path(__file__).resolve().parent
         else:
-            raise EnvironmentError
-
+            exe_path = Path(sys.executable).resolve().parent
+        print(f"exe_path:{exe_path}")
         return str(exe_path)
 
     def add_default_distribution_dir(self) -> None:
@@ -594,16 +599,26 @@ class InstallationContext:
             self.tracked_mods_hashes = {}
             self.mods = {}
             self.mods_validation_info = {}
-
+        def get_steam_install_path(self):
+            try:
+                winreg = __import__("winreg");
+                steam_install_reg_path = r"SOFTWARE\WOW6432Node\Valve\Steam"
+                hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+                steam_install_reg_value = winreg.OpenKey(hklm, steam_install_reg_path)
+                steam_install_path = winreg.QueryValueEx(steam_install_reg_value, 'InstallPath')[0]
+                return steam_install_path;
+            except ImportError as e:
+                print(e)
+                return "";
         def load_steam_game_paths(self) -> tuple[str, str]:
             '''Tries to find the game in default Steam folder, returns path and error message'''
-            steam_install_reg_path = r"SOFTWARE\WOW6432Node\Valve\Steam"
-            hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
+            #hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
             validated_dirs = []
             try:
                 # getting Steam installation folder from Reg
-                steam_install_reg_value = winreg.OpenKey(hklm, steam_install_reg_path)
-                steam_install_path = winreg.QueryValueEx(steam_install_reg_value, 'InstallPath')[0]
+                #steam_install_reg_value = winreg.OpenKey(hklm, steam_install_reg_path)
+                steam_install_path = self.get_steam_install_path()
+                #winreg.QueryValueEx(steam_install_reg_value, 'InstallPath')[0]
 
                 # game can be installed in main Steam dir or in any of the libraries specified in config
                 library_folders_config = os.path.join(steam_install_path, "config", "libraryfolders.vdf")

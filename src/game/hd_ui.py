@@ -1,7 +1,6 @@
 import logging
 import os
 from pathlib import Path
-
 from helpers import file_ops
 from helpers.get_system_fonts import get_fonts
 
@@ -10,7 +9,7 @@ from . import data
 logger = logging.getLogger('dem')
 
 
-def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> None:
+def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "", under_windows: bool = True) -> None:
     config = file_ops.get_config(root_dir)
     ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
     ui_schema = file_ops.xml_to_objfy(ui_schema_path)
@@ -29,7 +28,7 @@ def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> No
     font_available = f"{font_alias.lower().replace(' ', '')}.ttf" in listed_system_fonts
 
     if not font_available:
-        system_fonts = get_fonts()
+        system_fonts = get_fonts(under_windows)
         font_available = font_alias in system_fonts
 
     if not font_available:

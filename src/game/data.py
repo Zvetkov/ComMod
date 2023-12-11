@@ -1,5 +1,5 @@
 # flake8: noqa
-from ctypes import windll
+#from ctypes import windll
 from os import system
 
 OWN_VERSION = "2.0.11"
@@ -34,7 +34,7 @@ ORIG_RES_Y = 768.0
 
 DEFAULT_COMREM_GRAVITY = -19.62
 
-OS_SCALE_FACTOR = windll.shcore.GetScaleFactorForDevice(0) / 100
+OS_SCALE_FACTOR = 1.0#windll.shcore.GetScaleFactorForDevice(0) / 100
 
 ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
 

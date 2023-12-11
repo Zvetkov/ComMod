@@ -1,38 +1,25 @@
-import ctypes
-from ctypes import wintypes
+import sys
+import inspect
+
+def getmember(obj, name):
+    return [member
+            for _name, member in inspect.getmembers(obj)
+            if name == _name][0]
+
+def get_fonts(under_windows: bool = True):
+    if under_windows:
+        helpers_module = __import__("helpers.get_system_fonts_linux")
+        get_system_fonts_linux_module = getmember(helpers_module, "get_system_fonts_linux")
+        get_system_fonts_class = getattr(get_system_fonts_linux_module, "get_fonts")
+        print(f"GET FONTS LINUX:{get_system_fonts_class.get_fonts()}", file=sys.stderr)
+    else:
+        helpers_module = __import__("helpers.get_system_fonts_windows")
+        get_system_fonts_linux_module = getmember(helpers_module, "get_system_fonts_windows")
+        get_system_fonts_class = getattr(get_system_fonts_linux_module, "get_fonts")
+        print(f"GET FONTS WINDOWS:{get_system_fonts_class.get_fonts()}", file=sys.stderr)
 
 
-class LOGFONT(ctypes.Structure):
-    _fields_ = [('lfHeight', wintypes.LONG),
-                ('lfWidth', wintypes.LONG),
-                ('lfEscapement', wintypes.LONG),
-                ('lfOrientation', wintypes.LONG),
-                ('lfWeight', wintypes.LONG),
-                ('lfItalic', wintypes.BYTE),
-                ('lfUnderline', wintypes.BYTE),
-                ('lfStrikeOut', wintypes.BYTE),
-                ('lfCharSet', wintypes.BYTE),
-                ('lfOutPrecision', wintypes.BYTE),
-                ('lfClipPrecision', wintypes.BYTE),
-                ('lfQuality', wintypes.BYTE),
-                ('lfPitchAndFamily', wintypes.BYTE),
-                ('lfFaceName', ctypes.c_wchar*32)]
 
 
-FONTENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.POINTER(LOGFONT),
-                                  wintypes.LPVOID, wintypes.DWORD, wintypes.LPARAM)
 
 
-def get_fonts():
-    font_list = []
-
-    def font_enum(logfont, textmetricex, fonttype, param):
-        str = logfont.contents.lfFaceName
-        if (any(str in s for s in font_list) is False):
-            font_list.append(str)
-        return True
-
-    hdc = ctypes.windll.user32.GetDC(None)
-    ctypes.windll.gdi32.EnumFontFamiliesExW(hdc, None, FONTENUMPROC(font_enum), 0, 0)
-    ctypes.windll.user32.ReleaseDC(None, hdc)
-    return font_list

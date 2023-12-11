@@ -1,8 +1,11 @@
 import argparse
 import platform
 import sys
-from ctypes import windll
-
+import inspect
+import ctypes
+#from ctypes import windll
+from helpers.get_system_fonts import get_fonts
+from helpers.get_system_fonts import getmember
 from console import commod_console
 from gui import commod_flet
 
@@ -37,6 +40,7 @@ def _init_input_parser():
 if __name__ == '__main__':
     options = _init_input_parser().parse_args()
     if "Windows" in platform.system():
+        windll = getmember(ctypes,"windll")
         windll.shcore.SetProcessDpiAwareness(2)
     if options.console:
         sys.exit(main_console(options))
