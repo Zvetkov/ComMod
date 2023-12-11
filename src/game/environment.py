@@ -167,7 +167,7 @@ class InstallationContext:
         self.logger.info(f"reported res X:Y: {res_x}:{res_y}")
 
         if self.under_windows:
-            self.logger.info(f"os scale factor: {OS_SCALE_FACTOR}")
+            self.logger.info(f"os scale factor: {OS_SCALE_FACTOR()}")
         return monitor_res
 
     def validate_remaster(self):
@@ -607,8 +607,11 @@ class InstallationContext:
                 steam_install_reg_value = winreg.OpenKey(hklm, steam_install_reg_path)
                 steam_install_path = winreg.QueryValueEx(steam_install_reg_value, 'InstallPath')[0]
                 return steam_install_path;
-            except ImportError as e:
-                print(e)
+            except ImportError:
+                self.logger.debug("Can't import winreg. Linux?")
+                return "";
+            except NameError:
+                self.logger.debug("Can't import winreg. Linux?")
                 return "";
         def load_steam_game_paths(self) -> tuple[str, str]:
             '''Tries to find the game in default Steam folder, returns path and error message'''
@@ -984,6 +987,12 @@ class GameCopy:
     def switch_hi_dpi_aware(self, enable=True):
         self.logger.debug("Setting hidpi awareness")
         compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+        winreg = None
+        try:
+            winreg = __import__("winreg");
+        except:
+            self.logger.debug("Can't import winreg. Linux?")
+            return False;
         hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
         try:
             compat_settings_reg_value_hkcu = winreg.OpenKey(
@@ -1035,7 +1044,14 @@ class GameCopy:
     def get_is_hidpi_aware(self):
         try:
             self.logger.debug("Checking hidpi awareness status")
+
             compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+            winreg = None
+            try:
+                winreg = __import__("winreg");
+            except:
+                self.logger.debug("Can't import winreg. Linux?")
+                return False;
             hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
             try:
                 compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
@@ -1080,6 +1096,12 @@ class GameCopy:
 
     def switch_fullscreen_opts(self, disable=True):
         compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+        winreg = None
+        try:
+            winreg = __import__("winreg");
+        except:
+            self.logger.debug("Can't import winreg. Linux?")
+            return False;
         hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
         try:
             compat_settings_reg_value_hkcu = winreg.OpenKey(
@@ -1129,6 +1151,12 @@ class GameCopy:
         try:
             self.logger.debug("Checking fullscreen optimisations status")
             compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+            winreg = None
+            try:
+                winreg = __import__("winreg");
+            except:
+                self.logger.debug("Can't import winreg. Linux?")
+                return False;
             hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
             try:
                 compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)

@@ -1,6 +1,10 @@
 # flake8: noqa
 #from ctypes import windll
 from os import system
+import inspect
+import ctypes
+import platform
+
 
 OWN_VERSION = "2.0.11"
 
@@ -34,7 +38,15 @@ ORIG_RES_Y = 768.0
 
 DEFAULT_COMREM_GRAVITY = -19.62
 
-OS_SCALE_FACTOR = 1.0#windll.shcore.GetScaleFactorForDevice(0) / 100
+#OS_SCALE_FACTOR = 1.0#windll.shcore.GetScaleFactorForDevice(0) / 100
+
+from helpers.get_system_fonts import getmember
+def OS_SCALE_FACTOR():
+    if "Windows" in platform.system():
+        windll = getmember(ctypes,"windll")
+        return windll.shcore.GetScaleFactorForDevice(0) / 100
+    else:
+        return 1.0
 
 ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
 
@@ -314,15 +326,15 @@ offsets_comrem_absolute = {
    0x4E30E: "0x009E4133",
 
    # console character X
-   0x004D85ED: int(10 * 1.3 * OS_SCALE_FACTOR),  # 1440 / 768 * OS_SCALE_FACTOR
+   0x004D85ED: int(10 * 1.3 * OS_SCALE_FACTOR()),  # 1440 / 768 * OS_SCALE_FACTOR
    # console character Y
-   0x004D85F7: int(14 * 1.4 * OS_SCALE_FACTOR),
+   0x004D85F7: int(14 * 1.4 * OS_SCALE_FACTOR()),
    # console font size
-   0x0054FDA4: int(9 * 0.9 / OS_SCALE_FACTOR),
+   0x0054FDA4: int(9 * 0.9 / OS_SCALE_FACTOR()),
 
    # important msg font size
    0x00121B24: "0x009E4179",
-   0x5E4179: 16 / OS_SCALE_FACTOR,
+   0x5E4179: 16 / OS_SCALE_FACTOR(),
 
    # cabin SecondGunOrigin
    0x5E5B34: 370.0,  # x - 144.0
@@ -457,6 +469,7 @@ new_icon_header_ends = 0x16
 
 new_icon_size_offset = 0x60A0BC
 new_icon_group_offset = 0x60A0C8
+
 
 
 def get_known_mod_display_name(service_name):
