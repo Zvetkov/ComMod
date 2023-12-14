@@ -38,6 +38,9 @@ OS_SCALE_FACTOR = windll.shcore.GetScaleFactorForDevice(0) / 100
 
 ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
 
+TARGEM_POSITIVE = ["yes", "yeah", "yep", "true"]
+TARGEM_NEGATIVE = ["no", "nope", "none", "false"]
+
 # were precalculated and hardcoded as we don't support changing the fov dynamically
 # ASPECT_RATIO = TARGET_RES_X / TARGET_RES_Y
 

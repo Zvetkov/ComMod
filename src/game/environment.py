@@ -26,15 +26,17 @@ from helpers.errors import (CorruptedRemasterFiles, DistributionNotFound,
                             ModsDirMissing, NoModsFound,
                             PatchedButDoesntHaveManifest,
                             WrongGameDirectoryPath)
-from helpers.file_ops import (TARGEM_NEGATIVE, TARGEM_POSITIVE, get_config,
+from helpers.file_ops import (get_config,
                               load_yaml, read_yaml, running_in_venv,
-                              save_to_file_async, shorten_path)
+                              save_to_file_async)
+from helpers.parse_ops import shorten_path
 from localisation.service import tr
 
-from .data import (OS_SCALE_FACTOR, OWN_VERSION, VERSION_BYTES_100_STAR,
+from .data import (OS_SCALE_FACTOR, OWN_VERSION,
+                   VERSION_BYTES_100_STAR, VERSION_BYTES_DEM_LNCH,
                    VERSION_BYTES_102_NOCD, VERSION_BYTES_102_STAR,
                    VERSION_BYTES_103_NOCD, VERSION_BYTES_103_STAR,
-                   VERSION_BYTES_DEM_LNCH)
+                   TARGEM_NEGATIVE, TARGEM_POSITIVE)
 from .mod import GameInstallments, Mod
 
 
@@ -127,8 +129,9 @@ class InstallationContext:
             self.distribution_dir = os.path.normpath(distribution_dir)
             self.short_path = shorten_path(self.distribution_dir, 45)
         elif not ignore_invalid:
-            raise DistributionNotFound(distribution_dir,
-                                       "Couldn't find all required files in given distribuion dir")
+            raise DistributionNotFound(
+                distribution_dir,
+                "Couldn't find all required files in given distribuion dir")
 
     def load_system_info(self):
         self.under_windows = "Windows" in self.os
@@ -140,7 +143,8 @@ class InstallationContext:
         if "Windows" in platform.system():
             success = False
             retry_count = 10
-            for retry in range(retry_count):
+            # sometimes can randomly fail, blame windll for need to retry
+            for _ in range(retry_count):
                 res_x = windll.user32.GetSystemMetrics(0)
                 res_y = windll.user32.GetSystemMetrics(1)
                 if res_x != 0 and res_y != 0:
@@ -176,7 +180,7 @@ class InstallationContext:
         yaml_config = read_yaml(yaml_path)
         if yaml_config is None:
             raise CorruptedRemasterFiles(yaml_path, "Couldn't read ComRemaster manifest")
-        if not Mod.validate_install_config(yaml_config, yaml_path):
+        if not Mod.validate_install_config_struct(yaml_config, yaml_path):
             raise CorruptedRemasterFiles(yaml_path, "Couldn't validate ComRemaster manifes or files")
         else:
             self.remaster_config = yaml_config
@@ -210,81 +214,6 @@ class InstallationContext:
             self.short_path = shorten_path(self.distribution_dir, 45)
         else:
             raise DistributionNotFound(exe_path, "Distribution not found around mod manager exe")
-
-    def load_mods(self) -> None:
-        # self.logger.debug("Load_mods entry")
-        all_config_paths = []
-        legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
-        if os.path.exists(legacy_comrem):
-            all_config_paths.append(legacy_comrem)
-
-        mod_loading_errors = self.current_session.mod_loading_errors
-        mods_path = os.path.join(self.distribution_dir, "mods")
-        if not os.path.isdir(mods_path):
-            os.makedirs(mods_path, exist_ok=True)
-            raise ModsDirMissing
-        # self.logger.debug("get_existing_mods call")
-        mod_configs_paths, archived_mods = self.get_existing_mods(mods_path)
-        self.logger.debug("-- Got existing mods --")
-        all_config_paths.extend(mod_configs_paths)
-        if not all_config_paths and not archived_mods:
-            raise NoModsFound
-
-        for mod_config_path in all_config_paths:
-            with open(mod_config_path, "rb") as f:
-                digest = hashlib.file_digest(f, "md5").hexdigest()
-
-            if mod_config_path in self.hashed_mod_manifests.keys():
-                if digest == self.hashed_mod_manifests[mod_config_path]:
-                    continue
-                else:
-                    self.validated_mod_configs.pop(mod_config_path, None)
-
-            self.logger.info(f"--- Loading {mod_config_path} ---")
-            self.hashed_mod_manifests[mod_config_path] = digest
-            yaml_config = read_yaml(mod_config_path)
-            if yaml_config is None:
-                self.logger.warning(f"Couldn't read mod manifest: {mod_config_path}")
-                mod_loading_errors.append(f"\n{tr('empty_mod_manifest')}: "
-                                          f"{Path(mod_config_path).parent.name} - "
-                                          f"{Path(mod_config_path).name}")
-                if mod_config_path in self.validated_mod_configs.keys():
-                    self.validated_mod_configs.pop(mod_config_path, None)
-                continue
-            config_validated = Mod.validate_install_config(yaml_config, mod_config_path)
-            if config_validated:
-                self.validated_mod_configs[mod_config_path] = yaml_config
-                self.logger.debug("--- Loaded and validated mod config ---")
-            else:
-                if mod_config_path in self.validated_mod_configs.keys():
-                    self.validated_mod_configs.pop(mod_config_path, None)
-                self.logger.warning(f"! Couldn't validate Mod manifest: {mod_config_path}")
-                mod_loading_errors.append(f"\n{tr('not_validated_mod_manifest')}.\n"
-                                          f"{tr('folder').capitalize()}: "
-                                          f"/{Path(mod_config_path).parent.parent.name}"
-                                          f"/{Path(mod_config_path).parent.name}"
-                                          f"/{Path(mod_config_path).name} !")
-
-        outdated_mods = set(self.validated_mod_configs.keys()) - set(all_config_paths)
-        if outdated_mods:
-            for mod in outdated_mods:
-                self.logger.debug(f"Removed missing {mod} from rotation")
-                self.validated_mod_configs.pop(mod, None)
-                self.hashed_mod_manifests.pop(mod, None)
-
-        if archived_mods:
-            for path, manifest in archived_mods.items():
-                try:
-                    mod_dummy = Mod(manifest, Path(path).parent)
-                    self.archived_mods[path] = mod_dummy
-                except Exception as ex:
-                    self.logger.error("Error on archived mod preload", exc_info=ex)
-                    # TODO: remove raise, need to test
-                    raise NotImplementedError
-                    continue
-
-        if mod_loading_errors:
-            self.logger.error("-- Errors occurred when loading mods! --")
 
     async def load_mods_async(self) -> None:
         # self.logger.debug("Load_mods entry")
@@ -327,7 +256,7 @@ class InstallationContext:
                 if mod_config_path in self.validated_mod_configs.keys():
                     self.validated_mod_configs.pop(mod_config_path, None)
                 continue
-            config_validated = Mod.validate_install_config(yaml_config, mod_config_path)
+            config_validated = Mod.validate_install_config_struct(yaml_config, mod_config_path)
             if config_validated:
                 self.validated_mod_configs[mod_config_path] = yaml_config
                 self.logger.debug(f"Loaded and validated mod config: {mod_config_path}")
@@ -413,30 +342,6 @@ class InstallationContext:
 
         return [result for result in search_results if result is not None]
 
-    def get_existing_mods(self, mods_dir: str) -> list[str]:
-        # self.logger.debug("Inside get_existing_mods")
-        mod_list = self.get_dir_manifests(mods_dir)
-        # self.logger.debug("Finished get_dir_manifest")
-        archive_dict = {}
-        # for entry in os.scandir(mods_dir):
-        #     if entry.path.endswith(".zip"):
-        #         self.logger.debug(f"Getting zip manifest for {entry.path}")
-        #         manifest = self.get_zip_manifest(entry.path)
-        #         if manifest:
-        #             archive_dict[entry.path] = manifest
-        #     self.logger.debug("Added zip manifest to list")
-
-        # for entry in os.scandir(mods_dir):
-        #     if entry.path.endswith(".7z"):
-        #         self.logger.debug(f"Getting 7z manifest for {entry.path}")
-        #         manifest = self.get_7z_manifest(entry.path)
-        #         if manifest:
-        #             archive_dict[entry.path] = manifest
-        #     self.logger.debug("Added 7z manifest to list")
-
-        # self.logger.debug("Finished get_archived_manifests")
-        return mod_list, archive_dict
-
     async def get_existing_mods_async(self, mods_dir: str) -> list[str]:
         # TODO: review this commented out code
         # self.logger.debug("Inside get_existing_mods async")
@@ -490,9 +395,10 @@ class InstallationContext:
                     manifest_b = archive.read(manifests[0])
                     if manifest_b:
                         manifest = load_yaml(manifest_b)
-                        if Mod.validate_install_config(manifest, manifests[0].filename,
-                                                       archive_file_list=file_list,
-                                                       root_path=archive_path):
+                        if Mod.validate_install_config_struct(
+                                manifest, manifests[0].filename,
+                                archive_file_list=file_list,
+                                root_path=archive_path):
                             self.archived_manifests_cache[archive_path] = manifest
                             return manifest
                         self.archived_manifests_cache[archive_path] = {}
@@ -529,7 +435,7 @@ class InstallationContext:
                         manifest_b = list(manifests_read_dict.values())[0]
                     if manifest_b:
                         manifest = load_yaml(manifest_b)
-                        if Mod.validate_install_config(manifest, manifests[0].filename,
+                        if Mod.validate_install_config_struct(manifest, manifests[0].filename,
                                                        archive_file_list=file_list,
                                                        root_path=archive_path):
                             self.archived_manifests_cache[archive_path] = manifest

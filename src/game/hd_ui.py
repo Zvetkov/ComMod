@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 
-from helpers import file_ops
+from helpers import file_ops, parse_ops
 from helpers.get_system_fonts import get_fonts
 
 from . import data
@@ -13,7 +13,7 @@ logger = logging.getLogger('dem')
 def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> None:
     config = file_ops.get_config(root_dir)
     ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
-    ui_schema = file_ops.xml_to_objfy(ui_schema_path)
+    ui_schema = parse_ops.xml_to_objfy(ui_schema_path)
 
     if not custom_font:
         font_alias = "Arial"
@@ -138,9 +138,9 @@ def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, en
 
 def toggle_16_9_glob_prop(root_dir: str, enable: bool = True) -> None:
     glob_props_full_path = os.path.join(root_dir, file_ops.get_glob_props_path(root_dir))
-    glob_props = file_ops.xml_to_objfy(glob_props_full_path)
-    ground_repository = file_ops.child_from_xml_node(glob_props, "GroundRepository")
-    smart_cursor = file_ops.child_from_xml_node(glob_props, "SmartCursor")
+    glob_props = parse_ops.xml_to_objfy(glob_props_full_path)
+    ground_repository = parse_ops.get_child_from_xml_node(glob_props, "GroundRepository")
+    smart_cursor = parse_ops.get_child_from_xml_node(glob_props, "SmartCursor")
     if ground_repository is not None:
         if enable:
             ground_repository.attrib["Size"] = "18 300"

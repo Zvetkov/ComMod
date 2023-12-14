@@ -1,11 +1,11 @@
 import asyncio
-import html
 import logging
 import math
 import os
 import shutil
 import struct
 import sys
+import typing
 import zipfile
 from math import ceil
 from pathlib import Path
@@ -13,7 +13,6 @@ from typing import Any, Coroutine, Optional
 
 import aiofiles
 import aioshutil
-import markdownify
 import psutil
 import py7zr
 import yaml
@@ -22,118 +21,9 @@ from lxml import etree, objectify
 
 from console import progbar
 from game import data, hd_ui
+from parse_ops import beautify_machina_xml, xml_to_objfy, get_child_from_xml_node
 
 logger = logging.getLogger('dem')
-
-TARGEM_POSITIVE = ["yes", "yeah", "yep", "true"]
-TARGEM_NEGATIVE = ["no", "nope", "none", "false"]
-
-
-def shorten_path(path: str | Path, length: int = 60) -> str:
-    path_to_shorten = Path(path)
-
-    final_str = path_to_shorten.as_posix()
-    if len(final_str) <= length:
-        return final_str
-
-    for i in range(1, len(path_to_shorten.parts)):
-        final_str = path_to_shorten.drive + "/../" + Path(*path_to_shorten.parts[i:]).as_posix()
-        if len(final_str) <= length:
-            return final_str
-
-    if len(path_to_shorten.stem) <= length - 3:
-        return "../" + path_to_shorten.stem
-    else:
-        return "../" + path_to_shorten.stem[:length-4] + "~"
-    
-def parse_simple_relative_path(path: str | Path):
-    parsed_path = str(path).replace("\\","/").strip()
-    while parsed_path.endswith("/"):
-        parsed_path = parsed_path[:-1].strip()
-    while parsed_path.startswith("/") or parsed_path.startswith("."):
-        parsed_path = parsed_path[1:].strip()
-    return parsed_path
-    
-
-def child_from_xml_node(xml_node: objectify.ObjectifiedElement, child_name: str, do_not_warn: bool = False):
-    '''Get child from ObjectifiedElement by name'''
-    try:
-        return xml_node[child_name]
-    except AttributeError:
-        if not do_not_warn:
-            print(f"There is no child with name {child_name} for xml node {xml_node.tag} in {xml_node.base}")
-        return None
-
-
-def machina_xml_beautify(xml_string: str):
-    ''' Format and beautify xml string in the style very similar to
-    original Ex Machina dynamicscene.xml files.'''
-    beautified_string = b""
-    previous_line_indent = -1
-
-    # As first line of xml file is XML Declaration, we want to exclude it
-    # from Beautifier to get rid of checks for every line down the line
-    for i, line in enumerate(xml_string[xml_string.find(b"\n<")
-                             + 1:].splitlines()):
-        line_stripped = line.lstrip()
-        # calculating indent level of parent line to indent attributes
-        # lxml use spaces for indents, game use tabs, so indents maps 2:1
-        line_indent = (len(line) - len(line_stripped)) // 2
-
-        line = _split_tag_on_attributes(line_stripped, line_indent)
-        # manually tabulating lines according to saved indent level
-        line = line_indent * b"\t" + line + b"\n"
-
-        # in EM xmls every first and only first tag of its tree level is
-        # separated by a new line
-        if line_indent == previous_line_indent:
-            line = b"\n" + line
-
-        # we need to know indentation of previous tag to decide if tag is
-        # first for its tree level, as described above
-        previous_line_indent = line_indent
-
-        beautified_string += line
-    return beautified_string
-
-
-def _split_tag_on_attributes(xml_line: str, line_indent: int):
-    white_space_index = xml_line.find(b" ")
-    quotmark_index = xml_line.find(b'"')
-
-    # true when no tag attribute contained in string
-    if white_space_index == -1 or quotmark_index == -1:
-        return xml_line
-
-    elif white_space_index < quotmark_index:
-        # next tag attribute found, now indent found attribute and
-        # recursively start work on a next line part
-        return (xml_line[:white_space_index] + b"\n" + b"\t" * (line_indent + 1)
-                + _split_tag_on_attributes(xml_line[white_space_index + 1:],
-                                           line_indent))
-    else:
-        # searching where attribute values ends and new attribute starts
-        second_quotmark_index = xml_line.find(b'"', quotmark_index + 1) + 1
-        return (xml_line[:second_quotmark_index]
-                + _split_tag_on_attributes(xml_line[second_quotmark_index:],
-                                           line_indent))
-
-
-def xml_to_objfy(full_path: str) -> objectify.ObjectifiedElement:
-    with open(full_path, 'r', encoding=data.ENCODING) as f:
-        parser_recovery = objectify.makeparser(recover=True, encoding=data.ENCODING, collect_ids=False)
-        objectify.enable_recursive_str()
-        objfy = objectify.parse(f, parser_recovery)
-    objectify_tree = objfy.getroot()
-    return objectify_tree
-
-
-# def is_xml_node_contains(xml_node: objectify.ObjectifiedElement, attrib_name: str) -> None | bool:
-#     attribs = xml_node.attrib
-#     if attribs:
-#         return attribs.get(attrib_name) is not None
-#     else:
-#         logger.warning(f"Asking for attributes of node without attributes: {xml_node.base}")
 
 
 def save_to_file(objectify_tree: objectify.ObjectifiedElement, path,
@@ -143,31 +33,33 @@ def save_to_file(objectify_tree: objectify.ObjectifiedElement, path,
     files by default. Can skip beautifier and save raw
     lxml formated file.
     '''
-    xml_string = etree.tostring(objectify_tree,
-                                pretty_print=True,
-                                doctype='<?xml version="1.0" encoding="windows-1251" standalone="yes" ?>',
-                                encoding="windows-1251")
+    xml_string = etree.tostring(
+        objectify_tree,
+        pretty_print=True,
+        doctype='<?xml version="1.0" encoding="windows-1251" standalone="yes" ?>',
+        encoding="windows-1251")
     with open(path, "wb") as fh:
         if machina_beautify:
-            fh.write(machina_xml_beautify(xml_string))
+            fh.write(beautify_machina_xml(xml_string))
         else:
             fh.write(xml_string)
 
 
 async def save_to_file_async(objectify_tree: objectify.ObjectifiedElement, path,
                              machina_beautify: bool = True) -> None:
-    ''' Asynchronously writes (not generates) ObjectifiedElement tree to file at path,will format and
-    beautify file in the style very similar to original EM dynamicscene.xml
-    files by default. Can skip beautifier and save raw
-    lxml formated file.
+    ''' Asynchronously writes (not generates) ObjectifiedElement tree to file at path,
+    will format and beautify file in the style very similar to original EM
+    dynamicscene.xml files by default. Can skip beautifier and save raw lxml
+    formated file.
     '''
-    xml_string = etree.tostring(objectify_tree,
-                                pretty_print=True,
-                                doctype='<?xml version="1.0" encoding="windows-1251" standalone="yes" ?>',
-                                encoding="windows-1251")
+    xml_string = etree.tostring(
+        objectify_tree,
+        pretty_print=True,
+        doctype='<?xml version="1.0" encoding="windows-1251" standalone="yes" ?>',
+        encoding="windows-1251")
     async with aiofiles.open(path, "wb") as fh:
         if machina_beautify:
-            await fh.write(machina_xml_beautify(xml_string))
+            await fh.write(beautify_machina_xml(xml_string))
         else:
             await fh.write(xml_string)
 
@@ -196,8 +88,9 @@ def copy_from_to(from_path_list: list[str], to_path: str, console: bool = False)
         for path, dirs, filenames in os.walk(from_path):
             for sfile in filenames:
                 dest_file = os.path.join(path.replace(from_path, to_path), sfile)
-                description = (f" - [{file_num} of {files_count}] - name {sfile} - "
-                               f"size {round(Path(os.path.join(path, sfile)).stat().st_size / 1024, 2)} KB")
+                description = (
+                    f" - [{file_num} of {files_count}] - name {sfile} - "
+                    f"size {round(Path(os.path.join(path, sfile)).stat().st_size / 1024, 2)} KB")
                 logger.debug(description)
                 shutil.copy2(os.path.join(path, sfile), dest_file)
                 if console:
@@ -205,7 +98,8 @@ def copy_from_to(from_path_list: list[str], to_path: str, console: bool = False)
                 file_num += 1
 
 
-async def copy_from_to_async(from_path_list: list[str], to_path: str, callback_progbar: callable) -> None:
+async def copy_from_to_async(from_path_list: list[str],
+                             to_path: str, callback_progbar: callable) -> None:
     files_count = 0
     for from_path in from_path_list:
         logger.debug(f"Copying files from '{from_path}' to '{to_path}'")
@@ -225,11 +119,19 @@ async def copy_from_to_async(from_path_list: list[str], to_path: str, callback_p
                 file_num += 1
 
 
-async def copy_file_and_call_async(path, file_num, sfile, from_path, to_path, files_count, callback_progbar):
-    dest_file = os.path.join(path.replace(from_path, to_path), sfile)
-    file_size = round(Path(os.path.join(path, sfile)).stat().st_size / 1024, 2)
-    await aioshutil.copy2(os.path.join(path, sfile), dest_file)
-    await callback_progbar(file_num[0], files_count, sfile, file_size)
+async def copy_file_and_call_async(path: str, file_num: list[int],
+                                   single_file: str,
+                                   from_path: str, to_path: str,
+                                   files_count: int,
+                                   callback_progbar: Coroutine):
+    # TODO: rethink if something this ugly is really required
+    '''Note: file num is a dirty hack to pass pointer to mutable int value
+    (index of current file)'''
+    dest_file = os.path.join(path.replace(from_path, to_path), single_file)
+    file_size = round(Path(os.path.join(path, single_file)).stat().st_size / 1024, 2)
+    await aioshutil.copy2(os.path.join(path, single_file), dest_file)
+    # TODO: describe interface for this type of callback
+    await callback_progbar(file_num[0], files_count, single_file, file_size)
     await asyncio.sleep(0.001)
     file_num[0] += 1
 
@@ -253,12 +155,16 @@ async def copy_from_to_async_fast(from_path_list: list[str | Path],
                 os.makedirs(os.path.join(dest_dir, directory), exist_ok=True)
         for path, dirs, filenames in os.walk(from_path):
             await asyncio.gather(*[
-                copy_file_and_call_async(path, file_num, sfile,
+                copy_file_and_call_async(path, file_num, single_file,
                                          from_path, to_path, files_count,
-                                         callback_progbar) for sfile in filenames])
+                                         callback_progbar) for single_file in filenames])
 
 
-async def extract_files(archive, file_names, path, callback=None, files_num=1):
+async def extract_files(archive: zipfile.ZipFile,
+                        file_names: list[str],
+                        path: str | Path,
+                        callback: Optional[Coroutine] = None,
+                        files_num: int = 1):
     '''Extract and save to disk'''
     for file_name in file_names:
         data = archive.read(file_name)
@@ -275,8 +181,11 @@ async def extract_files(archive, file_names, path, callback=None, files_num=1):
             await callback(files_num)
 
 
-async def extract_7z_files(archive: py7zr.SevenZipFile, file_names, path,
-                           callback=None, files_num=1, chunksize=1):
+async def extract_7z_files(archive: py7zr.SevenZipFile,
+                           file_names: list[str],
+                           path: str | Path,
+                           callback: Optional[Coroutine] = None,
+                           files_num: int = 1, chunksize: int = 1):
     '''Extract and save to disk'''
     archive.reset()
     archive.extract(path, targets=file_names)
@@ -297,7 +206,7 @@ async def extract_from_to(archive_path, to_path, callback=None,
             raise NotImplementedError(f"Unsupported archive type: {archive_path}")
 
 
-async def extract_zip_from_to(archive_path, to_path,
+async def extract_zip_from_to(archive_path: str | Path, to_path: str | Path,
                               callback: Optional[Coroutine] = None,
                               loading_text: Optional[Text] = None):
     '''Unzip archive to disk asynchronously'''
@@ -353,7 +262,7 @@ async def extract_zip_from_to(archive_path, to_path,
         await asyncio.gather(*tasks)
 
 
-async def extract_7z_from_to(archive_path, to_path,
+async def extract_7z_from_to(archive_path: str | Path, to_path: str | Path,
                              callback: Optional[Coroutine] = None,
                              loading_text: Optional[Text] = None):
     os.makedirs(to_path, exist_ok=True)
@@ -401,7 +310,7 @@ async def extract_7z_from_to(archive_path, to_path,
             await extract_7z_files(archive, file_names, to_path, callback, files_num, chunksize)
 
 
-def load_yaml(stream) -> Any:
+def load_yaml(stream: typing.IO) -> Any:
     try:
         yaml_content = yaml.safe_load(stream)
         return yaml_content
@@ -416,7 +325,7 @@ def read_yaml(yaml_path: str) -> Any:
         return yaml_loaded
 
 
-def dump_yaml(data, path, sort_keys=True) -> bool:
+def dump_yaml(data, path: str | Path, sort_keys: bool = True) -> bool:
     with open(path, 'w', encoding="utf-8") as stream:
         try:
             yaml.dump(data, stream, allow_unicode=True, width=1000, sort_keys=sort_keys)
@@ -430,40 +339,49 @@ def get_internal_file_path(file_name: str) -> str:
     return Path(__file__).parent.parent / file_name
 
 
-def process_markdown(md_raw):
-    md_result = html.unescape(md_raw)
-    md_result = md_result.replace('<p align="right">(<a href="#top">перейти наверх</a>)</p>', '')
-    md_result = markdownify.markdownify(md_result, convert=['a', 'b', 'img'], escape_asterisks=False)
-    return md_result
-
-
-def patch_offsets(f, offsets_dict: dict, enlarge_coeff: float = 1.0, raw_strings=False) -> None:
+def patch_offsets(f: typing.BinaryIO,
+                  offsets_dict: dict, enlarge_coeff: float = 1.0,
+                  raw_strings=False) -> None:
     for offset in offsets_dict.keys():
         f.seek(offset)
-        if type(offsets_dict[offset]) == int:
+        if isinstance(offsets_dict[offset], int):
             if not math.isclose(enlarge_coeff, 1.0):
                 new_value = round(offsets_dict[offset] * enlarge_coeff)
             else:
                 new_value = offsets_dict[offset]
             f.write(struct.pack("i", new_value))
-        elif type(offsets_dict[offset]) == str:
+        elif isinstance(offsets_dict[offset]) == str:
             if raw_strings:  # write as is, binary insert strings
                 f.write(bytes.fromhex(offsets_dict[offset]))
             else:  # hex address to convert to pointer
                 f.write(struct.pack('<L', int(offsets_dict[offset], base=16)))
-        elif type(offsets_dict[offset]) == float:
+        elif isinstance(offsets_dict[offset]) == float:
             if not math.isclose(enlarge_coeff, 1.0):
                 new_value = round(offsets_dict[offset] * enlarge_coeff)
             else:
                 new_value = offsets_dict[offset]
             f.write(struct.pack("f", new_value))
-        elif type(offsets_dict[offset]) == bool:
+        elif isinstance(offsets_dict[offset]) == bool:
             f.write(struct.pack("b", offsets_dict[offset]))
-        elif type(offsets_dict[offset]) == tuple:
+        elif isinstance(offsets_dict[offset]) == tuple:
             f.write(struct.pack("b", offsets_dict[offset][0]))
+        else:
+            raise Exception("Unsuported type given ")
 
 
-def patch_remaster_icon(f):
+def patch_render_dll(target_dll: str) -> None:
+    with open(target_dll, 'rb+') as f:
+        for offset in data.offsets_dll.keys():
+            f.seek(offset)
+            if isinstance(data.offsets_dll[offset], str):  # hex address
+                f.write(struct.pack('<Q', int(data.offsets_dll[offset], base=16))[:4])
+            elif isinstance(data.offsets_dll[offset], float):
+                f.write(struct.pack("f", data.offsets_dll[offset]))
+            else:
+                raise Exception("Unsupported type given for dll binary patch!")
+
+
+def patch_remaster_icon(f: typing.BinaryIO):
     f.seek(data.size_of_rsrc_offset)
     old_rsrc_size = int.from_bytes(f.read(4), byteorder='little')
 
@@ -560,6 +478,7 @@ def get_glob_props_path(root_dir: str) -> str:
     config = get_config(root_dir)
     if config.attrib.get("pathToGlobProps") is not None:
         glob_props_path = config.attrib.get("pathToGlobProps")
+    # TODO: fix this idiocity
     return glob_props_path
 
 
@@ -729,16 +648,6 @@ def patch_configurables(target_exe: str, exe_options: dict = {}) -> None:
         patch_offsets(f, configured_offesets)
 
 
-def patch_render_dll(target_dll: str) -> None:
-    with open(target_dll, 'rb+') as f:
-        for offset in data.offsets_dll.keys():
-            f.seek(offset)
-            if type(data.offsets_dll[offset]) == str:  # hex address
-                f.write(struct.pack('<Q', int(data.offsets_dll[offset], base=16))[:4])
-            elif type(data.offsets_dll[offset]) == float:
-                f.write(struct.pack("f", data.offsets_dll[offset]))
-
-
 def rename_effects_bps(game_root_path: str) -> None:
     '''Without packed bps file game will use individual effects, which allows making edits to them'''
     bps_path = os.path.join(game_root_path, "data", "models", "effects.bps")
@@ -766,7 +675,7 @@ def correct_damage_coeffs(root_dir: str, gravity: float | int) -> None:
 def increase_phys_step(root_dir: str, enable: bool = True) -> None:
     glob_props_full_path = os.path.join(root_dir, get_glob_props_path(root_dir))
     glob_props = xml_to_objfy(glob_props_full_path)
-    physics = child_from_xml_node(glob_props, "Physics")
+    physics = get_child_from_xml_node(glob_props, "Physics")
     if physics is not None:
         if enable:
             physics.attrib["PhysicStepTime"] = "0.0166"

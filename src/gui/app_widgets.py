@@ -26,7 +26,8 @@ from helpers.errors import (DXRenderDllNotFound, ExeIsRunning,
                             ModsDirMissing, NoModsFound,
                             PatchedButDoesntHaveManifest)
 from helpers.file_ops import (extract_from_to, get_internal_file_path,
-                              get_proc_by_names, load_yaml, process_markdown)
+                              get_proc_by_names, load_yaml)
+from helpers.parse_ops import process_markdown
 from localisation.service import (COMPATCH_GITHUB, DEM_DISCORD,
                                   DEM_DISCORD_MODS_DOWNLOAD_SCREEN,
                                   WIKI_COMPATCH, LangFlags, SupportedLanguages,
@@ -2751,7 +2752,7 @@ class ModInstallWizard(UserControl):
         self.app.page.floating_action_button.visible = False
         await self.app.page.floating_action_button.update_async()
         validated_translations = []
-        for lang, mod in self.main_mod.translations_loaded.items():
+        for mod in self.main_mod.translations_loaded.values():
             if mod.can_install:
                 validated_translations.append(mod)
 
@@ -2856,7 +2857,6 @@ class ModInstallWizard(UserControl):
         game = self.app.game
         session = self.app.session
         mod = self.mod
-        distribution_dir = str(Path(mod.distribution_dir).parent)
         game_root = game.game_root_path
 
         try:
