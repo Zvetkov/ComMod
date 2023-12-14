@@ -2,9 +2,11 @@
 from ctypes import windll
 from os import system
 
-OWN_VERSION = "2.0.11"
+# ComMod version
+OWN_VERSION = "2.0.12"
 
-DATE = "(Sept 24 2023)"
+# date of ComMod release (build)
+DATE = "(Dec 14 2023)"
 # version of binary fixes
 # corresponds with the latest ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"
@@ -193,6 +195,17 @@ offsets_draw_dist = {
     # 0x5AB268: "00000000"  # remove negative offset from z-guard
 }
 
+offsets_draw_dist_vanilla = {
+    # short draw distance
+    0x1BF494: "83F80C7E05B80C000000",  # m3d::Landscape::Load
+    0x23A682: "83F80C7E05B80C000000",  # m3d::SceneGraph::UpdateVis
+    0x3A54B5: "83F80C7E05B80C000000",  # m3d::Landscape::GetFogStartAndEnd
+    0x3AB185: "83FB0C7E09BB0C000000",  # m3d::Landscape::Render
+    0x3B61F3: "83FE0C7E05BE0C000000",  # m3d::RoadManager::UpdateVis
+    0x3EC1DD: "83F80C7E05B80C000000",  # ai::InfoCone::GetInfoObjId
+    0x4FBEC2: "83F80C7E05B80C000000",  # m3d::WeatherThunderstorm::Render
+}
+
 offset_draw_dist_numerics = {
     0x5E3204: 19.0,  # max drawDistance with lsViewDivider = 1.0 before min offset (+ 4.0 = 23.0)
     # 0x5E306C: 0.08,
@@ -204,6 +217,17 @@ offset_draw_dist_numerics = {
     0x3B61D6: "0x009E3204",  # m3d::RoadManager::UpdateVis
     0x3EC1C9: "0x009E3204",  # ai::InfoCone::GetInfoObjId
     0x4FBEAE: "0x009E3204",  # m3d::WeatherThunderstorm::Render
+}
+
+offset_draw_dist_numerics_vanilla = {
+    0x5E3204: 0.0,  # max drawDistance with lsViewDivider = 1.0 before min offset (+ 4.0 = 23.0)
+    0x1BF478: "0x00990944",  # m3d::Landscape::Load
+    0x23A666: "0x009E5978",  # m3d::SceneGraph::UpdateVis
+    0x3A5499: "0x009AB264",  # m3d::Landscape::GetFogStartAndEnd
+    0x3AB165: "0x009AB264",  # m3d::Landscape::Render
+    0x3B61D6: "0x009E5978",  # m3d::RoadManager::UpdateVis
+    0x3EC1C9: "0x009E5ADC",  # ai::InfoCone::GetInfoObjId
+    0x4FBEAE: "0x009E5ADC",  # m3d::WeatherThunderstorm::Render
 }
 
 
