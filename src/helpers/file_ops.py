@@ -712,6 +712,18 @@ def patch_configurables(target_exe: str, exe_options: dict = {}) -> None:
                     blast_config = False
             configurable_values["blast_damage_friendly_fire"] = blast_config
 
+        if exe_options.get("draw_distance_limit") is not None:
+            limit_draw_dist = parse_bool_value(
+                exe_options.get("draw_distance_limit"),
+                default_if_failed=False)
+
+            if limit_draw_dist:
+                patch_offsets(f, data.offsets_draw_dist_vanilla, raw_strings=True)
+                patch_offsets(f, data.offset_draw_dist_numerics_vanilla)
+            else:
+                patch_offsets(f, data.offsets_draw_dist, raw_strings=True)
+                patch_offsets(f, data.offset_draw_dist_numerics)
+
         configured_offesets = {}
         for key in data.configurable_offsets.keys():
             configured_offesets[data.configurable_offsets.get(key)] = configurable_values[key]
@@ -755,6 +767,21 @@ def correct_damage_coeffs(root_dir: str, gravity: float | int) -> None:
         ai_clash_coeff = 0.001 / ((gravity / -9.8))
         config.attrib["ai_clash_coeff"] = f"{ai_clash_coeff:.4f}"
         save_to_file(config, os.path.join(root_dir, "data", "config.cfg"))
+
+
+def parse_bool_value(value, default_if_failed):
+    if value is None:
+        return default_if_failed
+    if isinstance(value, bool):
+        return value
+    else:
+        str_value = str(value).lower()
+        if str_value == "true":
+            return True
+        elif str_value == "false":
+            return False
+        else:
+            return default_if_failed
 
 
 def increase_phys_step(root_dir: str, enable: bool = True) -> None:

@@ -119,6 +119,17 @@ class Config:
             if theme in ("system", "light", "dark"):
                 self.init_theme = ft.ThemeMode(theme)
 
+    def add_game_to_config(self, game_path: str, name: str = "Ex Machina"):
+        if os.path.isdir(game_path):
+            self.game_names[game_path] = name
+            self.known_games.add(game_path.lower())
+            self.current_game = game_path
+
+    def add_distro_to_config(self, distro_path: str):
+        if os.path.isdir(distro_path):
+            self.known_distros.add(distro_path)
+            self.current_distro = distro_path
+
     def save_config(self, abs_dir_path: str | None = None):
         if abs_dir_path is not None and os.path.isdir(abs_dir_path):
             config_path = os.path.join(abs_dir_path, "commod.yaml")
