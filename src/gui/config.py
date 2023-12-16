@@ -37,7 +37,7 @@ class Config:
         self.current_section = AppSections.SETTINGS.value
         self.current_game_filter = GameInstallments.ALL.value
         self.game_with_console = False
-
+        self.linux_run_cmd = "flatpak run net.lutris.Lutris lutris:rungame/HTA"
         self.page: ft.Page = page
 
     def asdict(self):
@@ -49,6 +49,7 @@ class Config:
             "current_section": self.current_section,
             "current_game_filter": self.current_game_filter,
             "game_with_console": self.game_with_console,
+            "linux_run_cmd": self.linux_run_cmd,
             "window": {"width": self.page.window_width,
                        "height": self.page.window_height,
                        "pos_x":  self.page.window_left,
@@ -101,6 +102,8 @@ class Config:
             game_with_console = config.get("game_with_console")
             if isinstance(game_with_console, bool):
                 self.game_with_console = game_with_console
+
+            linux_run_cmd = config.get("linux_run_cmd")
 
             window_config = config.get("window")
             # ignoring broken partial configs for window

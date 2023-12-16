@@ -626,18 +626,18 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
         if version_choice == "remaster":
             patch_remaster_icon(f)
 
-            if under_windows:
-                if exe_options.get("game_font") is not None:
-                    font_alias = exe_options.get("game_font")
-                else:
-                    font_alias = ""
-                fonts_scaled = hd_ui.scale_fonts(game_root_path, data.OS_SCALE_FACTOR, font_alias, under_windows)
-                if fonts_scaled:
-                    logger.info("fonts corrected")
-                else:
-                    logger.info("cant correct fonts")
+            #if under_windows:
+            if exe_options.get("game_font") is not None:
+                font_alias = exe_options.get("game_font")
             else:
-                logger.warning("Font scaling is unsupported under OS other then Windows")
+                font_alias = ""
+            fonts_scaled = hd_ui.scale_fonts(game_root_path, data.OS_SCALE_FACTOR(), font_alias, under_windows)
+            if fonts_scaled:
+                logger.info("fonts corrected")
+            else:
+                logger.info("cant correct fonts")
+            #else:
+                #logger.warning("Font scaling is unsupported under OS other then Windows")
 
             width_list = []
             if width in data.PREFERED_RESOLUTIONS.keys():

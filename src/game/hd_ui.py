@@ -10,8 +10,10 @@ logger = logging.getLogger('dem')
 
 
 def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "", under_windows: bool = True) -> None:
+    #print(f"scale_fonts {root_dir} scale_factor:{scale_factor} custom_font:{custom_font} under_windows:{under_windows}")
     config = file_ops.get_config(root_dir)
-    ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
+    config_path = os.path.join(*(config.attrib.get("ui_pathToSchema").split('\\')));
+    ui_schema_path = os.path.join(root_dir, config_path)
     ui_schema = file_ops.xml_to_objfy(ui_schema_path)
 
     if not custom_font:
@@ -20,6 +22,18 @@ def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "", under
         font_alias = custom_font
 
     fonts_path = Path(Path.home().drive + "/", "Windows", "fonts")
+    if not under_windows:
+        test_dir = root_dir
+        while True:
+            temp_dir = os.path.dirname(test_dir)
+            if temp_dir == test_dir:
+                break
+            test_dir = temp_dir
+            fonts_path = Path(os.path.join(test_dir,"Windows", "fonts"))
+            #print(f"\ttesting:{fonts_path} exist:{fonts_path.exists()}")
+            if fonts_path.exists():
+                break
+
     if fonts_path.exists():
         listed_system_fonts = [font.lower() for font in os.listdir(fonts_path)]
     else:
@@ -27,7 +41,7 @@ def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "", under
 
     font_available = f"{font_alias.lower().replace(' ', '')}.ttf" in listed_system_fonts
 
-    if not font_available:
+    if not font_available and under_windows:
         system_fonts = get_fonts(under_windows)
         font_available = font_alias in system_fonts
 
@@ -136,7 +150,8 @@ def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, en
 
 
 def toggle_16_9_glob_prop(root_dir: str, enable: bool = True) -> None:
-    glob_props_full_path = os.path.join(root_dir, file_ops.get_glob_props_path(root_dir))
+    config_path = os.path.join(*(file_ops.get_glob_props_path(root_dir).split('\\')));
+    glob_props_full_path = os.path.join(root_dir, config_path)
     glob_props = file_ops.xml_to_objfy(glob_props_full_path)
     ground_repository = file_ops.child_from_xml_node(glob_props, "GroundRepository")
     smart_cursor = file_ops.child_from_xml_node(glob_props, "SmartCursor")

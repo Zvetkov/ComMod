@@ -162,6 +162,8 @@ class InstallationContext:
             resolution = resolution_string.split()[0]
             self.logger.warning(f"resolution:{resolution}")
             res_x, res_y = resolution.split('x')
+            if int(res_y) > int(res_x):
+                res_x, res_y = res_y, res_x
 
         monitor_res = int(res_x), int(res_y)
         self.logger.info(f"reported res X:Y: {res_x}:{res_y}")

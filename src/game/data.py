@@ -40,13 +40,15 @@ DEFAULT_COMREM_GRAVITY = -19.62
 
 #OS_SCALE_FACTOR = 1.0#windll.shcore.GetScaleFactorForDevice(0) / 100
 
+LINUX_FORCED_SCALE_FACTOR = 0.75
+
 from helpers.get_system_fonts import getmember
 def OS_SCALE_FACTOR():
     if "Windows" in platform.system():
         windll = getmember(ctypes,"windll")
         return windll.shcore.GetScaleFactorForDevice(0) / 100
     else:
-        return 1.0
+        return LINUX_FORCED_SCALE_FACTOR
 
 ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
 

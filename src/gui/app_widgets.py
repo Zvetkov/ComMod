@@ -7,6 +7,8 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+import platform
+import sys, traceback
 
 import aiofiles.os
 import aioshutil
@@ -2952,6 +2954,7 @@ class ModInstallWizard(UserControl):
                 self.app.game.process_game_install(self.app.game.game_root_path)
         except Exception as ex:
             self.app.logger.error(ex)
+            print(traceback.format_exc())
             await self.show_install_results(False, [], ex)
             return
 
@@ -4328,14 +4331,20 @@ class HomeScreen(UserControl):
                 self.launch_prog_ring.current.visible = False
                 await self.launch_prog_ring.current.update_async()
                 return
-            self.app.logger.info(f"Launching: {self.app.game.target_exe}")
-            self.app.current_game_process = \
-                await create_subprocess_exec(
-                    self.app.game.target_exe,
-                    '-console' if self.app.config.game_with_console else "",
-                    cwd=self.app.game.game_root_path,
-                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+            if "Windows" in platform.system():
+                self.app.logger.info(f"Launching: {self.app.game.target_exe}")
+                self.app.current_game_process = \
+                    await create_subprocess_exec(
+                        self.app.game.target_exe,
+                        '-console' if self.app.config.game_with_console else "",
+                        cwd=self.app.game.game_root_path,
+                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+            else:
+                cmd = self.app.config.linux_run_cmd.split(" ");
+                self.app.logger.info(f"Launching: {cmd}")
+                self.app.current_game_process = await create_subprocess_exec(*cmd,stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
 
             self.app.game_change_time = datetime.now()
             await self.synchronise_launch_btn_prompt(starting=True)
