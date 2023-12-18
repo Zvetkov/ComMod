@@ -4,27 +4,24 @@ import logging
 import operator
 import os
 import typing
+from collections.abc import Awaitable
 from datetime import datetime
 from enum import Enum
 from functools import total_ordering
 from pathlib import Path
-from typing import Any, Awaitable, Optional
+from typing import Any, Optional
 from zipfile import ZipInfo
 
+from console.color import bcolors, fconsole, remove_colors
+from helpers.file_ops import copy_from_to_async_fast, get_internal_file_path, read_yaml
+from helpers.parse_ops import parse_simple_relative_path, process_markdown, remove_substrings
+from localisation.service import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH, tr
 from pathvalidate import sanitize_filename
 from py7zr import py7zr
 
-from console.color import bcolors, fconsole, remove_colors
-from helpers.file_ops import (copy_from_to_async_fast,
-                              get_internal_file_path,
-                              read_yaml)
-from helpers.parse_ops import parse_simple_relative_path, remove_substrings, process_markdown
-from localisation.service import (COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH,
-                                  tr)
-
 from .data import get_known_mod_display_name, is_known_lang
 
-logger = logging.getLogger('dem')
+logger = logging.getLogger("dem")
 
 
 class GameInstallments(Enum):
@@ -60,13 +57,13 @@ class BaseMod:
                 case "exmachina" | "m113" | "arcade":
                     self.installment = installment.lower()
                 case _:
-                    raise ValueError(f"Game installment id '{installment}' "
-                                     "is not in the supported games list!")
+                    msg = f"Game installment id '{installment}' is not in the supported games list!"
+                    raise ValueError(msg)
 
         self.id = self.calculate_id()
         self.files_validated = False
 
-    def calculate_id(self):
+    def calculate_id(self) -> str:
         return remove_substrings(
             sanitize_filename(
                 self.name
@@ -79,18 +76,25 @@ class BaseMod:
     # TODO: probably a bad idea, maybe move back to Mod? Need to decide what to do with archived mods
     def validate_mod_paths(
             self, mod_manifest_path: str,
-            archive_file_list: Optional[list[ZipInfo] | py7zr.ArchiveFileList] = None):
+            archive_file_list: list[ZipInfo] | py7zr.ArchiveFileList | None = None):
         pass
 
     @total_ordering
     class Version:
-        def __init__(self, version_str: str) -> None:
-            self.major = '0'
-            self.minor = '0'
-            self.patch = '0'
-            self.identifier = ''
+        class VersionPartCounts(Enum):
+            NO_VERSION: 0
+            MAJOR_ONLY: 1
+            SHORT_WITH_MINOR: 2
+            FULL: 3
+            FULL_WITH_ID: 4
 
-            identifier_index = version_str.find('-')
+        def __init__(self, version_str: str) -> None:
+            self.major = "0"
+            self.minor = "0"
+            self.patch = "0"
+            self.identifier = ""
+
+            identifier_index = version_str.find("-")
             has_minor_ver = "." in version_str
 
             if identifier_index != -1:
@@ -100,23 +104,23 @@ class BaseMod:
                 numeric_version = version_str
 
             if has_minor_ver:
-                version_split = numeric_version.split('.')
+                version_split = numeric_version.split(".")
                 version_levels = len(version_split)
-                if version_levels > 0:
+                if version_levels >= self.VersionPartCounts.MAJOR_ONLY:
                     self.major = version_split[0][:4]
 
-                if version_levels > 1:
+                if version_levels >= self.VersionPartCounts.SHORT_WITH_MINOR:
                     self.minor = version_split[1][:4]
 
-                if version_levels > 2:
+                if version_levels >= self.VersionPartCounts.FULL:
                     self.patch = version_split[2][:10]
 
-                if version_levels > 3:
-                    self.patch = ''.join(version_split[2:])
+                if version_levels >= self.VersionPartCounts.FULL_WITH_IDL:
+                    self.patch = "".join(version_split[2:])
             else:
                 self.major = numeric_version
 
-            self.is_numeric = all([part.isnumeric() for part in [self.major, self.minor, self.patch]])
+            self.is_numeric = all(part.isnumeric() for part in [self.major, self.minor, self.patch])
 
         def __str__(self) -> str:
             version = f"{self.major}.{self.minor}.{self.patch}"
@@ -127,8 +131,8 @@ class BaseMod:
         def __repr__(self) -> str:
             return str(self)
 
-        def _is_valid_operand(self, other: typing.Any):
-            return (isinstance(other, Mod.Version))
+        def _is_valid_operand(self, other) -> bool:  # noqa: ANN001
+            return isinstance(other, Mod.Version)
 
         def __eq__(self, other: Mod.Version) -> bool:
             if not self._is_valid_operand(other):
@@ -138,10 +142,10 @@ class BaseMod:
                 return ((int(self.major), int(self.minor), int(self.patch))
                         ==
                         (int(other.major), int(other.minor), int(other.patch)))
-            else:
-                return ((self.major.lower(), self.minor.lower(), self.patch.lower())
-                        ==
-                        (self.major.lower(), self.minor.lower(), self.patch.lower()))
+
+            return ((self.major.lower(), self.minor.lower(), self.patch.lower())
+                    ==
+                    (self.major.lower(), self.minor.lower(), self.patch.lower()))
 
         def __lt__(self, other: Mod.Version) -> bool:
             if not self._is_valid_operand(other):
@@ -151,17 +155,19 @@ class BaseMod:
                 return ((int(self.major), int(self.minor), int(self.patch))
                         <
                         (int(other.major), int(other.minor), int(other.patch)))
-            else:
-                return ((self.major.lower(), self.minor.lower(), self.patch.lower())
-                        <
-                        (self.major.lower(), self.minor.lower(), self.patch.lower()))
 
+            return ((self.major.lower(), self.minor.lower(), self.patch.lower())
+                    <
+                    (self.major.lower(), self.minor.lower(), self.patch.lower()))
 
-        
 
 class Mod(BaseMod):
-    '''Mod for HTA/EM, contains mod data, installation instructions
-       and related functions'''
+    """Mod for HTA/EM.
+
+    Contains mod data, installation instructions
+       and related functions.
+    """
+
     def __init__(self, yaml_config: dict, distribution_dir: str) -> None:
         super().__init__(yaml_config, distribution_dir)
         try:
@@ -251,14 +257,14 @@ class Mod(BaseMod):
                 self.tags = [Mod.Tags.UNCATEGORIZED.name]
             else:
                 # removing unknown values
-                self.tags = list(set([tag.upper() for tag in self.tags]) & set(Mod.Tags.list_names()))
+                self.tags = list({tag.upper() for tag in self.tags} & set(Mod.Tags.list_names()))
 
             if self.screenshots is None:
                 self.screenshots = []
             elif isinstance(self.screenshots, list):
                 for screenshot in self.screenshots:
                     if not isinstance(screenshot.get("img"), str):
-                        next
+                        continue
 
                     screenshot["img"] = screenshot["img"].replace("..", "")
 
@@ -352,7 +358,7 @@ class Mod(BaseMod):
             else:
                 base_dirs = yaml_config.get("base_dirs")
                 if base_dirs:
-                    self.base_data_dirs = [parse_simple_relative_path(dir) for dir in base_dirs]
+                    self.base_data_dirs = [parse_simple_relative_path(one_dir) for one_dir in base_dirs]
                 elif self.name == "community_patch":
                     base_dirs = ["patch"]
                 elif self.name == "community_remaster":
@@ -364,7 +370,7 @@ class Mod(BaseMod):
             self.bin_dirs = []
             libs_dirs = yaml_config.get("libs_dirs")
             if libs_dirs is not None:
-                self.bin_dirs = [parse_simple_relative_path(dir) for dir in libs_dirs]
+                self.bin_dirs = [parse_simple_relative_path(one_dir) for one_dir in libs_dirs]
             elif self.name in ("community_path", "community_remaster"):
                 self.bin_dirs = ["libs"]
 
@@ -395,12 +401,12 @@ class Mod(BaseMod):
             # logger.error(er_message)
             raise ValueError(er_message)
 
-    def load_translations(self, load_gui_info: bool = False):
+    def load_translations(self, load_gui_info: bool = False) -> None:
         self.translations_loaded[self.language] = self
         if load_gui_info:
             self.load_gui_info()
         if self.translations:
-            for lang, _ in self.translations.items():
+            for lang in self.translations:
                 lang_manifest_path = Path(self.mod_files_root, f"manifest_{lang}.yaml")
                 if not lang_manifest_path.exists():
                     raise ValueError(f"Lang '{lang}' specified but manifest for it is missing! "
@@ -449,13 +455,13 @@ class Mod(BaseMod):
             else:
                 mod.lang_label = lang
 
-    def load_gui_info(self):
+    def load_gui_info(self) -> None:
         supported_img_extensions = [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]
         self.change_log_content = ""
         if self.change_log:
             changelog_path = Path(self.mod_files_root, self.change_log)
             if changelog_path.exists() and changelog_path.suffix.lower() == ".md":
-                with open(changelog_path, "r", encoding="utf-8") as fh:
+                with open(changelog_path, encoding="utf-8") as fh:
                     md = fh.read()
                     md = process_markdown(md)
                     self.change_log_content = md
@@ -464,7 +470,7 @@ class Mod(BaseMod):
         if self.other_info:
             other_info_path = Path(self.mod_files_root, self.other_info)
             if other_info_path.exists() and other_info_path.suffix.lower() == ".md":
-                with open(other_info_path, "r", encoding="utf-8") as fh:
+                with open(other_info_path, encoding="utf-8") as fh:
                     md = fh.read()
                     md = process_markdown(md)
                     self.other_info_content = md
@@ -508,17 +514,17 @@ class Mod(BaseMod):
         else:
             self.developer_title = "author"
 
-    def load_commod_compatibility(self, commod_version):
+    def load_commod_compatibility(self, commod_version) -> None:
         for translation in self.translations_loaded.values():
             translation.commod_compatible, translation.commod_compatible_err = \
                 translation.compatible_with_mod_manager(commod_version)
             translation.commod_compatible_err = remove_colors(translation.commod_compatible_err)
 
-    def load_game_compatibility(self, game_installment):
+    def load_game_compatibility(self, game_installment) -> None:
         for translation in self.translations_loaded.values():
             translation.installment_compatible = self.installment == game_installment
 
-    def load_session_compatibility(self, installed_content, installed_descriptions):
+    def load_session_compatibility(self, installed_content, installed_descriptions) -> None:
         for translation in self.translations_loaded.values():
 
             translation.compatible, translation.compatible_err = \
@@ -552,18 +558,19 @@ class Mod(BaseMod):
                             existing_content: dict,
                             callback_progbar: Awaitable,
                             callback_status: Awaitable) -> bool:
-        '''Uses fast async copy, returns bool success status of install'''
+        """Use fast async copy, return bool success status of install."""
         try:
             logger.info(f"Existing content at the start of install: {existing_content}")
             mod_files = []
-            install_base = install_settings.get('base')
+            install_base = install_settings.get("base")
             if install_base is None:
                 raise KeyError(f"Installation config for base of mod '{self.name}' is broken")
-            elif install_base == "skip":
+
+            if install_base == "skip":
                 logger.debug("No base content will be installed")
             else:
-                bin_paths = [Path(self.mod_files_root, dir) for dir in self.bin_dirs]
-                data_paths = [Path(self.mod_files_root, dir) for dir in self.base_data_dirs]
+                bin_paths = [Path(self.mod_files_root, one_dir) for one_dir in self.bin_dirs]
+                data_paths = [Path(self.mod_files_root, one_dir) for one_dir in self.base_data_dirs]
                 await callback_status(tr("copying_base_files_please_wait"))
                 mod_files.extend(data_paths)
                 start = datetime.now()
@@ -576,28 +583,28 @@ class Mod(BaseMod):
             for install_setting in install_settings:
                 if install_setting == "base":
                     continue
-                else:
-                    wip_setting = self.options_dict[install_setting]
-                    base_work_path = Path(self.mod_files_root, self.options_base_dir, wip_setting.name, "data")
-                    installation_decision = install_settings[install_setting]
-                    if installation_decision == "yes":
-                        mod_files.append(base_work_path)
-                    elif installation_decision == "skip":
-                        logger.debug(f"Skipping option {install_setting}")
-                        continue
-                    else:
-                        custom_install_method = install_settings[install_setting]
-                        custom_install_work_path = os.path.join(
-                            self.mod_files_root,
-                            self.options_base_dir,
-                            wip_setting.name,
-                            custom_install_method,
-                            "data")
 
-                        mod_files.append(base_work_path)
-                        mod_files.append(custom_install_work_path)
-                    if installation_decision != "skip":
-                        await callback_status(tr("copying_options_please_wait"))
+                wip_setting = self.options_dict[install_setting]
+                base_work_path = Path(self.mod_files_root, self.options_base_dir, wip_setting.name, "data")
+                installation_decision = install_settings[install_setting]
+                if installation_decision == "yes":
+                    mod_files.append(base_work_path)
+                elif installation_decision == "skip":
+                    logger.debug(f"Skipping option {install_setting}")
+                    continue
+                else:
+                    custom_install_method = install_settings[install_setting]
+                    custom_install_work_path = os.path.join(
+                        self.mod_files_root,
+                        self.options_base_dir,
+                        wip_setting.name,
+                        custom_install_method,
+                        "data")
+
+                    mod_files.append(base_work_path)
+                    mod_files.append(custom_install_work_path)
+                if installation_decision != "skip":
+                    await callback_status(tr("copying_options_please_wait"))
 
                 start = datetime.now()
                 await copy_from_to_async_fast(mod_files, game_data_path, callback_progbar)
@@ -605,15 +612,16 @@ class Mod(BaseMod):
                 logger.debug(f"{(end - start).microseconds / 1000000} seconds took fast copy")
 
                 mod_files.clear()
-            return True
         except Exception as ex:
-            logger.error(ex)
+            logger.exception(exc_info=ex)
             return False
+        else:
+            return True
 
     def check_requirement(self, prereq: dict, existing_content: dict,
                           existing_content_descriptions: dict,
                           is_compatch_env: bool) -> tuple[bool, str]:
-        '''Returns bool check success result and an error message string'''
+        """Return bool check success result and an error message string."""
         error_msg = []
         required_mod_name = None
 
@@ -621,7 +629,7 @@ class Mod(BaseMod):
         version_validated = True
         optional_content_validated = True
 
-        for possible_prereq_mod in prereq['name']:
+        for possible_prereq_mod in prereq["name"]:
             existing_mod = existing_content.get(possible_prereq_mod)
             if existing_mod is not None:
                 required_mod_name = possible_prereq_mod
@@ -663,21 +671,22 @@ class Mod(BaseMod):
             version_label = (f', {tr("of_version")}: '
                              f'{and_word.join(prereq.get("versions"))}')
             if name_validated:
-                compare_ops = set([])
-                for version in prereq_versions:
-                    if ">=" == version[:2]:
+                compare_ops = set()
+                for version_string in prereq_versions:
+                    version = version_string
+                    if version[:2] == ">=":
                         compare_operation = operator.ge
-                    elif "<=" == version[:2]:
+                    elif version[:2] == "<=":
                         compare_operation = operator.le
-                    elif ">" == version[:1]:
+                    elif version[:1] == ">":
                         compare_operation = operator.gt
-                    elif "<" == version[:1]:
+                    elif version[:1] == "<":
                         compare_operation = operator.lt
                     else:  # default "version" treated the same as "==version":
                         compare_operation = operator.eq
 
                     for sign in (">", "<", "="):
-                        version = version.replace(sign, '')
+                        version = version.replace(sign, "")
 
                     installed_version = existing_content[required_mod_name]["version"]
                     parsed_existing_ver = Mod.Version(installed_version)
@@ -685,9 +694,9 @@ class Mod(BaseMod):
 
                     version_validated = compare_operation(parsed_existing_ver, parsed_required_ver)
                     compare_ops.add(compare_operation)
-                    if compare_operation is operator.eq:
-                        if parsed_required_ver.identifier:
-                            if parsed_existing_ver.identifier != parsed_required_ver.identifier:
+                    if (compare_operation is operator.eq and
+                        parsed_required_ver.identifier and
+                        parsed_existing_ver.identifier != parsed_required_ver.identifier):
                                 version_validated = False
 
                 compare_ops = list(compare_ops)
@@ -695,11 +704,10 @@ class Mod(BaseMod):
                 if len_ops == 1 and operator.eq in compare_ops:
                     self.requirements_style = "strict"
                 elif len_ops == 2 and operator.eq not in compare_ops:
-                    if (compare_ops[0] in (operator.ge, operator.gt)
-                       and compare_ops[1] in (operator.le, operator.lt)):
-                        self.requirements_style = "range"
-                    elif (compare_ops[0] in (operator.lt, operator.lt)
-                          and compare_ops[1] in (operator.ge, operator.gt)):
+                    if ((compare_ops[0] in (operator.ge, operator.gt)
+                       and compare_ops[1] in (operator.le, operator.lt)) or
+                        (compare_ops[0] in (operator.lt, operator.lt)
+                          and compare_ops[1] in (operator.ge, operator.gt))):
                         self.requirements_style = "range"
                     else:
                         self.requirements_style = "mixed"
@@ -770,15 +778,14 @@ class Mod(BaseMod):
         error_msg = []
 
         requirements_met = True
-        is_compatch_env = ("community_remaster" not in existing_content.keys() and
-                           "community_patch" in existing_content.keys())
+        is_compatch_env = ("community_remaster" not in existing_content and
+                           "community_patch" in existing_content)
 
-        if patcher_version:
-            if not self.compatible_with_mod_manager(patcher_version):
-                requirements_met &= False
-                error_msg.append(f"{tr('usupported_patcher_version')}: "
-                                 f"{self.display_name} - {self.patcher_version_requirement}"
-                                 f" > {patcher_version}")
+        if patcher_version and not self.compatible_with_mod_manager(patcher_version):
+            requirements_met &= False
+            error_msg.append(f"{tr('usupported_patcher_version')}: "
+                             f"{self.display_name} - {self.patcher_version_requirement}"
+                             f" > {patcher_version}")
 
         self.individual_require_status.clear()
         for prereq in self.prerequisites:
@@ -1348,6 +1355,9 @@ class Mod(BaseMod):
         #                         f"Archived optional content '{option.get('name')}' "
         #                         "data folder validation result")
         # else:
+
+        validated = True
+
         mod_root_dir = Path(mod_config_path).parent
         if not self.no_base_content:
             mod_base_paths = []
@@ -1403,22 +1413,23 @@ class Mod(BaseMod):
         error_msg = ""
         mod_manager_too_new = False
 
-        for version in self.patcher_version_requirement:
-            if ">=" == version[:2]:
+        for version_string in self.patcher_version_requirement:
+            version = version_string
+            if version[:2] == ">=":
                 compare_operation = operator.ge
-            elif "<=" == version[:2]:
+            elif version[:2] == "<=":
                 compare_operation = operator.le
-            elif ">" == version[:1]:
+            elif version[:1] == ">":
                 compare_operation = operator.gt
-            elif "<" == version[:1]:
+            elif version[:1] == "<":
                 compare_operation = operator.lt
-            elif "=" == version[:1]:
+            elif version[:1] == "=":
                 compare_operation = operator.eq
             else:  # default "version" treated the same as ">=version":
                 compare_operation = operator.ge
 
             for sign in (">", "<", "="):
-                version = version.replace(sign, '')
+                version = version.replace(sign, "")
 
             parsed_required_ver = Mod.Version(version)
             parsed_required_ver.identifier = None
@@ -1660,6 +1671,7 @@ class Mod(BaseMod):
                     logger.error(er_message)
                     raise KeyError(er_message)
             else:
+                # TODO: what if else and not str?
                 if isinstance(default_option, str):
                     if default_option.lower() == "skip":
                         self.default_option = "skip"
