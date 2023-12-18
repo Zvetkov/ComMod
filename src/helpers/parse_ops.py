@@ -1,9 +1,10 @@
-from typing import Iterable
-import markdownify
 import html
+from collections.abc import Iterable
 from pathlib import Path
-from lxml import objectify
+
+import markdownify
 from game import data
+from lxml import objectify
 
 
 def remove_substrings(string: str, substrings: Iterable[str]) -> str:
@@ -12,11 +13,10 @@ def remove_substrings(string: str, substrings: Iterable[str]) -> str:
     return string
 
 
-def process_markdown(md_raw):
+def process_markdown(md_raw: str) -> str:
     md_result = html.unescape(md_raw)
-    md_result = md_result.replace('<p align="right">(<a href="#top">перейти наверх</a>)</p>', '')
-    md_result = markdownify.markdownify(md_result, convert=['a', 'b', 'img'], escape_asterisks=False)
-    return md_result
+    md_result = md_result.replace('<p align="right">(<a href="#top">перейти наверх</a>)</p>', "")
+    return markdownify.markdownify(md_result, convert=["a", "b", "img"], escape_asterisks=False)
 
 
 def shorten_path(path: str | Path, length: int = 60) -> str:
@@ -33,22 +33,22 @@ def shorten_path(path: str | Path, length: int = 60) -> str:
 
     if len(path_to_shorten.stem) <= length - 3:
         return "../" + path_to_shorten.stem
-    else:
-        return "../" + path_to_shorten.stem[:length-4] + "~"
+    return "../" + path_to_shorten.stem[:length-4] + "~"
 
 
-def parse_simple_relative_path(path: str | Path):
+def parse_simple_relative_path(path: str | Path) -> str:
     parsed_path = str(path).replace("\\", "/").strip()
     while parsed_path.endswith("/"):
         parsed_path = parsed_path[:-1].strip()
-    while parsed_path.startswith("/") or parsed_path.startswith("."):
+    while parsed_path.startswith(("/", ".")):
         parsed_path = parsed_path[1:].strip()
     return parsed_path
 
 
-def get_child_from_xml_node(xml_node: objectify.ObjectifiedElement,
-                            child_name: str, do_not_warn: bool = False):
-    '''Get child from ObjectifiedElement by name'''
+def get_child_from_xml_node(
+        xml_node: objectify.ObjectifiedElement,
+        child_name: str, do_not_warn: bool = False) -> objectify.ObjectifiedElement | None:
+    """Get child from ObjectifiedElement by name."""
     try:
         return xml_node[child_name]
     except AttributeError:
@@ -58,16 +58,15 @@ def get_child_from_xml_node(xml_node: objectify.ObjectifiedElement,
         return None
 
 
-def beautify_machina_xml(xml_string: str):
-    ''' Format and beautify xml string in the style very similar to
-    original Ex Machina dynamicscene.xml files.'''
+def beautify_machina_xml(xml_string: str) -> str:
+    """Format and beautify xml string in the style similar to original Ex Machina dynamicscene.xml files."""
     beautified_string = b""
     previous_line_indent = -1
 
     # As first line of xml file is XML Declaration, we want to exclude it
     # from Beautifier to get rid of checks for every line down the line
-    for i, line in enumerate(xml_string[xml_string.find(b"\n<")
-                             + 1:].splitlines()):
+    for raw_line in xml_string[xml_string.find(b"\n<") + 1:].splitlines():
+        line = raw_line
         line_stripped = line.lstrip()
         # calculating indent level of parent line to indent attributes
         # lxml use spaces for indents, game use tabs, so indents maps 2:1
@@ -90,7 +89,7 @@ def beautify_machina_xml(xml_string: str):
     return beautified_string
 
 
-def _split_tag_on_attributes(xml_line: str, line_indent: int):
+def _split_tag_on_attributes(xml_line: str, line_indent: int) -> str:
     white_space_index = xml_line.find(b" ")
     quotmark_index = xml_line.find(b'"')
 
@@ -98,24 +97,23 @@ def _split_tag_on_attributes(xml_line: str, line_indent: int):
     if white_space_index == -1 or quotmark_index == -1:
         return xml_line
 
-    elif white_space_index < quotmark_index:
+    if white_space_index < quotmark_index:
         # next tag attribute found, now indent found attribute and
         # recursively start work on a next line part
         return (xml_line[:white_space_index] + b"\n" + b"\t" * (line_indent + 1)
                 + _split_tag_on_attributes(xml_line[white_space_index + 1:],
                                            line_indent))
-    else:
-        # searching where attribute values ends and new attribute starts
-        second_quotmark_index = xml_line.find(b'"', quotmark_index + 1) + 1
-        return (xml_line[:second_quotmark_index]
-                + _split_tag_on_attributes(xml_line[second_quotmark_index:],
-                                           line_indent))
+
+    # searching where attribute values ends and new attribute starts
+    second_quotmark_index = xml_line.find(b'"', quotmark_index + 1) + 1
+    return (xml_line[:second_quotmark_index]
+            + _split_tag_on_attributes(xml_line[second_quotmark_index:],
+                                       line_indent))
 
 
 def xml_to_objfy(full_path: str) -> objectify.ObjectifiedElement:
-    with open(full_path, 'r', encoding=data.ENCODING) as f:
+    with open(full_path, encoding=data.ENCODING) as f:
         parser_recovery = objectify.makeparser(recover=True, encoding=data.ENCODING, collect_ids=False)
         objectify.enable_recursive_str()
         objfy = objectify.parse(f, parser_recovery)
-    objectify_tree = objfy.getroot()
-    return objectify_tree
+    return objfy.getroot()

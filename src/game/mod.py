@@ -745,15 +745,12 @@ class Mod(BaseMod):
             if warning not in error_msg:
                 error_msg.append(warning)
 
-            if only_technical_name_available:
-                name_label_tr = tr("technical_name")
-            else:
-                name_label_tr = tr("mod_name")
-            error_msg.append(f'{name_label_tr.capitalize()}: '
-                             f'{name_label}{version_label}{optional_content_label}')
+            name_label_tr = tr("technical_name") if only_technical_name_available else tr("mod_name")
+            error_msg.append(f"{name_label_tr.capitalize()}: "
+                             f"{name_label}{version_label}{optional_content_label}")
             installed_description = existing_content_descriptions.get(required_mod_name)
             if installed_description is not None:
-                installed_description = installed_description.strip("\n\n")
+                installed_description = installed_description.strip("\n\n")  # noqa: B005
                 error_msg_entry = (f'\n{tr("version_available").capitalize()}:\n'
                                    f'{remove_colors(installed_description)}')
                 if error_msg_entry not in error_msg:
@@ -773,8 +770,8 @@ class Mod(BaseMod):
         return validated, error_msg
 
     def check_requirements(self, existing_content: dict, existing_content_descriptions: dict,
-                           patcher_version: str | float = '') -> tuple[bool, list[str]]:
-        '''Returns bool for cumulative check success result and a list of error message string'''
+                           patcher_version: str | float = "") -> tuple[bool, list[str]]:
+        """Return bool for cumulative check success result and a list of error message string."""
         error_msg = []
 
         requirements_met = True
@@ -800,23 +797,21 @@ class Mod(BaseMod):
                 error_msg.extend(mod_error)
             requirements_met &= validated
 
-        if requirements_met:
-            if self.strict_requirements:
-                # we will handle more complex case in check_incompatibles
-                if self.vanilla_mod:
-                    fake_req = {"name_label": f"{tr('clean').capitalize()} " + tr(self.installment),
-                                "mention_versions": False
-                                }
-                    if set(existing_content.keys()) - set([self.name]):
-                        validated_vanilla_mod = False
-                        mod_error = tr('cant_install_mod_for_vanilla')
-                        error_msg.append(mod_error)
-                    else:
-                        validated_vanilla_mod = True
-                        mod_error = ""
-                    self.individual_require_status.append(
-                        (fake_req, validated_vanilla_mod, [mod_error]))
-                    requirements_met &= validated_vanilla_mod
+        # we will handle more complex case in check_incompatibles
+        if requirements_met and self.strict_requirements and self.vanilla_mod:
+            fake_req = {"name_label": f"{tr('clean').capitalize()} " + tr(self.installment),
+                        "mention_versions": False
+                        }
+            if set(existing_content.keys()) - set([self.name]):
+                validated_vanilla_mod = False
+                mod_error = tr("cant_install_mod_for_vanilla")
+                error_msg.append(mod_error)
+            else:
+                validated_vanilla_mod = True
+                mod_error = ""
+            self.individual_require_status.append(
+                (fake_req, validated_vanilla_mod, [mod_error]))
+            requirements_met &= validated_vanilla_mod
 
         # if error_msg:
             # error_msg.append(f'\n{tr("check_for_a_new_version")}')
@@ -825,7 +820,7 @@ class Mod(BaseMod):
 
     def check_reinstallability(self, existing_content: dict,
                                existing_content_descriptions: dict) -> tuple[bool, bool, str]:
-        '''Returns is_reinstallation: bool, can_be_installed: bool, warning_text: str'''
+        """Return is_reinstallation: bool, can_be_installed: bool, warning_text: str."""
         previous_install = existing_content.get(self.name)
         comrem_on_compatch = False
 
@@ -898,9 +893,6 @@ class Mod(BaseMod):
         if not is_compatible_version:
             return True, False, over_other_version_warning, previous_install
 
-        if self.build < previous_install["build"]:
-            return True, False, tr("cant_reinstall_over_newer_build"), previous_install
-
         if self.build == previous_install["build"]:
             if not self.optional_content and not comrem_on_compatch:
                 # is reinstall, simple mod, safe reinstall
@@ -913,12 +905,13 @@ class Mod(BaseMod):
                 else:
                     warning = tr("can_reinstall")
                 return True, True, warning, previous_install
-            elif comrem_on_compatch:
-                return True, True, tr("can_reinstall"), previous_install
-            else:
-                return True, False, tr("cant_reinstall_with_different_options"), previous_install
 
-        elif self.build > previous_install["build"]:
+            if comrem_on_compatch:
+                return True, True, tr("can_reinstall"), previous_install
+
+            return True, False, tr("cant_reinstall_with_different_options"), previous_install
+
+        if self.build > previous_install["build"]:
             if not self.optional_content:
                 # is reinstall, simple mod, unsafe reinstall
                 return True, True, tr("can_reinstall"), previous_install
@@ -929,10 +922,13 @@ class Mod(BaseMod):
                 if not self.safe_reinstall_options:
                     warning += "\n" + tr("to_increase_compat_options_are_limited")
                 return True, True, warning, previous_install
-            elif comrem_on_compatch:
+            if comrem_on_compatch:
                 return True, True, tr("can_reinstall"), previous_install
-            else:
-                return True, False, tr("cant_reinstall_with_different_options"), previous_install
+
+            return True, False, tr("cant_reinstall_with_different_options"), previous_install
+
+        # self.build < previous_install["build"]
+        return True, False, tr("cant_reinstall_over_newer_build"), previous_install
 
     def check_incompatible(self, incomp: dict, existing_content: dict,
                            existing_content_descriptions: dict) -> tuple[bool, list]:
@@ -942,7 +938,7 @@ class Mod(BaseMod):
         optional_content_incomp = False
 
         incomp_mod_name = None
-        for possible_incomp_mod in incomp['name']:
+        for possible_incomp_mod in incomp["name"]:
             existing_mod = existing_content.get(possible_incomp_mod)
             if existing_mod is not None:
                 incomp_mod_name = possible_incomp_mod
@@ -978,21 +974,22 @@ class Mod(BaseMod):
 
                 version_label = (f', {tr("of_version")}: '
                                  f'{or_word.join(incomp.get("versions"))}')
-                compare_ops = set([])
-                for version in incomp_versions:
-                    if ">=" == version[:2]:
+                compare_ops = set()
+                for version_string in incomp_versions:
+                    version = version_string
+                    if version[:2] == ">=":
                         compare_operation = operator.ge
-                    elif "<=" == version[:2]:
+                    elif version[:2] == "<=":
                         compare_operation = operator.le
-                    elif ">" == version[:1]:
+                    elif version[:1] == ">":
                         compare_operation = operator.gt
-                    elif "<" == version[:1]:
+                    elif version[:1] == "<":
                         compare_operation = operator.lt
                     else:  # default "version" treated the same as "==version":
                         compare_operation = operator.eq
 
                     for sign in (">", "<", "="):
-                        version = version.replace(sign, '')
+                        version = version.replace(sign, "")
 
                     parsed_existing_ver = Mod.Version(installed_version)
                     parsed_incompat_ver = Mod.Version(version)
@@ -1002,21 +999,20 @@ class Mod(BaseMod):
                     compare_ops.add(compare_operation)
                     # while we ignore postfix for less/greater ops, we want to have an ability
                     # to make a specifix version with postfix incompatible
-                    if compare_operation is operator.eq:
-                        if parsed_incompat_ver.identifier:
-                            if parsed_existing_ver.identifier != parsed_incompat_ver.identifier:
-                                version_incomp = True
+                    if (compare_operation is operator.eq
+                       and parsed_incompat_ver.identifier
+                       and parsed_existing_ver.identifier != parsed_incompat_ver.identifier):
+                        version_incomp = True
 
                 compare_ops = list(compare_ops)
                 len_ops = len(compare_ops)
                 if len_ops == 1 and operator.eq in compare_ops:
                     self.incompatibles_style = "strict"
                 elif len_ops == 2 and operator.eq not in compare_ops:
-                    if (compare_ops[0] in (operator.ge, operator.gt)
-                       and compare_ops[1] in (operator.le, operator.lt)):
-                        self.incompatibles_style = "range"
-                    elif (compare_ops[0] in (operator.lt, operator.lt)
-                          and compare_ops[1] in (operator.ge, operator.gt)):
+                    if ((compare_ops[0] in (operator.ge, operator.gt)
+                         and compare_ops[1] in (operator.le, operator.lt))
+                        or (compare_ops[0] in (operator.lt, operator.lt)
+                            and compare_ops[1] in (operator.ge, operator.gt))):
                         self.incompatibles_style = "range"
                     else:
                         self.incompatibles_style = "mixed"
@@ -1041,10 +1037,7 @@ class Mod(BaseMod):
 
             incompatible_with_game_copy = name_incompat and version_incomp and optional_content_incomp
 
-            if only_technical_name_available:
-                name_label_tr = tr("technical_name")
-            else:
-                name_label_tr = tr("mod_name")
+            name_label_tr = tr("technical_name") if only_technical_name_available else tr("mod_name")
 
             if incompatible_with_game_copy:
                 error_msg.append(f'\n{tr("found_incompatible")}:\n'
@@ -1052,7 +1045,7 @@ class Mod(BaseMod):
                                  f'{name_label}{version_label}{optional_content_label}')
                 installed_description = existing_content_descriptions.get(incomp_mod_name)
                 if installed_description is not None:
-                    installed_description = installed_description.strip("\n\n")
+                    installed_description = installed_description.strip("\n\n")  # noqa: B005
                     error_msg.append(f'\n{tr("version_available").capitalize()}:\n'
                                      f'{remove_colors(installed_description)}')
                 else:
@@ -1080,29 +1073,29 @@ class Mod(BaseMod):
                 error_msg.extend(mod_error)
             compatible &= (not incompatible_with_game_copy)
 
-        if compatible:
-            if self.strict_requirements and self.prerequisites:
-                self_and_prereqs = [self.name, "community_patch"]
-                for prereq in self.prerequisites:
-                    self_and_prereqs.extend(prereq["name"])
-                existing_other_mods = set(existing_content.keys()) - set(self_and_prereqs)
-                if existing_other_mods:
-                    existing_mods_display_names = []
-                    for name in existing_other_mods:
-                        mod_name = existing_content[name].get("display_name")
-                        if mod_name is None:
-                            mod_name = name
-                        existing_mods_display_names.append(mod_name)
-                    existing_string = ", ".join(existing_mods_display_names)
-                    error_msg.append(f'{tr("cant_install_strict_requirements")}: '
-                                     + existing_string + ".")
-                    compatible = False
-                    fake_incomp = {"name_label": existing_string,
-                                   "mention_versions": False}
-                    self.individual_incomp_status.append(
-                        (fake_incomp, False, [f'{tr("already_installed")}: {existing_string}']))
+        if compatible and self.strict_requirements and self.prerequisites:
+            self_and_prereqs = [self.name, "community_patch"]
+            for prereq in self.prerequisites:
+                self_and_prereqs.extend(prereq["name"])
+            existing_other_mods = set(existing_content.keys()) - set(self_and_prereqs)
+            if existing_other_mods:
+                existing_mods_display_names = []
+                for name in existing_other_mods:
+                    mod_name = existing_content[name].get("display_name")
+                    if mod_name is None:
+                        mod_name = name
+                    existing_mods_display_names.append(mod_name)
+                existing_string = ", ".join(existing_mods_display_names)
+                error_msg.append(f'{tr("cant_install_strict_requirements")}: '
+                                 + existing_string + ".")
+                compatible = False
+                fake_incomp = {"name_label": existing_string,
+                               "mention_versions": False}
+                self.individual_incomp_status.append(
+                    (fake_incomp, False, [f'{tr("already_installed")}: {existing_string}']))
         return compatible, error_msg
 
+    @staticmethod
     def validate_install_config_struct(install_config: Any) -> bool:
         logger.info("--- Validating install config struct ---")
         is_dict = isinstance(install_config, dict)
@@ -1227,7 +1220,7 @@ class Mod(BaseMod):
             validated &= Mod.validate_list(optional_content, schema_optional_content)
             logger.info(f"\t{'PASS' if validated else 'FAIL'}: optional content validation result")
             if not validated:
-                return
+                return None
 
             for option in optional_content:
                 if option.get("name") in ["base", "display_name", "build", "version"]:
@@ -1237,7 +1230,7 @@ class Mod(BaseMod):
                                  f"can't load mod properly!")
                 install_settings = option.get("install_settings")
                 if validated and install_settings is not None:
-                    # not ideal place to validate data compliance, but separating this 
+                    # not ideal place to validate data compliance, but separating this
                     # requires another round of nested reading and checks which is equally ugly
                     validated &= (len(install_settings) > 1)
                     logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
@@ -1247,7 +1240,7 @@ class Mod(BaseMod):
                     logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                                 f"install settings for content '{option.get('name')}' "
                                 "validation result")
-                patcher_options_additional = option.get('patcher_options')
+                patcher_options_additional = option.get("patcher_options")
                 if validated and patcher_options_additional is not None:
                     validated &= Mod.validate_dict_constrained(patcher_options_additional,
                                                                schema_patcher_options)
@@ -1259,17 +1252,19 @@ class Mod(BaseMod):
             # logger.info("<! MOD MANIFEST FAILED VALIDATION, SKIPPING DATA CHECK !>")
             # return validated
 
-        # validated &= Mod.validate_install_config_paths(install_config, archive_file_list)                
+        # validated &= Mod.validate_install_config_paths(install_config, archive_file_list)
 
         logger.info("< MOD MANIFEST STRUCTURE VALIDATED >" if validated
                     else "<! MOD MANIFEST STRUCTURE FAILED VALIDATION !>")
         return validated
-            
+
     def load_legacy_path_defaults(self):
-        '''Base dirs mechanic was added to support generic mod structure
-        for more complex mods. Early mods, including ComPatch/ComRem
+        """Needed to support older mods existed before configurable mod file structure.
+
+        Early mods, including ComPatch/ComRem
         do not specify base dirs in manifest so to contain special case handling
-        and to make them installable with ComMod 2.1+ we need this fallback'''
+        and to make them installable with ComMod 2.1+ we need this fallback
+        """
         if self.no_base_content:
             self.base_data_dirs = []
         elif not self.base_data_dirs:
@@ -1292,7 +1287,7 @@ class Mod(BaseMod):
 
     def validate_mod_paths(
             self, mod_config_path: str,
-            archive_file_list: Optional[list[ZipInfo] | py7zr.ArchiveFileList] = None):
+            archive_file_list: list[ZipInfo] | py7zr.ArchiveFileList | None = None):
         # TODO: move to __init__ after loading legacy path fallbacks
         # self.base_data_dirs = [parse_simple_relative_path(dir) for dir in self.base_data_dirs]
         # self.bin_dirs = [parse_simple_relative_path(dir) for dir in self.bin_dirs]
@@ -1318,7 +1313,7 @@ class Mod(BaseMod):
         #             mod_base_paths = [Path(mod_config_path).parent / dir for dir in self.base_data_dirs]
         #         else:
         #             mod_base_paths.append(Path(mod_config_path).parent / "data")
-                
+
         #         if self.bin_dirs:
         #             mod_base_paths.extend(Path(mod_config_path).parent / dir for dir in self.bin_dirs)
 
@@ -1363,13 +1358,13 @@ class Mod(BaseMod):
             mod_base_paths = []
             if self.base_data_dirs:
                 mod_base_paths = [Path(mod_root_dir) / dir for dir in self.base_data_dirs]
-            
+
             if self.bin_dirs:
                 mod_base_paths.extend(Path(mod_root_dir) / dir for dir in self.bin_dirs)
 
             # TODO: is checking for is_dir enough? How it works for non existing but valid paths?
             data_dir_validated = all(base_path.is_dir() for base_path in mod_base_paths)
-                
+
             validated &= data_dir_validated
             if not data_dir_validated:
                 logger.error('\tFAIL: base mod data folders validation fail, '
@@ -1379,7 +1374,7 @@ class Mod(BaseMod):
                 logger.info("\tPASS: base mod data folders validation result")
 
         # TODO: replaced None check with empty check, is this OK?
-        if self.optional_content:                            
+        if self.optional_content:
             for option in self.optional_content:
                 validated &= Path(mod_root_dir, self.options_base_dir, option.get("name")).is_dir()
                 if option.get("install_settings") is not None:
@@ -1461,9 +1456,12 @@ class Mod(BaseMod):
 
     @staticmethod
     def validate_dict(validating_dict: dict, scheme: dict) -> bool:
-        '''Validates dictionary based on scheme in a format
-           {name: [list of possible types, required(bool)]}.
-           Supports generics for type checking in schemes'''
+        """Validate dictionary based on scheme.
+
+        Supported scheme formats:
+        {name: [list of possible types, required(bool)]}.
+        Supports generics for type checking in schemes
+        """
         # logger.debug(f"Validating dict with scheme {scheme.keys()}")
         if not isinstance(validating_dict, dict):
             logger.error(f"Validated part of scheme is not a dict: {validating_dict}")
@@ -1475,23 +1473,24 @@ class Mod(BaseMod):
             if required and value is None:
                 logger.error(f"key '{field}' is required but couldn't be found in manifest")
                 return False
-            elif required or (not required and value is not None):
+
+            if required or (not required and value is not None):
                 generics_present = any([hasattr(type_entry, "__origin__") for type_entry in types])
                 if not generics_present:
                     valid_type = any([isinstance(value, type_entry) for type_entry in types])
                 else:
                     valid_type = True
                     for type_entry in types:
-                        if hasattr(type_entry, "__origin__"):
-                            if isinstance(value, typing.get_origin(type_entry)):
-                                if type(value) in [dict, list]:
-                                    for value_internal in value:
-                                        if not isinstance(value_internal, typing.get_args(type_entry)):
-                                            valid_type = False
-                                            break
-                                else:
-                                    valid_type = False
-                                    break
+                        if (hasattr(type_entry, "__origin__")
+                           and isinstance(value, typing.get_origin(type_entry))):
+                            if type(value) in [dict, list]:
+                                for value_internal in value:
+                                    if not isinstance(value_internal, typing.get_args(type_entry)):
+                                        valid_type = False
+                                        break
+                            else:
+                                valid_type = False
+                                break
 
                 if not valid_type:
                     logger.error(f"key '{field}' has value {value} of invalid type '{type(value)}', "
@@ -1500,7 +1499,7 @@ class Mod(BaseMod):
         return True
 
     @staticmethod
-    def get_unique_id_from_manifest(manifest):
+    def get_unique_id_from_manifest(manifest: dict) -> str | None:
         try:
             mod_id = []
             installment = manifest.get("installment")
@@ -1527,9 +1526,12 @@ class Mod(BaseMod):
 
     @staticmethod
     def validate_dict_constrained(validating_dict: dict, scheme: dict) -> bool:
-        '''Validates dictionary based on scheme in a format
-           {name: [list of possible types, required(bool), int or float value[min, max]]}.
-           Doesn't support generics in schemes'''
+        """Validate dictionary based on scheme.
+
+        Supported scheme format:
+        {name: [list of possible types, required(bool), int or float value[min, max]]}.
+        Doesn't support generics in schemes.
+        """
         # logger.debug(f"Validating constrained dict with scheme {scheme.keys()}")
         for field in scheme:
             types = scheme[field][0]
@@ -1542,8 +1544,9 @@ class Mod(BaseMod):
             if required and value is None:
                 logger.error(f"key '{field}' is required but couldn't be found in manifest")
                 return False
-            elif required or (not required and value is not None):
-                valid_type = any([isinstance(value, type_entry) for type_entry in types])
+
+            if required or (not required and value is not None):
+                valid_type = any(isinstance(value, type_entry) for type_entry in types)
                 if not valid_type:
                     logger.error(f"key '{field}' is of invalid type '{type(field)}', expected '{types}'")
                     return False
@@ -1569,16 +1572,15 @@ class Mod(BaseMod):
 
     @staticmethod
     def validate_list(validating_list: list[dict], scheme: dict) -> bool:
-        '''Runs validate_dict for multiple lists with the same scheme
-           and returns total validation result for them'''
-        # logger.debug(f"Validating list of length: '{len(validating_list)}'")
+        """Run validate_dict for multiple lists with the same scheme.
+
+        Return total validation result for them
+        """
         to_validate = [element for element in validating_list if isinstance(element, dict)]
-        result = all([Mod.validate_dict(element, scheme) for element in to_validate])
-        # logger.debug(f"Result: {result}")
-        return result
+        return all(Mod.validate_dict(element, scheme) for element in to_validate)
 
     def get_full_install_settings(self) -> dict:
-        '''Returns settings that describe default installation of the mod'''
+        """Return settings that describe default installation of the mod."""
         install_settings = {}
         install_settings["base"] = "yes"
         if self.optional_content:
@@ -1590,17 +1592,17 @@ class Mod(BaseMod):
         return install_settings
 
     def get_install_description(self, install_config_original: dict) -> list[str]:
-        '''Returns list of strings with localised description of the given mod installation config'''
+        """Return list of strings with localised description of the given mod installation config."""
         install_config = install_config_original.copy()
 
         descriptions = []
 
         base_part = install_config.pop("base")
-        if base_part == 'yes':
+        if base_part == "yes":
             description = fconsole(f"{self.display_name}\n", bcolors.WARNING) + self.description
             descriptions.append(description)
         if len(install_config) > 0:
-            ok_to_install = [entry for entry in install_config if install_config[entry] != 'skip']
+            ok_to_install = [entry for entry in install_config if install_config[entry] != "skip"]
             if len(ok_to_install) > 0:
                 descriptions.append(f"{tr('including_options')}:")
         for mod_part in install_config:
@@ -1635,12 +1637,12 @@ class Mod(BaseMod):
         UNCATEGORIZED = 10
 
         @classmethod
-        def list_values(cls):
-            return list(map(lambda c: c.value, cls))
+        def list_values(cls) -> list:
+            return [c.value for c in cls]
 
         @classmethod
-        def list_names(cls):
-            return list(map(lambda c: c.name, cls))
+        def list_names(cls) -> list:
+            return [c.name for c in cls]
 
     class OptionalContent:
         def __init__(self, description: dict, parent: Mod) -> None:
@@ -1670,9 +1672,8 @@ class Mod(BaseMod):
                                   f"Only 'skip' or names present in install settings are allowed")
                     logger.error(er_message)
                     raise KeyError(er_message)
-            else:
-                # TODO: what if else and not str?
-                if isinstance(default_option, str):
+            # TODO: what if not str?
+            elif isinstance(default_option, str):
                     if default_option.lower() == "skip":
                         self.default_option = "skip"
                     elif default_option.lower() == "install":

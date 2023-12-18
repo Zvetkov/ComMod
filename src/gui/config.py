@@ -2,7 +2,6 @@ import os
 from enum import Enum
 
 import flet as ft
-
 import localisation.service as localisation
 from game.environment import GameInstallments, InstallationContext
 from helpers.file_ops import dump_yaml, read_yaml
@@ -16,7 +15,7 @@ class AppSections(Enum):
 
 
 class Config:
-    def __init__(self, page) -> None:
+    def __init__(self, page: ft.Page) -> None:
         self.init_width: int = 900
         self.init_height: int = 700
         self.init_pos_x: int = 0
@@ -40,7 +39,7 @@ class Config:
 
         self.page: ft.Page = page
 
-    def asdict(self):
+    def asdict(self) -> dict:
         return {
             "current_game": self.current_game,
             "game_names": self.game_names,
@@ -57,7 +56,7 @@ class Config:
             "lang": self.lang
         }
 
-    def load_from_file(self, abs_path: str | None = None):
+    def load_from_file(self, abs_path: str | None = None) -> None:
         if abs_path is not None and os.path.exists(abs_path):
             config = read_yaml(abs_path)
         else:
@@ -78,13 +77,13 @@ class Config:
                     if isinstance(path, str) and os.path.isdir(path) and (name is not None):
                         self.game_names[path] = str(name)
 
-            self.known_games = set([game_path.lower() for game_path in self.game_names])
+            self.known_games = {game_path.lower() for game_path in self.game_names}
 
             current_distro = config.get("current_distro")
             if isinstance(current_distro, str) and os.path.isdir(current_distro):
                 self.current_distro = current_distro
 
-            self.known_distros = set([config["current_distro"]])
+            self.known_distros = {config["current_distro"]}
 
             modder_mode = config.get("modder_mode")
             if isinstance(modder_mode, bool):
@@ -104,22 +103,22 @@ class Config:
 
             window_config = config.get("window")
             # ignoring broken partial configs for window
-            if isinstance(window_config, dict):
-                if (isinstance(window_config.get("width"), float)
-                   and isinstance(window_config.get("height"), float)
-                   and isinstance(window_config.get("pos_x"), float)
-                   and isinstance(window_config.get("pos_y"), float)):
-                    # TODO: validate that window is not completely outside the screen area
-                    self.init_height = window_config["height"]
-                    self.init_width = window_config["width"]
-                    self.init_pos_x = window_config["pos_x"]
-                    self.init_pos_y = window_config["pos_y"]
+            if (isinstance(window_config, dict) and
+                all(isinstance(window_config.get("width"), float),
+                    isinstance(window_config.get("height"), float),
+                    isinstance(window_config.get("pos_x"), float),
+                    isinstance(window_config.get("pos_y"), float))):
+                # TODO: validate that window is not completely outside the screen area
+                self.init_height = window_config["height"]
+                self.init_width = window_config["width"]
+                self.init_pos_x = window_config["pos_x"]
+                self.init_pos_y = window_config["pos_y"]
 
             theme = config.get("theme")
             if theme in ("system", "light", "dark"):
                 self.init_theme = ft.ThemeMode(theme)
 
-    def save_config(self, abs_dir_path: str | None = None):
+    def save_config(self, abs_dir_path: str | None = None) -> None:
         if abs_dir_path is not None and os.path.isdir(abs_dir_path):
             config_path = os.path.join(abs_dir_path, "commod.yaml")
         else:

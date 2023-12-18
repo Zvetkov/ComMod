@@ -10,7 +10,8 @@ from .color import bcolors, fconsole
 
 
 class ConsoleUX:
-    '''Helper class for printing and asking for a user input via console'''
+    """Helper class for printing and asking for a user input via console"""
+
     def __init__(self, dev_mode: bool = False) -> None:
         self.auto_clear = True
         self.logger = None
@@ -32,10 +33,7 @@ class ConsoleUX:
             installation_title = fconsole("DEVELOPER MODE\n", bold_red) + installation_title
         advanced = f'{fconsole(tr("advanced"), bold_orange)} '
 
-        if exe_path is not None:
-            exe_info = f"{tr('patching_exe')}: {exe_path}\n"
-        else:
-            exe_info = ""
+        exe_info = f"{tr('patching_exe')}: {exe_path}\n" if exe_path is not None else ""
 
         match identifier:
             case "default":
@@ -46,27 +44,28 @@ class ConsoleUX:
             case "patching_exe":
                 self.header = installation_title + exe_info
             case "patch":
-                self.header = fconsole(tr("patch_title"), bold_orange) + '\n'
+                self.header = fconsole(tr("patch_title"), bold_orange) + "\n"
             case "remaster":
-                self.header = fconsole(tr("remaster_title"), bold_orange) + '\n'
+                self.header = fconsole(tr("remaster_title"), bold_orange) + "\n"
             case "remaster_custom":
                 self.header = additional_string
             case "patch_over_remaster":
-                self.header = (fconsole(tr("remaster_title"), bold_orange) + '\n'
+                self.header = (fconsole(tr("remaster_title"), bold_orange) + "\n"
                                + exe_info
                                + fconsole(tr("cant_install_patch_over_remaster"), bold_blue)
                                + "\n")
             case "advanced":
                 self.header = advanced + installation_title
             case "mod_manager":
-                self.header = fconsole(tr("mod_manager_title"), bold_blue) + '\n'
+                self.header = fconsole(tr("mod_manager_title"), bold_blue) + "\n"
             case "mod_install_custom":
-                self.header = (fconsole(tr("mod_manager_title"), bold_blue) + '\n'
+                self.header = (fconsole(tr("mod_manager_title"), bold_blue) + "\n"
                                + additional_string)
 
     def simple_end(self, message: str, err_msg: str | Exception | None = None, **kwargs) -> None:
-        '''Simple info display shown before exiting the proccess,
-        by user's choice or as a result of exception'''
+        """Simple info display shown before exiting the proccess,
+        by user's choice or as a result of exception
+        """
         # self.switch_header("default")
         if err_msg is not None:
             gray_err_msg = fconsole(f"Error: {err_msg}", bcolors.GRAY)
@@ -99,10 +98,10 @@ class ConsoleUX:
                    option_list: list[str] = [], accept_enter: bool = False,
                    description: str | None = None,
                    stopping: bool = False) -> str:
-        '''Ask user to choose from a few options, accept answers from the predefined list given'''
+        """Ask user to choose from a few options, accept answers from the predefined list given"""
         auto_clear = self.auto_clear
         if auto_clear:
-            os.system('cls')
+            os.system("cls")
         no_options = len(option_list) == 0
         if no_options and not accept_enter and not stopping:
             raise ValueError("There should be at least one option to confirm when asking user!")
@@ -145,20 +144,20 @@ class ConsoleUX:
                 print(formatted_msg)
 
                 user_choice = input("")
-                if user_choice != '':
+                if user_choice != "":
                     user_choice.strip("'").strip('"')
                 if user_choice not in option_list:
                     # if accept_enter and user presses enter with no other input
-                    if user_choice == '' and accept_enter:
+                    if user_choice == "" and accept_enter:
                         if auto_clear:
-                            os.system('cls')
+                            os.system("cls")
                         return None
-                    elif user_choice == '':
+                    elif user_choice == "":
                         previous_prompt = "[ENTER]"
                     else:
                         previous_prompt = user_choice
                     if auto_clear:
-                        os.system('cls')
+                        os.system("cls")
         except KeyboardInterrupt:
             self.switch_header("default")
             self.simple_end("installation_aborted_by_user")
@@ -168,7 +167,7 @@ class ConsoleUX:
 
     def final_screen_print(self, installed_description: list[str]) -> None:
         if self.auto_clear:
-            os.system('cls')
+            os.system("cls")
         print(self.header)
         print(fconsole(tr("installed_listing"), bcolors.OKBLUE))
         for line in installed_description:
@@ -178,7 +177,7 @@ class ConsoleUX:
                                        mod_installation_errors: list[str],
                                        mod_loading_errors: list[str]) -> None:
         if self.auto_clear:
-            os.system('cls')
+            os.system("cls")
         print(fconsole(f'{tr("mod_manager_title")}', bcolors.OKGREEN))
 
         if installed_content_description:
@@ -197,7 +196,7 @@ class ConsoleUX:
 
     def copy_patch_files(self, distribution_dir: str, game_root: str) -> None:
         if self.auto_clear:
-            os.system('cls')
+            os.system("cls")
         print(self.header)
         print(fconsole(tr("copying_patch_files_please_wait"), bcolors.RED) + "\n")
         try:
@@ -245,10 +244,7 @@ class ConsoleUX:
             return
 
     def format_mod_info(self, mod: Mod) -> str:
-        if ", " in mod.authors:
-            developer_title = "authors"
-        else:
-            developer_title = "author"
+        developer_title = "authors" if ", " in mod.authors else "author"
 
         mod_info = (f"{fconsole(tr(developer_title), bcolors.OKBLUE)} "
                     f"{mod.authors}\n")
@@ -295,10 +291,7 @@ class ConsoleUX:
         if skip_to_options:
             install_settings["base"] = "yes"
         else:
-            if ", " in mod.authors:
-                developer_title = "authors"
-            else:
-                developer_title = "author"
+            developer_title = "authors" if ", " in mod.authors else "author"
 
             description = (f"{fconsole(tr('description'), bcolors.OKBLUE)}\n{mod.description}\n"
                            f"{fconsole(tr(developer_title), bcolors.OKBLUE)} "
@@ -327,7 +320,7 @@ class ConsoleUX:
             install_settings["base"] = base_install
 
         if install_settings["base"] == "no":
-            return
+            return None
 
         custom_install_prompt = None
 
@@ -344,7 +337,7 @@ class ConsoleUX:
                                                 f"{setting.get('description')}")
 
                     default_options.append(description)
-                default_options = '\n'.join(default_options)
+                default_options = "\n".join(default_options)
 
                 description = (f"{fconsole(tr('description'), bcolors.OKBLUE)}\n"
                                f"{mod.description}\n"
@@ -366,7 +359,7 @@ class ConsoleUX:
                     if option.install_settings is not None:
                         available_settins = [f"* {setting.get('name')} - {setting.get('description')}"
                                              for setting in option.install_settings]
-                        available_settins = '\n'.join(available_settins)
+                        available_settins = "\n".join(available_settins)
                         description = (f"{fconsole(tr('description'), bcolors.OKBLUE)}\n"
                                        f"{option.description}"
                                        f"\n{tr('install_settings')}\n\n{available_settins}\n"

@@ -2,31 +2,29 @@ import os
 import tempfile
 
 import flet as ft
-from flet import IconButton, Image, Page, Theme, ThemeVisualDensity
-
 import localisation.service as localisation
 from commod import _init_input_parser
+from flet import IconButton, Image, Page, Theme, ThemeVisualDensity
 from game.data import get_title
 from game.environment import GameCopy, InstallationContext
 from helpers.file_ops import get_internal_file_path
 from localisation.service import SupportedLanguages, tr
 
-from .app_widgets import (App, DownloadModsScreen, HomeScreen, LocalModsScreen,
-                          SettingsScreen)
+from .app_widgets import App, DownloadModsScreen, HomeScreen, LocalModsScreen, SettingsScreen
 from .config import Config
 
 
 async def main(page: Page):
-    async def maximize(e):
+    async def maximize(e) -> None:
         page.window_maximized = not page.window_maximized
         await page.update_async()
 
-    async def minimize(e):
+    async def minimize(e) -> None:
         page.window_minimized = True
         await page.update_async()
 
-    async def change_theme_mode(e):
-        theme = page._Page__theme_mode
+    async def change_theme_mode(e) -> None:
+        theme = page.theme_mode
         if theme == ft.ThemeMode.SYSTEM:
             page.theme_mode = ft.ThemeMode.DARK
             page.theme_icon_btn.current.icon = ft.icons.WB_SUNNY_OUTLINED
@@ -42,7 +40,7 @@ async def main(page: Page):
 
         await page.update_async()
 
-    def title_btn_style(hover_color: ft.colors = None):
+    def title_btn_style(hover_color: ft.colors = None) -> ft.ButtonStyle:
         color_dict = {ft.MaterialState.DEFAULT: ft.colors.ON_BACKGROUND}
         if hover_color is not None:
             color_dict[ft.MaterialState.HOVERED] = ft.colors.RED
@@ -52,7 +50,7 @@ async def main(page: Page):
             shape={ft.MaterialState.DEFAULT: ft.buttons.RoundedRectangleBorder(radius=2)}
         )
 
-    def create_sections(app: App):
+    def create_sections(app: App) -> None:
         app.page.floating_action_button = ft.FloatingActionButton(
             icon=ft.icons.REFRESH_ROUNDED,
             on_click=app.upd_pressed,
@@ -65,10 +63,10 @@ async def main(page: Page):
 
         app.content_pages = [app.home, app.local_mods, app.download_mods, app.settings_page]
 
-    async def wrap_on_window_event(e):
+    async def wrap_on_window_event(e) -> None:
         if e.data == "close":
             await finalize(e)
-        elif e.data == "unmaximize" or e.data == "maximize":
+        elif e.data in ("unmaximize", "maximize"):
             if page.window_maximized:
                 page.icon_maximize.current.icon = ft.icons.FILTER_NONE
                 page.icon_maximize.current.icon_size = 15
@@ -77,7 +75,7 @@ async def main(page: Page):
                 page.icon_maximize.current.icon_size = 17
             await page.icon_maximize.current.update_async()
 
-    async def finalize(e):
+    async def finalize(e) -> None:
         app.logger.debug("closing")
         app.config.save_config()
         app.logger.debug("config saved")
@@ -300,5 +298,5 @@ async def main(page: Page):
     await page.update_async()
 
 
-def start():
+def start() -> None:
     ft.app(target=main)

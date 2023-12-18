@@ -16,24 +16,24 @@ def main_console(options: argparse.Namespace) -> None:
 
 
 def _init_input_parser():
-    parser = argparse.ArgumentParser(description='DEM Community Mod Manager')
-    parser.add_argument('-target_dir', help='path to game directory', required=False)
-    parser.add_argument('-distribution_dir',
+    parser = argparse.ArgumentParser(description="DEM Community Mod Manager")
+    parser.add_argument("-target_dir", help="path to game directory", required=False)
+    parser.add_argument("-distribution_dir",
                         help=('path to folder where "mods" library is located'), required=False)
-    parser.add_argument('-dev', help='developer mode',
+    parser.add_argument("-dev", help="developer mode",
                         action="store_true", default=False, required=False)
-    parser.add_argument('-console', help='run in console, not currently fully supported with modern mods',
+    parser.add_argument("-console", help="run in console, not currently fully supported with modern mods",
                         action="store_true", default=False, required=False)
     installation_option = parser.add_mutually_exclusive_group()
-    installation_option.add_argument('-compatch', help='base ComPatch setup, silent console mode',
+    installation_option.add_argument("-compatch", help="base ComPatch setup, silent console mode",
                                      action="store_true", default=False)
-    installation_option.add_argument('-comremaster', help='base ComRemaster, silent console mode',
+    installation_option.add_argument("-comremaster", help="base ComRemaster, silent console mode",
                                      action="store_true", default=False)
 
     return parser
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     options = _init_input_parser().parse_args()
     if "Windows" in platform.system():
         windll.shcore.SetProcessDpiAwareness(2)

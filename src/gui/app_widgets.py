@@ -1,4 +1,5 @@
 import asyncio
+from http import HTTPStatus
 import os
 import subprocess
 from asyncio import create_subprocess_exec, create_task, gather
@@ -11,51 +12,71 @@ from typing import Optional
 import aiofiles.os
 import aioshutil
 import flet as ft
-from asyncio_requests.asyncio_request import request
-from flet import (Column, FloatingActionButton, Icon, IconButton, Image, Row,
-                  Tab, Tabs, Text, TextField, UserControl, colors, icons)
-
 import localisation.service as localisation
+from asyncio_requests.asyncio_request import request
+from flet import (
+    Column,
+    FloatingActionButton,
+    Icon,
+    IconButton,
+    Image,
+    Row,
+    Tab,
+    Tabs,
+    Text,
+    TextField,
+    UserControl,
+    colors,
+    icons,
+)
 from game.data import DATE, OWN_VERSION, is_known_lang
-from game.environment import (DistroStatus, GameCopy, GameStatus,
-                              InstallationContext)
+from game.environment import DistroStatus, GameCopy, GameStatus, InstallationContext
 from game.mod import GameInstallments, Mod
 from helpers import file_ops
-from helpers.errors import (DXRenderDllNotFound, ExeIsRunning,
-                            HasManifestButUnpatched, InvalidExistingManifest,
-                            ModsDirMissing, NoModsFound,
-                            PatchedButDoesntHaveManifest)
-from helpers.file_ops import (extract_from_to, get_internal_file_path,
-                              get_proc_by_names, load_yaml)
+from helpers.errors import (
+    DXRenderDllNotFound,
+    ExeIsRunning,
+    HasManifestButUnpatched,
+    InvalidExistingManifest,
+    ModsDirMissing,
+    NoModsFound,
+    PatchedButDoesntHaveManifest,
+)
+from helpers.file_ops import extract_archive_from_to, get_internal_file_path, get_proc_by_names, load_yaml
 from helpers.parse_ops import process_markdown
-from localisation.service import (COMPATCH_GITHUB, DEM_DISCORD,
-                                  DEM_DISCORD_MODS_DOWNLOAD_SCREEN,
-                                  WIKI_COMPATCH, LangFlags, SupportedLanguages,
-                                  tr)
+from localisation.service import (
+    COMPATCH_GITHUB,
+    DEM_DISCORD,
+    DEM_DISCORD_MODS_DOWNLOAD_SCREEN,
+    WIKI_COMPATCH,
+    LangFlags,
+    SupportedLanguages,
+    tr,
+)
 
 from .common_widgets import ExpandableContainer
 from .config import AppSections, Config
-
 
 # TODO: separate to different submodules for different app screens
 
 @dataclass
 class App:
-    '''Root level application class storing modding environment'''
+    """Root level application class storing modding environment."""
+
     context: InstallationContext
     game: GameCopy
     config: Config | None = None
     session: InstallationContext.Session | None = None
     game_change_time: None | datetime = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.session = self.context.current_session
 
-    async def refresh_page(self, index=None):
-        if index is not None:
-            if index != self.rail.selected_index:
-                print("Not on the target page, skipping refresh")
-                return
+    async def refresh_page(self, index: int | None = None) -> None:
+        if index is not None and index != self.rail.selected_index:
+            print("Not on the target page, skipping refresh")
+            return
+
         content = self.content_column.content
         if not content.refreshing:
             content.refreshing = True
@@ -103,15 +124,11 @@ class App:
         await self.page.update_async()
 
     async def show_modal(self, text, additional_text="", title=None, on_yes=None, on_no=None):
-        if self.page.dialog is not None:
-            if self.page.dialog.open:
-                return
+        if self.page.dialog is not None and self.page.dialog.open:
+            return
 
         no_options = on_yes is None and on_no is None
-        if title is None:
-            title_text = tr("attention").capitalize()
-        else:
-            title_text = title
+        title_text = tr("attention").capitalize() if title is None else title
 
         dlg = ft.AlertDialog(
             title=Row([Icon(ft.icons.INFO_OUTLINE, color=ft.colors.PRIMARY),
@@ -138,10 +155,9 @@ class App:
         dlg.open = True
         await self.page.update_async()
 
-    async def show_alert(self, text, additional_text=""):
-        if self.page.dialog is not None:
-            if self.page.dialog.open:
-                return
+    async def show_alert(self, text: str, additional_text: str = "") -> None:
+        if self.page.dialog is not None and self.page.dialog.open:
+            return
 
         dlg = ft.AlertDialog(
             title=Row([Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR_CONTAINER),
@@ -161,10 +177,10 @@ class App:
         dlg.open = True
         await self.page.update_async()
 
-    async def show_loading(self, text, additional_text=""):
-        if self.page.dialog is not None:
-            if self.page.dialog.open:
-                return
+    # TODO: why this returns Text?
+    async def show_loading(self, text: str, additional_text: str = "") -> Text:
+        if self.page.dialog is not None and self.page.dialog.open:
+            return None
 
         loading_text = Text()
         dlg = ft.AlertDialog(
@@ -190,7 +206,7 @@ class App:
         await self.page.update_async()
         return loading_text
 
-    async def load_distro_async(self):
+    async def load_distro_async(self) -> None:
         self.logger.debug("-- Loading distro --")
         try:
             await self.context.load_mods_async()
@@ -211,11 +227,11 @@ class App:
                        == self.context.hashed_mod_manifests[manifest_path]):
                         # self.logger.debug(f"{mod.id} already loaded to distro, skipping")
                         continue
-                    else:
-                        self.session.tracked_mods.remove(mod.id)
-                        self.session.tracked_mods_hashes.pop(mod.id, None)
-                        self.session.mods.pop(manifest_path, None)
-                        self.logger.debug(f"{mod.id} was tracked but hash is different, removing from distro")
+
+                    self.session.tracked_mods.remove(mod.id)
+                    self.session.tracked_mods_hashes.pop(mod.id, None)
+                    self.session.mods.pop(manifest_path, None)
+                    self.logger.debug(f"{mod.id} was tracked but hash is different, removing from distro")
                 try:
                     self.logger.debug(f"--- Loading {mod.id} to distro ---")
                     mod.load_translations(load_gui_info=True)
@@ -228,7 +244,7 @@ class App:
                     self.session.tracked_mods_hashes[mod.id] = \
                         self.context.hashed_mod_manifests[manifest_path]
                 except Exception as ex:
-                    self.logger.error(f'{ex!r}')
+                    self.logger.error(f"{ex!r}")
                     continue
         self.logger.debug("-- Loaded distro --")
 
@@ -260,7 +276,7 @@ class GameCopyListItem(UserControl):
         self.visible = visible
         self.game_is_running = game_is_running
 
-    def build(self):
+    def build(self) -> ft.Container:
         self.game_name_label = ft.Ref[Text]()
         self.current_icon = ft.Ref[IconButton]()
         self.item_container = ft.Ref[ft.Container]()
@@ -382,18 +398,18 @@ class GameCopyListItem(UserControl):
                             padding=ft.padding.only(right=10),
                             ref=self.item_container)
 
-    async def make_current(self, e=None):
+    async def make_current(self, e=None) -> None:
         if not self.current:
             await self.select_game(self)
         await self.update_async()
 
-    async def open_clicked(self, e):
+    async def open_clicked(self, e) -> None:
         # open game directory in Windows Explorer
         if os.path.isdir(self.game_path):
             os.startfile(self.game_path)
         await self.update_async()
 
-    async def display_as_current(self):
+    async def display_as_current(self) -> None:
         self.current = True
         self.current_icon.current.icon = ft.icons.DONE_OUTLINE_ROUNDED
         self.current_icon.current.icon_color = ft.colors.GREEN
@@ -402,7 +418,7 @@ class GameCopyListItem(UserControl):
         await self.item_container.current.update_async()
         await self.update_async()
 
-    async def display_as_reserve(self):
+    async def display_as_reserve(self) -> None:
         self.current = False
         self.current_icon.current.icon = ft.icons.DONE_OUTLINE
         self.current_icon.current.icon_color = ft.colors.SURFACE_VARIANT
@@ -411,13 +427,13 @@ class GameCopyListItem(UserControl):
         await self.item_container.current.update_async()
         await self.update_async()
 
-    async def edit_clicked(self, e):
+    async def edit_clicked(self, e) -> None:
         self.edit_name.value = self.game_name_label.current.value
         self.display_view.visible = False
         self.edit_view.visible = True
         await self.update_async()
 
-    async def save_clicked(self, e):
+    async def save_clicked(self, e) -> None:
         self.game_name_label.current.value = self.edit_name.value
         self.game_name = self.edit_name.value
         self.display_view.visible = True
@@ -425,12 +441,12 @@ class GameCopyListItem(UserControl):
         self.config.game_names[self.game_path] = self.game_name
         await self.update_async()
 
-    async def status_changed(self, e):
+    async def status_changed(self, e) -> None:
         self.completed = self.current_game.value
         self.task_status_change(self)
         await self.update_async()
 
-    async def delete_clicked(self, e):
+    async def delete_clicked(self, e) -> None:
         await self.remove_game(self)
         await self.update_async()
 
@@ -458,7 +474,7 @@ class SettingsScreen(UserControl):
             dialog_title=f'{tr("where_is_distro")} ({tr("ask_to_choose_path")})'
         )
 
-    def build(self):
+    def build(self) -> ft.Container:
         game_icon = Image(src=get_internal_file_path("assets/icons/hta_comrem.png"),
                           width=24,
                           height=24,
@@ -904,7 +920,7 @@ class SettingsScreen(UserControl):
         ), margin=ft.margin.only(right=3))
 
     # Open directory dialog
-    async def get_game_dir_result(self, e: ft.FilePickerResultEvent):
+    async def get_game_dir_result(self, e: ft.FilePickerResultEvent) -> None:
         if e.path:
             self.game_location_field.value = e.path
             await self.game_location_field.update_async()
@@ -913,7 +929,7 @@ class SettingsScreen(UserControl):
             await self.game_location_field.focus_async()
         await self.update_async()
 
-    async def get_distro_dir_result(self, e: ft.FilePickerResultEvent):
+    async def get_distro_dir_result(self, e: ft.FilePickerResultEvent) -> None:
         if e.path:
             self.distro_location_field.value = e.path
             await self.distro_location_field.update_async()
@@ -921,28 +937,28 @@ class SettingsScreen(UserControl):
             await self.distro_location_field.focus_async()
         await self.update_async()
 
-    async def toggle_adding_game_manual(self, e):
+    async def toggle_adding_game_manual(self, e) -> None:
         if self.add_game_expanded:
             await self.minimize_adding_game_manual()
         else:
             await self.expand_adding_game_manual()
         await self.update_async()
 
-    async def toggle_adding_game_steam(self, e):
+    async def toggle_adding_game_steam(self, e) -> None:
         if self.add_steam_expanded:
             await self.minimize_adding_game_steam()
         else:
             await self.expand_adding_game_steam()
         await self.update_async()
 
-    async def toggle_adding_distro(self, e):
+    async def toggle_adding_distro(self, e) -> None:
         if self.add_distro_expanded:
             await self.minimize_adding_distro()
         else:
             await self.expand_adding_distro()
         await self.update_async()
 
-    async def expand_adding_game_manual(self):
+    async def expand_adding_game_manual(self) -> None:
         final_height = 104
         if self.add_game_manual_btn.visible:
             final_height += 45
@@ -955,7 +971,7 @@ class SettingsScreen(UserControl):
         await self.add_game_manual_container.current.update_async()
         await self.update_async()
 
-    async def minimize_adding_game_manual(self):
+    async def minimize_adding_game_manual(self) -> None:
         self.game_location_field.value = ""
         await self.game_location_field.update_async()
         self.add_game_manual_btn.visible = False
@@ -968,7 +984,7 @@ class SettingsScreen(UserControl):
         self.add_game_expanded = False
         await self.update_async()
 
-    async def expand_adding_game_steam(self):
+    async def expand_adding_game_steam(self) -> None:
         final_height = 104
         if self.add_from_steam_btn.visible:
             final_height += 45
@@ -983,7 +999,7 @@ class SettingsScreen(UserControl):
         await self.steam_locations_dropdown.update_async()
         await self.update_async()
 
-    async def minimize_adding_game_steam(self):
+    async def minimize_adding_game_steam(self) -> None:
         self.add_game_steam_container.current.height = 48
         self.add_steam_expanded = False
         self.icon_expand_add_game_steam.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
@@ -997,7 +1013,7 @@ class SettingsScreen(UserControl):
         await self.add_from_steam_btn.update_async()
         await self.update_async()
 
-    async def expand_adding_distro(self):
+    async def expand_adding_distro(self) -> None:
         final_height = 104
         if self.add_distro_btn.visible:
             final_height += 45
@@ -1010,7 +1026,7 @@ class SettingsScreen(UserControl):
         await self.add_distro_container.current.update_async()
         await self.update_async()
 
-    async def minimize_adding_distro(self):
+    async def minimize_adding_distro(self) -> None:
         self.add_distro_container.current.height = 48
         self.add_distro_expanded = False
         self.icon_expand_add_distro.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
@@ -1018,7 +1034,7 @@ class SettingsScreen(UserControl):
         await self.page.update_async()
         await self.update_async()
 
-    async def add_steam(self, e):
+    async def add_steam(self, e) -> None:
         new_path = self.steam_locations_dropdown.value
         self.app.logger.debug(f"New path get from steam dropdown: '{new_path}'")
         await self.add_game_to_list(new_path, from_steam=True)
@@ -1026,7 +1042,7 @@ class SettingsScreen(UserControl):
         self.steam_locations_dropdown.value = ""
         await self.update_async()
 
-    async def add_game_manual(self, e):
+    async def add_game_manual(self, e) -> None:
         new_path = self.game_location_field.value
         self.app.logger.debug(f"New path get from game location field: '{new_path}'")
         await self.add_game_to_list(new_path, from_steam=False)
@@ -1036,7 +1052,7 @@ class SettingsScreen(UserControl):
         await self.switch_add_game_btn(GameStatus.NOT_EXISTS)
         await self.update_async()
 
-    async def add_distro(self, e):
+    async def add_distro(self, e) -> None:
         self.distro_display.height = None
         await self.distro_display.update_async()
         self.distro_location_text.current.value = self.distro_location_field.value.strip()
@@ -1070,26 +1086,26 @@ class SettingsScreen(UserControl):
         else:
             self.app.logger.debug("No current game found in config")
 
-    async def handle_dropdown_onchange(self, e):
+    async def handle_dropdown_onchange(self, e) -> None:
         if e.data:
             await self.check_game_fields(e)
             await self.expand_adding_game_steam()
         await self.update_async()
 
-    def check_compatible_game(self, game_path):
+    def check_compatible_game(self, game_path: str) -> None:
         can_be_added = True
-        warning = ''
+        warning = ""
         test_game = GameCopy()
         game_is_running = False
         try:
             test_game.process_game_install(game_path)
         except PatchedButDoesntHaveManifest as ex:
-            warning += (f"{tr('install_leftovers')}\n\n" +
+            warning += (f"{tr('install_leftovers')}\n\n"
                         f"{tr('error')}: Executable is patched (version: {ex.exe_version}), "
                         "but install manifest is missing")
         except HasManifestButUnpatched as ex:
-            warning = (f"{tr('install_leftovers')}\n\n" +
-                       f"{tr('error')}: Found existing compatch manifest, but exe version is unexpected: " +
+            warning = (f"{tr('install_leftovers')}\n\n"
+                       f"{tr('error')}: Found existing compatch manifest, but exe version is unexpected: "
                        f"{ex.exe_version}")
         except InvalidExistingManifest:
             can_be_added = False
@@ -1109,10 +1125,7 @@ class SettingsScreen(UserControl):
         return can_be_added, warning, test_game, game_is_running
 
     async def add_game_to_list(self, game_path, game_name="", is_current=True, from_steam=False):
-        if game_name:
-            set_game_name = game_name
-        else:
-            set_game_name = Path(game_path).parts[-1]
+        set_game_name = game_name if game_name else Path(game_path).parts[-1]
 
         self.app.logger.debug("Starting checking game compatibility")
         can_be_added, warning, game_info, game_is_running = self.check_compatible_game(game_path)
@@ -1153,16 +1166,15 @@ class SettingsScreen(UserControl):
             self.no_game_warning.height = 0
             await self.no_game_warning.update_async()
 
-        else:
-            if from_steam:
-                await self.switch_steam_game_copy_warning(GameStatus.GENERAL_ERROR, additional_info=warning)
-            # automatic addition will explicitly pass game_name, so we can check this for manual addition
-            elif not game_name:
-                await self.switch_game_copy_warning(GameStatus.GENERAL_ERROR, additional_info=warning)
+        elif from_steam:
+            await self.switch_steam_game_copy_warning(GameStatus.GENERAL_ERROR, additional_info=warning)
+        # automatic addition will explicitly pass game_name, so we can check this for manual addition
+        elif not game_name:
+            await self.switch_game_copy_warning(GameStatus.GENERAL_ERROR, additional_info=warning)
         await self.update_async()
         return can_be_added
 
-    async def select_game(self, item):
+    async def select_game(self, item: GameCopyListItem) -> None:
         try:
             new_game = GameCopy()
             new_game.process_game_install(item.game_path)
@@ -1172,19 +1184,19 @@ class SettingsScreen(UserControl):
             pass
         except ExeIsRunning:
             await self.app.show_alert(tr("game_is_running_cant_select"))
-            return
+            return None
         except Exception as ex:
             # TODO: Handle exceptions properly
             await self.app.show_alert(tr("broken_game"), ex)
             self.app.logger.error(f"[Game loading error] {ex}")
-            return
+            return None
 
         self.app.game = new_game
 
         group = []
         for control in self.list_of_games.controls:
             if control is not item:
-                group.append(control.display_as_reserve())
+                group.append(control.display_as_reserve())  # noqa: PERF401
         await gather(*group)
 
         await item.display_as_current()
@@ -1207,7 +1219,7 @@ class SettingsScreen(UserControl):
         else:
             self.app.logger.debug("No distro dir found in context")
 
-    async def remove_game(self, item):
+    async def remove_game(self, item: GameCopyListItem) -> None:
         if item.current:
             # if removing current, set dummy game as current
             self.app.game = GameCopy()
@@ -1251,7 +1263,7 @@ class SettingsScreen(UserControl):
 
         await self.update_async()
 
-    def check_game(self, game_path):
+    def check_game(self, game_path: str) -> tuple[GameStatus, str]:
         try:
             status = GameStatus.GENERAL_ERROR
             additional_info = ""
@@ -1285,7 +1297,7 @@ class SettingsScreen(UserControl):
         except Exception as ex:
             return GameStatus.GENERAL_ERROR, f"{tr('error')}: {ex!r} {ex}"
 
-    async def check_game_fields(self, e):
+    async def check_game_fields(self, e) -> None:
         if e.control is self.game_location_field or e.control is self.get_game_dir_dialog:
             game_path = self.game_location_field.value.strip()
             manual_control = True
@@ -1311,25 +1323,20 @@ class SettingsScreen(UserControl):
             await self.expand_adding_game_steam()
         await self.update_async()
 
-    def check_distro(self, distro_path):
-        if distro_path:
-            if os.path.exists(distro_path):
-                if distro_path not in self.app.config.known_distros:
-                    validated = InstallationContext.validate_distribution_dir(distro_path)
-                    if validated:
-                        status = DistroStatus.COMPATIBLE
-                    else:
-                        status = DistroStatus.MISSING_FILES
-                else:
-                    status = DistroStatus.ALREADY_ADDED
-            else:
-                status = DistroStatus.NOT_EXISTS
-        else:
-            status = None
+    def check_distro(self, distro_path: str) -> DistroStatus | None:
+        if not distro_path:
+            return None
 
-        return status
+        if not os.path.exists(distro_path):
+            return DistroStatus.NOT_EXISTS
 
-    async def check_distro_field(self, e):
+        if distro_path in self.app.config.known_distros:
+            return DistroStatus.ALREADY_ADDED
+
+        validated = InstallationContext.validate_distribution_dir(distro_path)
+        return DistroStatus.COMPATIBLE if validated else DistroStatus.MISSING_FILES
+
+    async def check_distro_field(self, e) -> None:
         distro_path = self.distro_location_field.value.strip()
 
         status = self.check_distro(distro_path)
@@ -1339,7 +1346,7 @@ class SettingsScreen(UserControl):
             await self.expand_adding_distro()
             await self.update_async()
 
-    async def switch_add_game_btn(self, status: GameStatus = GameStatus.COMPATIBLE):
+    async def switch_add_game_btn(self, status: GameStatus = GameStatus.COMPATIBLE) -> None:
         if status is None:
             status = GameStatus.NOT_EXISTS
         self.add_game_manual_btn.disabled = status is not GameStatus.COMPATIBLE
@@ -1347,7 +1354,7 @@ class SettingsScreen(UserControl):
         await self.add_game_manual_btn.update_async()
         await self.update_async()
 
-    async def switch_add_from_steam_btn(self, status: GameStatus = GameStatus.COMPATIBLE):
+    async def switch_add_from_steam_btn(self, status: GameStatus = GameStatus.COMPATIBLE) -> None:
         if status is None:
             status = GameStatus.NOT_EXISTS
         self.add_from_steam_btn.disabled = status is not GameStatus.COMPATIBLE
@@ -1355,7 +1362,7 @@ class SettingsScreen(UserControl):
         await self.add_from_steam_btn.update_async()
         await self.update_async()
 
-    async def switch_add_distro_btn(self, status: DistroStatus = DistroStatus.COMPATIBLE):
+    async def switch_add_distro_btn(self, status: DistroStatus = DistroStatus.COMPATIBLE) -> None:
         if status is None:
             status = DistroStatus.NOT_EXISTS
         self.add_distro_btn.disabled = status is not DistroStatus.COMPATIBLE
@@ -1365,7 +1372,7 @@ class SettingsScreen(UserControl):
 
     async def switch_game_copy_warning(self,
                                        status: GameStatus = GameStatus.COMPATIBLE,
-                                       additional_info: str = ""):
+                                       additional_info: str = "") -> None:
         # if status is None:
         #     status = GameStatus.COMPATIBLE
         self.game_copy_warning.visible = status is not GameStatus.COMPATIBLE
@@ -1379,7 +1386,7 @@ class SettingsScreen(UserControl):
 
     async def switch_steam_game_copy_warning(self,
                                              status: GameStatus = GameStatus.COMPATIBLE,
-                                             additional_info: str = ""):
+                                             additional_info: str = "") -> None:
         # if status is None:
         #     status = GameStatus.COMPATIBLE
         self.steam_game_copy_warning.visible = status is not GameStatus.COMPATIBLE
@@ -1391,8 +1398,8 @@ class SettingsScreen(UserControl):
         await self.steam_game_copy_warning.update_async()
         await self.update_async()
 
-    async def switch_distro_warning(self,
-                                    status: DistroStatus = DistroStatus.COMPATIBLE):
+    async def switch_distro_warning(
+            self, status: DistroStatus = DistroStatus.COMPATIBLE) -> None:
         if status is None:
             status = DistroStatus.COMPATIBLE
         self.distro_warning.visible = status is not DistroStatus.COMPATIBLE
@@ -1400,33 +1407,30 @@ class SettingsScreen(UserControl):
         await self.distro_warning.update_async()
         await self.update_async()
 
-    async def open_distro_dir(self, e):
+    async def open_distro_dir(self, e) -> None:
         # open distro directory in Windows Explorer
         if os.path.isdir(self.distro_location_text.current.value):
-            os.startfile(self.distro_location_text.current.value)
+            os.startfile(self.distro_location_text.current.value)  # noqa: S606
         await self.update_async()
 
-    async def tabs_changed(self, e):
-        filter = "all"
+    async def tabs_changed(self, e) -> None:
+        tab_filter = "all"
         match int(e.data):
             case GameInstallments.ALL.value:
-                filter = "all"
+                tab_filter = "all"
             case GameInstallments.EXMACHINA.value:
-                filter = "exmachina"
+                tab_filter = "exmachina"
             case GameInstallments.M113.value:
-                filter = "m113"
+                tab_filter = "m113"
             case GameInstallments.ARCADE.value:
-                filter = "arcade"
+                tab_filter = "arcade"
         for control in self.list_of_games.controls:
-            if filter == "all":
+            if tab_filter in ("all", control.installment):
                 control.visible = True
             else:
-                if control.installment == filter:
-                    control.visible = True
-                else:
-                    control.visible = False
+                control.visible = False
             await control.update_async()
-        if all([not control.visible for control in self.list_of_games.controls]):
+        if all(not control.visible for control in self.list_of_games.controls):
             self.no_games_for_filter_warning.current.visible = True
         else:
             self.no_games_for_filter_warning.current.visible = False
@@ -1435,7 +1439,7 @@ class SettingsScreen(UserControl):
         self.app.config.current_game_filter = int(e.data)
         await self.update_async()
 
-    def is_installment_filtered(self, installment):
+    def is_installment_filtered(self, installment: str) -> bool:
         match self.filter.selected_index:
             case GameInstallments.ALL.value:
                 return False
@@ -1484,18 +1488,18 @@ class ModInfo(UserControl):
 
         self.tab_info = []
 
-    async def toggle(self):
+    async def toggle(self) -> None:
         self.expanded = not self.expanded
         self.container.current.height = 0 if not self.expanded else None
         await self.update_async()
 
-    async def switch_tab(self, e):
+    async def switch_tab(self, e) -> None:
         self.tab_index = e.data
         for index, widget in enumerate(self.tab_info):
             widget.current.visible = str(index) == self.tab_index
         await gather(*[widget.current.update_async() for widget in self.tab_info])
 
-    async def update_screens(self):
+    async def update_screens(self) -> None:
         if self.mod.screenshots:
             self.screenshot_index = 0
             self.max_screenshot_index = len(self.mod.screenshots) - 1
@@ -1506,13 +1510,14 @@ class ModInfo(UserControl):
             await self.screenshot_view.current.update_async()
             await self.screenshot_text.current.update_async()
 
+    # TODO: implement or deprecate
     async def update_change_log(self):
         pass
 
     async def update_other_info(self):
         pass
 
-    async def update_tabs(self):
+    async def update_tabs(self) -> None:
         self.tabs.current.tabs.clear()
         self.tabs.current.tabs.append(Tab(text=tr("main_info").capitalize()))
         self.tab_info = [self.main_info]
@@ -1528,7 +1533,7 @@ class ModInfo(UserControl):
 
         await self.tabs.current.update_async()
 
-    async def did_mount_async(self):
+    async def did_mount_async(self) -> None:
         await self.set_mod_info_column()
         await self.update_tabs()
         await self.set_mod_screens_row()
@@ -1555,7 +1560,7 @@ class ModInfo(UserControl):
 
                 self.lang_list.current.controls.append(flag_btn)
 
-    async def next_screen(self, e):
+    async def show_next_screen(self, e) -> None:
         if self.mod.screenshots:
             if self.screenshot_index == self.max_screenshot_index:
                 self.screenshot_index = 0
@@ -1568,7 +1573,7 @@ class ModInfo(UserControl):
             await self.screenshot_view.current.update_async()
             await self.screenshot_text.current.update_async()
 
-    async def previous_screen(self, e):
+    async def show_previous_screen(self, e) -> None:
         if self.mod.screenshots:
             if self.screenshot_index == 0:
                 self.screenshot_index = self.max_screenshot_index
@@ -1581,7 +1586,7 @@ class ModInfo(UserControl):
             await self.screenshot_view.current.update_async()
             await self.screenshot_text.current.update_async()
 
-    async def compare_screen(self, e):
+    async def switch_compare_screen(self, e) -> None:
         screen_widget = self.screenshot_view.current
         if screen_widget.data["compare_path"]:
             if screen_widget.src == self.mod.screenshots[self.screenshot_index]["path"]:
@@ -1593,22 +1598,22 @@ class ModInfo(UserControl):
     # async def launch_url(self, e):
         # await self.app.page.launch_url_async(e.data)
 
-    async def open_home_url(self, e):
+    async def open_home_url(self, e) -> None:
         await self.app.page.launch_url_async(self.mod.url)
 
-    async def open_trailer_url(self, e):
+    async def open_trailer_url(self, e) -> None:
         await self.app.page.launch_url_async(self.mod.trailer_url)
 
-    async def delete_mod_ask(self, e):
+    async def delete_mod_ask(self, e) -> None:
         await self.app.show_modal(tr("this_will_delete_mod").capitalize()+".",
                                   tr("ask_confirm_deletion").capitalize(),
                                   on_yes=self.delete_mod_runner)
 
-    async def delete_mod_runner(self, e):
+    async def delete_mod_runner(self, e) -> None:
         await self.app.close_alert(e)
         await self.app.local_mods.delete_mod(self.main_mod)
 
-    async def update_info(self):
+    async def update_info(self) -> None:
         self.mod = self.mod_item.mod
         await self.set_mod_info_column()
         await self.update_tabs()
@@ -1632,7 +1637,7 @@ class ModInfo(UserControl):
             self.other_info_text.current.value = self.mod.other_info_content
             await self.other_info_text.current.update_async()
 
-    async def set_mod_info_column(self):
+    async def set_mod_info_column(self) -> None:
         self.mod_info_column.current.controls = [
             Text(self.mod.description, color=ft.colors.ON_SURFACE,
                  ref=self.mod_description_text),
@@ -1668,21 +1673,21 @@ class ModInfo(UserControl):
             ]
         await self.mod_info_column.current.update_async()
 
-    async def set_mod_screens_row(self):
+    async def set_mod_screens_row(self) -> None:
         self.mod_screens_row.current.controls = [
             Column([IconButton(ft.icons.CHEVRON_LEFT,
                                visible=len(self.mod.screenshots) > 1,
-                               on_click=self.previous_screen)],
+                               on_click=self.show_previous_screen)],
                    col=1, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ft.GestureDetector(
                 Image(src=get_internal_file_path("assets/no_logo.png"),
                       gapless_playback=True,
                       fit=ft.ImageFit.FIT_HEIGHT,
                       ref=self.screenshot_view),
-                on_tap=self.compare_screen, col=10),
+                on_tap=self.switch_compare_screen, col=10),
             Column([IconButton(ft.icons.CHEVRON_RIGHT,
                                visible=len(self.mod.screenshots) > 1,
-                               on_click=self.next_screen)],
+                               on_click=self.show_next_screen)],
                    col=1, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
             ]
         await self.mod_screens_row.current.update_async()
@@ -1712,7 +1717,7 @@ class ModInfo(UserControl):
                     Row([Text(game_label,
                               weight=ft.FontWeight.W_500,
                               color=ft.colors.ON_PRIMARY_CONTAINER),
-                         Text(f'[{self.app.game.exe_version}]',
+                         Text(f"[{self.app.game.exe_version}]",
                               weight=ft.FontWeight.W_300,
                               visible=has_game)]),
                     Row([Text(tr("incompatible_game_installment"),
@@ -1735,18 +1740,17 @@ class ModInfo(UserControl):
 
             if version is None:
                 version = ""
-            else:
-                if self.mod.requirements_style == "strict":
-                    version = [ver_str.replace("=", "") for ver_str in version]
-                    if len(version) <= 2:
-                        version = or_word.join(version)
-                    else:
-                        version = (", ".join(version[:-2])
-                                   + ", " + or_word.join(version[-2:]))
-                elif self.mod.requirements_style == "range":
-                    version = but_word.join(version)
+            elif self.mod.requirements_style == "strict":
+                version = [ver_str.replace("=", "") for ver_str in version]
+                if len(version) <= 2:
+                    version = or_word.join(version)
                 else:
-                    version = and_word.join(version)
+                    version = (", ".join(version[:-2])
+                               + ", " + or_word.join(version[-2:]))
+            elif self.mod.requirements_style == "range":
+                version = but_word.join(version)
+            else:
+                version = and_word.join(version)
 
             optional = req.get("optional_content")
             if optional is None:
@@ -1803,20 +1807,19 @@ class ModInfo(UserControl):
             version = incomp.get("versions")
             if version is None:
                 version = ""
-            else:
-                if self.mod.incompatibles_style == "strict":
-                    version = [ver_str.replace("=", "") for ver_str in version]
-                    if len(version) <= 2:
-                        version = or_word.join(version)
-                    else:
-                        version = (", ".join(version[:-2])
-                                   + ", " + or_word.join(version[-2:]))
-
+            elif self.mod.incompatibles_style == "strict":
+                version = [ver_str.replace("=", "") for ver_str in version]
+                if len(version) <= 2:
                     version = or_word.join(version)
-                elif self.mod.incompatibles_style == "range":
-                    version = but_word.join(version)
                 else:
-                    version = and_word.join(version)
+                    version = (", ".join(version[:-2])
+                               + ", " + or_word.join(version[-2:]))
+
+                version = or_word.join(version)
+            elif self.mod.incompatibles_style == "range":
+                version = but_word.join(version)
+            else:
+                version = and_word.join(version)
 
             optional = incomp.get("optional_content")
             if optional is None:
@@ -1933,7 +1936,7 @@ class ModInfo(UserControl):
 
         return point_list
 
-    def build(self):
+    def build(self) -> ft.Container:
         return ft.Container(
             ft.Container(
                 content=Column([
@@ -2110,7 +2113,7 @@ class ModArchiveItem(UserControl):
         self.file_counting_text = ft.Ref[Text]()
         self.version_label = ft.Ref[ft.Container]()
 
-    async def progress_show(self, files_num, chunk_size=1):
+    async def progress_show(self, files_num, chunk_size=1) -> None:
         now_time = datetime.now()
         self.file_counter += chunk_size
         if (now_time - self.callback_time).microseconds > 16000:
@@ -2121,7 +2124,7 @@ class ModArchiveItem(UserControl):
             await asyncio.sleep(0.001)
             self.callback_time = now_time
 
-    async def extract(self, e):
+    async def extract(self, e) -> None:
         self.extracting = True
         loading_text = await self.app.show_loading(
             f"{self.mod.display_name} {self.mod.version} [{self.mod.build}]",
@@ -2131,7 +2134,7 @@ class ModArchiveItem(UserControl):
         self.version_label.current.visible = False
         await self.version_label.current.update_async()
         mods_path = os.path.join(self.app.context.distribution_dir, "mods")
-        await extract_from_to(self.archive_path, os.path.join(mods_path, self.mod.id),
+        await extract_archive_from_to(self.archive_path, os.path.join(mods_path, self.mod.id),
                               self.progress_show, loading_text)
         self.extracting = False
         self.app.context.archived_mods.pop(self.archive_path, None)
@@ -2139,7 +2142,7 @@ class ModArchiveItem(UserControl):
         await asyncio.sleep(0.1)
         await self.app.refresh_page(AppSections.LOCAL_MODS.value)
 
-    async def toggle_archived_info(self, e):
+    async def toggle_archived_info(self, e) -> None:
         self.expanded = not self.expanded
         if self.expanded:
             self.about_archived_mod.current.text = tr("hide_menu").capitalize()
@@ -2153,7 +2156,7 @@ class ModArchiveItem(UserControl):
             await self.about_info.current.update_async()
         await self.about_archived_mod.current.update_async()
 
-    def build(self):
+    def build(self) -> ft.Card:
         return ft.Card(
             ft.Container(
                 Column([
@@ -2261,12 +2264,13 @@ class ModItem(UserControl):
         self.author_text = ft.Ref[Text]()
         self.mod_logo_img = ft.Ref[Image]()
 
-    async def install_mod(self, e):
+    async def install_mod(self, e) -> None:
         if self.app.game.check_is_running():
             await self.app.show_alert(tr("game_is_running"))
             self.app.local_mods.game_is_running = True
             await self.app.refresh_page()
             return
+
         if not self.app.page.overlay:
             bg = ft.Container(Row([Column(
                 controls=[], alignment=ft.MainAxisAlignment.CENTER,
@@ -2280,7 +2284,7 @@ class ModItem(UserControl):
             self.app.page.overlay.append(fg)
             await self.app.page.update_async()
 
-    async def toggle_info(self, e):
+    async def toggle_info(self, e) -> None:
         if self.about_mod_btn.current.text == tr("about_mod").capitalize():
             self.about_mod_btn.current.text = tr("hide_menu").capitalize()
             await self.info_container.current.toggle()
@@ -2291,11 +2295,8 @@ class ModItem(UserControl):
             await self.info_container.current.toggle()
         await self.about_mod_btn.current.update_async()
 
-    async def change_lang(self, e=None, lang=None):
-        if e is not None:
-            lang_to_switch = e.control.data
-        else:
-            lang_to_switch = lang
+    async def change_lang(self, e=None, lang=None) -> None:
+        lang_to_switch = e.control.data if e is not None else lang
 
         if lang_to_switch == self.mod.language:
             return
@@ -2311,7 +2312,7 @@ class ModItem(UserControl):
         await self.update_install_btn()
         await self.info_container.current.update_info()
 
-    async def update_install_btn(self):
+    async def update_install_btn(self) -> None:
         btn = self.install_btn.current
 
         btn.icon = ft.icons.CHECK_ROUNDED if self.mod.is_reinstall else None
@@ -2345,7 +2346,7 @@ class ModItem(UserControl):
 
         await btn.update_async()
 
-    async def switch_mod_version(self, e):
+    async def switch_mod_version(self, e) -> None:
         version_to_change = self.other_versions.get(e.control.text)
         if version_to_change is not None:
             self.switcher.content = version_to_change
@@ -2384,11 +2385,11 @@ class ModItem(UserControl):
 
             await self.version_info.current.update_async()
 
-        if self.app.config.prefered_mod_lang != self.mod.language:
-            if self.app.config.prefered_mod_lang in self.main_mod.translations_loaded.keys():
-                await self.change_lang(lang=self.app.config.prefered_mod_lang)
+        if (self.app.config.prefered_mod_lang != self.mod.language
+           and self.app.config.prefered_mod_lang in self.main_mod.translations_loaded):
+            await self.change_lang(lang=self.app.config.prefered_mod_lang)
 
-    def build(self):
+    def build(self) -> ft.Card:
         tr_tags = [tr(tag.lower()).capitalize() for tag in self.mod.tags]
         mod_cant_install = (not self.mod.can_install
                             or (self.mod.is_reinstall and not self.mod.can_be_reinstalled))
@@ -2407,7 +2408,6 @@ class ModItem(UserControl):
                                       and self.mod.installment_compatible))
         cant_reinstall = self.mod.is_reinstall and not self.mod.can_be_reinstalled
 
-        # return ft.GestureDetector(
         return ft.Card(
             ft.Container(
                 Column([
@@ -2581,7 +2581,7 @@ class ModInstallWizard(UserControl):
             self.complex_selector = False
             self.checkboxes = []
 
-        async def set_active(self):
+        async def set_active(self) -> None:
             if self.active:
                 return
             self.card.current.elevation = 5
@@ -2592,7 +2592,7 @@ class ModInstallWizard(UserControl):
             self.active = True
             await self.parent.keep_track_of_options()
 
-        async def set_inactive(self):
+        async def set_inactive(self) -> None:
             if not self.active:
                 return
             self.card.current.elevation = 0
@@ -2603,13 +2603,13 @@ class ModInstallWizard(UserControl):
             self.active = False
             await self.parent.keep_track_of_options()
 
-        async def update_state(self):
-            if any([check.value for check in self.checkboxes]):
+        async def update_state(self) -> None:
+            if any(check.value for check in self.checkboxes):
                 await self.set_active()
             else:
                 await self.set_inactive()
 
-        async def checkbox_action(self, e):
+        async def checkbox_action(self, e) -> None:
             changed_from_default = False
             if self.option.install_settings is None:
                 if self.option.default_option == "skip":
@@ -2620,7 +2620,7 @@ class ModInstallWizard(UserControl):
             else:
                 self.choice = e.control.data if e.data == "true" else "skip"
                 changed_from_default = self.choice != self.option.default_option
-                if e.data != 'false':
+                if e.data != "false":
                     for check in self.checkboxes:
                         if check.data != self.choice:
                             check.value = False
@@ -2633,7 +2633,7 @@ class ModInstallWizard(UserControl):
                 else:
                     await self.parent.changed_to_default()
 
-        def build(self):
+        def build(self) -> ft.Card:
             self.active = (self.option.default_option != "skip"
                            and self.existing_content != "skip")
             if self.option.install_settings is not None:
@@ -2663,7 +2663,7 @@ class ModInstallWizard(UserControl):
                 else:
                     value = self.option.default_option is None
 
-                selector = ft.Checkbox(data='default',
+                selector = ft.Checkbox(data="default",
                                        disabled=bool(self.existing_content or self.option.forced_option)
                                        and self.existing_content != "skip",
                                        value=value,
@@ -2704,40 +2704,40 @@ class ModInstallWizard(UserControl):
                  opacity=1 if self.active else 0.8,
                  scale=1 if self.active else 0.99,
                  ref=self.card)
-            else:
-                return ft.Card(ft.Container(
-                    Column([
-                        Row([
-                            selector,
-                            Text(self.option.display_name,
-                                 color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD),
-                            Text(f"[{self.option.name}]", opacity=0.6),
-                            Text(tr("will_not_be_installed").capitalize(),
-                                 color=ft.colors.TERTIARY,
-                                 visible=not self.active,
-                                 ref=self.warning_text,
-                                 opacity=0.8),
-                            Text(tr("cant_change_choice").capitalize(),
-                                 color=ft.colors.ERROR,
-                                 visible=bool(self.existing_content) and not self.option.forced_option
-                                 and self.existing_content != "skip",
-                                 opacity=0.8),
-                            Text(tr("forced_option").capitalize(),
-                                 color=ft.colors.TERTIARY,
-                                 visible=self.option.forced_option,
-                                 opacity=0.8)
-                            ], wrap=True, run_spacing=5),
-                        Row([
-                            Text(self.option.description, no_wrap=False, expand=True)
-                            ]),
-                    ]), margin=ft.margin.only(left=20, right=15, top=15, bottom=20)
-                ),
-                 elevation=5 if self.active else 0,
-                 opacity=1 if self.active else 0.8,
-                 scale=1 if self.active else 0.99,
-                 ref=self.card)
 
-    async def close_wizard(self, e):
+            return ft.Card(ft.Container(
+                Column([
+                    Row([
+                        selector,
+                        Text(self.option.display_name,
+                             color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD),
+                        Text(f"[{self.option.name}]", opacity=0.6),
+                        Text(tr("will_not_be_installed").capitalize(),
+                             color=ft.colors.TERTIARY,
+                             visible=not self.active,
+                             ref=self.warning_text,
+                             opacity=0.8),
+                        Text(tr("cant_change_choice").capitalize(),
+                             color=ft.colors.ERROR,
+                             visible=bool(self.existing_content) and not self.option.forced_option
+                             and self.existing_content != "skip",
+                             opacity=0.8),
+                        Text(tr("forced_option").capitalize(),
+                             color=ft.colors.TERTIARY,
+                             visible=self.option.forced_option,
+                             opacity=0.8)
+                        ], wrap=True, run_spacing=5),
+                    Row([
+                        Text(self.option.description, no_wrap=False, expand=True)
+                        ]),
+                ]), margin=ft.margin.only(left=20, right=15, top=15, bottom=20)
+            ),
+             elevation=5 if self.active else 0,
+             opacity=1 if self.active else 0.8,
+             scale=1 if self.active else 0.99,
+             ref=self.card)
+
+    async def close_wizard(self, e) -> None:
         # self.visible = False
         # await self.update_async()
         if self.can_close:
@@ -2748,13 +2748,13 @@ class ModInstallWizard(UserControl):
             await self.app.page.floating_action_button.update_async()
             await self.app.page.update_async()
 
-    async def did_mount_async(self):
+    async def did_mount_async(self) -> None:
         self.app.page.floating_action_button.visible = False
         await self.app.page.floating_action_button.update_async()
         validated_translations = []
         for mod in self.main_mod.translations_loaded.values():
             if mod.can_install:
-                validated_translations.append(mod)
+                validated_translations.append(mod)  # noqa: PERF401
 
         num_valid_translations = len(validated_translations)
         if num_valid_translations == 0:
@@ -2763,13 +2763,13 @@ class ModInstallWizard(UserControl):
         # elif num_valid_translations == 1:
         await self.show_welcome_mod_screen()
 
-    async def agree_to_install(self, e):
+    async def agree_to_install(self, e) -> None:
         if self.can_have_custom_install and not e.control.data["is_compatch"]:
             await self.show_settings_screen(e)
         else:
             await self.show_install_progress(e)
 
-    async def callable_for_progbar(self, file_num, files_count, file_name, file_size):
+    async def callable_for_progbar(self, file_num, files_count, file_name, file_size) -> None:
         now_time = datetime.now()
         if (now_time - self.callback_time).microseconds > 16000:
             file_counting_text = f"{file_num} {tr('one_of_many')} {files_count}"
@@ -2783,14 +2783,14 @@ class ModInstallWizard(UserControl):
             await self.install_progress_bar.current.update_async()
             self.callback_time = now_time
 
-    async def callable_for_status(self, status):
+    async def callable_for_status(self, status) -> None:
         now_time = datetime.now()
         if (now_time - self.callback_time).microseconds > 16000:
             self.install_status_text.current.value = status
             await self.install_status_text.current.update_async()
             self.callback_time = now_time
 
-    async def show_install_progress(self, e):
+    async def show_install_progress(self, e) -> None:
         await self.update_status_capsules(self.Steps.INSTALLING)
 
         is_comrem_or_patch = self.mod.name == "community_remaster"
@@ -2906,12 +2906,11 @@ class ModInstallWizard(UserControl):
             if mod.config_options:
                 await game.change_config_values(mod.config_options)
 
-            if not is_comrem_or_patch:
-                if mod.patcher_options is not None and not mod.vanilla_mod:
-                    file_ops.patch_configurables(game.target_exe, mod.patcher_options)
-                    if mod.patcher_options.get('gravity') is not None:
-                        file_ops.correct_damage_coeffs(game.game_root_path,
-                                                       mod.patcher_options.get('gravity'))
+            if not is_comrem_or_patch and mod.patcher_options is not None and not mod.vanilla_mod:
+                file_ops.patch_configurables(game.target_exe, mod.patcher_options)
+                if mod.patcher_options.get("gravity") is not None:
+                    file_ops.correct_damage_coeffs(game.game_root_path,
+                                                   mod.patcher_options.get("gravity"))
 
             changes_description = []
             if is_comrem_or_patch:
@@ -2957,7 +2956,7 @@ class ModInstallWizard(UserControl):
 
         await self.show_install_results(status_ok, changes_description)
 
-    async def show_install_results(self, status_ok, changes_description, ex=None):
+    async def show_install_results(self, status_ok, changes_description, ex=None) -> None:
         # TODO: check if it's a good idea to clear session.content_in_processing
         await self.update_status_capsules(self.Steps.RESULTS)
 
@@ -2972,7 +2971,7 @@ class ModInstallWizard(UserControl):
                                color=info_color,
                                weight=ft.FontWeight.BOLD)
 
-        mod_names = [mod_name for mod_name in self.app.session.content_in_processing]
+        # mod_names = list(self.app.session.content_in_processing)
         mod_basic_info = []
         mod_name = self.mod.name
         mod_display_name = self.mod.display_name
@@ -3029,10 +3028,10 @@ class ModInstallWizard(UserControl):
 
         if changes_description:
             mod_info.append(Text(f'{tr("binary_fixes").capitalize()}:'))
-            for change in changes_description:
-                change = tr(change)
-                for splited in change.split("\n"):
-                    splited = splited.replace("* ", "").strip()
+            for change_desc in changes_description:
+                change = tr(change_desc)
+                for splited_raw in change.split("\n"):
+                    splited = splited_raw.replace("* ", "").strip()
                     if splited:
                         mod_info.append(Row([
                             ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED,
@@ -3134,7 +3133,7 @@ class ModInstallWizard(UserControl):
 
         self.can_close = True
 
-    def get_flag_buttons(self):
+    def get_flag_buttons(self) -> None:
         flag_buttons = []
         for lang, mod in self.main_mod.translations_loaded.items():
             if mod.known_language:
@@ -3170,7 +3169,7 @@ class ModInstallWizard(UserControl):
             visible=num_langs > 1,
             alignment=ft.MainAxisAlignment.CENTER, columns=12 if num_langs <= 12 else num_langs)
 
-    async def changed_from_default(self):
+    async def change_from_default(self) -> None:
         self.default_install_btn.current.content = Row([
             Icon(ft.icons.STAR, color=ft.colors.ON_PRIMARY, size=22),
             Text(tr("choose_recommended_install").capitalize())
@@ -3179,7 +3178,7 @@ class ModInstallWizard(UserControl):
 
         await self.default_install_btn.current.update_async()
 
-    async def changed_to_default(self):
+    async def change_to_default(self) -> None:
         is_default_install = True
         for option_card in self.options:
             option = option_card.option
@@ -3195,7 +3194,7 @@ class ModInstallWizard(UserControl):
         if is_default_install:
             await self.set_to_default(cards_are_set=True)
 
-    async def set_option_cards_default(self):
+    async def set_option_cards_default(self) -> None:
         for option_card in self.options:
             changed = False
             option = option_card.option
@@ -3219,7 +3218,7 @@ class ModInstallWizard(UserControl):
             if changed:
                 await option_card.update_state()
 
-    async def set_to_default(self, e=None, cards_are_set=False):
+    async def set_to_default(self, e=None, cards_are_set=False) -> None:
         if not cards_are_set:
             await self.set_option_cards_default()
 
@@ -3231,13 +3230,14 @@ class ModInstallWizard(UserControl):
 
         await self.default_install_btn.current.update_async()
 
-    async def show_comrem_welcome(self, e):
+    async def show_comrem_welcome(self, e) -> None:
         if e.control.data == "compatch":
             await self.show_welcome_mod_screen(e, is_compatch=True)
         else:
             await self.show_welcome_mod_screen(e, is_compatch=False)
 
-    async def show_welcome_mod_screen(self, e=None, is_compatch=False):
+    # TODO: remove ComPatch special case
+    async def show_welcome_mod_screen(self, e=None, is_compatch=False) -> None:
         mod = self.mod
 
         is_comrem = mod.name == "community_remaster"
@@ -3249,16 +3249,16 @@ class ModInstallWizard(UserControl):
                  f"{tr('version')} {self.mod.version}")
         await self.switch_title(title)
 
-        if self.mod.language != "ru":
-            disable_compatch_install = True
-            disable_compatch_install_tooltip = tr("patch_only_supports_russian")
-        elif (self.mod.is_reinstall
-              and self.app.game.installed_content.get("community_remaster") is not None):
-            disable_compatch_install = True
-            disable_compatch_install_tooltip = tr("cant_install_patch_over_remaster")
-        else:
-            disable_compatch_install = False
-            disable_compatch_install_tooltip = None
+        # if self.mod.language != "ru":
+        #     disable_compatch_install = True
+        #     disable_compatch_install_tooltip = tr("patch_only_supports_russian")
+        # elif (self.mod.is_reinstall
+        #       and self.app.game.installed_content.get("community_remaster") is not None):
+        #     disable_compatch_install = True
+        #     disable_compatch_install_tooltip = tr("cant_install_patch_over_remaster")
+        # else:
+        #     disable_compatch_install = False
+        #     disable_compatch_install_tooltip = None
 
         remaster_button = ft.FloatingActionButton(
             content=Row([
@@ -3292,10 +3292,7 @@ class ModInstallWizard(UserControl):
                     self.requires_custom_install = True
                     break
 
-        if is_compatch:
-            mod_description = tr("compatch_description")
-        else:
-            mod_description = mod.description
+        mod_description = tr("compatch_description") if is_compatch else mod.description
 
         description = (f"{tr('description')}\n{mod_description}\n\n"
                        f"{tr(mod.developer_title)} {mod.authors}")
@@ -3379,11 +3376,11 @@ class ModInstallWizard(UserControl):
         await self.screen.current.update_async()
         await self.update_status_capsules(self.Steps.WELCOME)
 
-    async def keep_track_of_options(self, update=True):
+    async def keep_track_of_options(self, update: bool = True) -> None:
         if not self.mod.optional_content:
             return
 
-        no_options = all([not option.active for option in self.options])
+        no_options = all(not option.active for option in self.options)
         no_options_no_base = self.mod.no_base_content and no_options
         if no_options:
             self.install_ask.current.value = tr("install_base_mod_ask")
@@ -3402,7 +3399,7 @@ class ModInstallWizard(UserControl):
                 await self.no_base_content_mod_warning.current.update_async()
             await self.install_ask.current.update_async()
 
-    async def show_settings_screen(self, e=None):
+    async def show_settings_screen(self, e=None) -> None:
         self.options.clear()
         await self.update_status_capsules(self.Steps.SETTING_UP)
         mod = self.mod
@@ -3483,7 +3480,7 @@ class ModInstallWizard(UserControl):
                 ], alignment=ft.MainAxisAlignment.CENTER),
             ft.ResponsiveRow([
                 ft.Container(Column([
-                    Text(tr('default_options')),
+                    Text(tr("default_options")),
                     default_install_btn_row,
                     Column(controls=self.options,
                            scroll=ft.ScrollMode.AUTO, spacing=5),
@@ -3523,11 +3520,11 @@ class ModInstallWizard(UserControl):
         await self.keep_track_of_options(update=False)
         await self.screen.current.update_async()
 
-    async def set_install_lang(self, e):
+    async def set_install_lang(self, e) -> None:
         self.mod = self.main_mod.translations_loaded[e.control.data]
         await self.show_welcome_mod_screen()
 
-    async def update_status_capsules(self, step: Steps):
+    async def update_status_capsules(self, step: Steps) -> None:
         self.current_screen = step
 
         # colors of capsule representing currently active installation step
@@ -3630,11 +3627,11 @@ class ModInstallWizard(UserControl):
         self.status_capsules.controls = capsules
         await self.status_capsules.update_async()
 
-    async def switch_title(self, title):
+    async def switch_title(self, title: str) -> None:
         self.mod_title.current.value = title
         await self.mod_title.current.update_async()
 
-    def build(self):
+    def build(self) -> ft.Container:
         return ft.Container(Column([ft.ResponsiveRow([
             Column(controls=[
                 ft.Card(ft.Container(
@@ -3685,13 +3682,13 @@ class LocalModsScreen(UserControl):
         self.add_mod_card = ft.Ref[ft.Card]()
         self.no_mods_warning = ft.Ref[Text]()
         self.game_info = ft.Ref[ft.Container]()
-        self.get_mod_archive_dialog = ft.FilePicker(on_result=self.get_mod_archive_result)
+        self.get_mod_archive_dialog = ft.FilePicker(on_result=self.load_mod_archive_result)
         self.refreshing = False
         self.game_is_running = False
 
     # TODO: is not working properly when first starting with no distro and then adding it
     # shows no_local_mods_found warning
-    async def did_mount_async(self):
+    async def did_mount_async(self) -> None:
         # await self.app.page.floating_action_button.update_async()
         self.game_is_running = self.app.game.check_is_running()
         # self.game_info.current.update_async()
@@ -3702,7 +3699,7 @@ class LocalModsScreen(UserControl):
             # await self.add_mod_card.current.update_async()
             await self.app.page.update_async()
 
-    async def delete_mod(self, mod):
+    async def delete_mod(self, mod: Mod) -> None:
         cont_ref = ft.Ref[ft.Container]()
         bs = ft.BottomSheet(
             ft.Container(
@@ -3764,7 +3761,7 @@ class LocalModsScreen(UserControl):
         self.app.logger.debug(f"Deleted mod {mod.name} {mod.version} [{mod.build}]")
         await self.app.refresh_page(index=AppSections.LOCAL_MODS.value)
 
-    async def update_list(self):
+    async def update_list(self) -> None:
         await self.app.load_distro_async()
 
         mod_items = self.mods_list_view.current.controls
@@ -3805,7 +3802,7 @@ class LocalModsScreen(UserControl):
 
         mods_to_show = []
 
-        for path, mod in self.app.session.mods.items():
+        for mod in self.app.session.mods.values():
             session_mods.add(mod.id)
             if mod.id not in self.tracked_loaded_mods:
                 mods_to_show.append(ModItem(self.app, mod))
@@ -3832,7 +3829,7 @@ class LocalModsScreen(UserControl):
                     mod_item.other_versions[sister_version_string] = sister_mod
                 mods_families[installment+mod_name].append(mod_item)
 
-        for mod_short_id, mod_items in mods_families.items():
+        for mod_items in mods_families.values():
             if len(mod_items) == 1:
                 self.mods_list_view.current.controls.append(mod_items[0])
             else:
@@ -3854,9 +3851,10 @@ class LocalModsScreen(UserControl):
                     mod_items.remove(mod_item)
 
         archived_mod_items = self.mods_archived_list_view.current.controls
-        tracked_archived_mods = set([mod_item.mod.id for mod_item in archived_mod_items])
+        tracked_archived_mods = {mod_item.mod.id for mod_item in archived_mod_items}
         for path, mod_dummy in self.app.context.archived_mods.items():
             if mod_dummy.id in self.tracked_loaded_mods:
+                # TODO: investigate dead code
                 self.mods_archived_list_view.current
                 # self.app.logger.info(f"Archived mod id '{mod_dummy.id}' is already tracked in main list")
             elif mod_dummy.id in tracked_archived_mods:
@@ -3875,9 +3873,9 @@ class LocalModsScreen(UserControl):
         # self.app.logger.debug(f"{len(self.mods_list_view.current.controls)} elements in mods list view")
         self.app.logger.debug(f"Tracked mods: {self.tracked_loaded_mods}")
 
-    async def get_mod_archive_result(self, e: ft.FilePickerResultEvent):
+    async def load_mod_archive_result(self, e: ft.FilePickerResultEvent) -> None:
         if e.files:
-            print(f"path: {e.files}")
+            self.app.logger.debug(f"path: {e.files}")
             for file in e.files:
                 loading_text = await self.app.show_loading(
                     file.path,
@@ -3901,7 +3899,7 @@ class LocalModsScreen(UserControl):
                         file.path,
                         tr("issue_with_archive"))
                 else:
-                    print(f'Read manifest for: {manifest.get("display_name")}')
+                    self.app.logger.debug(f'Read manifest for: {manifest.get("display_name")}')
                     try:
                         mod_dummy = Mod(manifest, Path(file.path).parent)
                     except Exception as ex:
@@ -3925,12 +3923,12 @@ class LocalModsScreen(UserControl):
                         self.mods_archived_list_view.current.visible = True
                         await self.mods_archived_list_view.current.update_async()
 
-    async def get_archive(self, e):
+    async def load_archive(self, e) -> None:
         await self.get_mod_archive_dialog.pick_files_async(
             dialog_title="Choose archive",
             allowed_extensions=["zip", "7z"])
 
-    def get_game_info(self):
+    def get_game_info(self) -> ft.Card:
         if not self.app.game.game_root_path:
             return ft.Card(
                ft.Container(
@@ -4015,7 +4013,7 @@ class LocalModsScreen(UserControl):
             surface_tint_color=ft.colors.TERTIARY,
             col={"md": 12, "lg": 11, "xxl": 10})
 
-    def build(self):
+    def build(self) -> Column:
         if not self.app.context.distribution_dir:
             return Column([
                     Text(tr("mods_library").capitalize(),
@@ -4074,7 +4072,7 @@ class LocalModsScreen(UserControl):
                                     ft.FloatingActionButton(
                                         tr("add_mod").capitalize(),
                                         mini=True,
-                                        on_click=self.get_archive,
+                                        on_click=self.load_archive,
                                         height=40,
                                         icon=ft.icons.FILE_OPEN)
                                     ],
@@ -4098,7 +4096,7 @@ class DownloadModsScreen(UserControl):
         self.app = app
         self.refreshing = False
 
-    def build(self):
+    def build(self) -> Column:
         return Column([
             Text(tr("download").capitalize(),
                  style=ft.TextThemeStyle.TITLE_MEDIUM),
@@ -4156,24 +4154,24 @@ class HomeScreen(UserControl):
         self.refreshing = False
         self.game_is_running = False
 
-    async def did_mount_async(self):
+    async def did_mount_async(self) -> None:
         self.got_news = False
         self.offline = False
 
-        if self.app.game.target_exe and not self.app.game.exe_version and self.app.config.current_game:
-            await self.select_game_from_home(path=self.app.config.current_game)
-        elif self.app.game.check_is_running() and not self.game_is_running:
+        # TODO: unwind conditions like this
+        if ((self.app.game.target_exe and not self.app.game.exe_version and self.app.config.current_game)
+            or (self.app.game.check_is_running() and not self.game_is_running)):
             await self.select_game_from_home(path=self.app.config.current_game)
 
         # TODO: check why needs to be reloaded after changing the game
         if self.app.game.target_exe:
-            create_task(self.get_news())
+            create_task(self.load_news())
         else:
             self.app.logger.debug("No game found")
         if self.app.current_game_process is not None:
             await self.synchronise_launch_btn_prompt(started=True)
 
-    async def get_news(self):
+    async def load_news(self):
         if not self.offline:
             if self.news_text is not None:
                 self.markdown_content.current.value = self.news_text
@@ -4216,7 +4214,7 @@ class HomeScreen(UserControl):
                     }
                 )
 
-                if response["api_response"]["status_code"] == 200:
+                if response["api_response"]["status_code"] == HTTPStatus.OK:
                     md_raw = response["api_response"]["text"]
                     md = process_markdown(md_raw)
                     self.markdown_content.current.value = md
@@ -4231,18 +4229,20 @@ class HomeScreen(UserControl):
             self.app.logger.error("Unable to get url content for news")
             self.offline = True
 
-    async def launch_url(self, e):
+    async def launch_url(self, e) -> None:
         await self.app.page.launch_url_async(e.data)
 
-    async def check_for_game(self):
+    # TODO: maybe simplify to only return bool
+    async def check_for_game(self) -> bool | None:
         if self.app.current_game_process is None:
             proc = get_proc_by_names(("hta.exe", "ExMachina.exe"))
             return proc is not None
 
+        # TODO: what is this for?
         if self.app.current_game_process.returncode is None:
             pass
 
-    async def switch_to_windowed(self, e):
+    async def switch_to_windowed(self, e) -> None:
         # temporarily disabling game launch
         self.launch_game_btn.current.disabled = True
         await self.launch_game_btn.current.update_async()
@@ -4258,7 +4258,7 @@ class HomeScreen(UserControl):
         self.launch_game_btn.current.disabled = False
         await self.launch_game_btn.current.update_async()
 
-    async def switch_to_hidpi_aware(self, e):
+    async def switch_to_hidpi_aware(self, e) -> None:
         # temporarily disabling game launch
         self.launch_game_btn.current.disabled = True
         await self.launch_game_btn.current.update_async()
@@ -4278,7 +4278,7 @@ class HomeScreen(UserControl):
         self.launch_game_btn.current.disabled = False
         await self.launch_game_btn.current.update_async()
 
-    async def switch_fullscreen_optimizations(self, e):
+    async def switch_fullscreen_optimizations(self, e) -> None:
         # temporarily disabling game launch
         self.launch_game_btn.current.disabled = True
         await self.launch_game_btn.current.update_async()
@@ -4300,11 +4300,11 @@ class HomeScreen(UserControl):
         self.launch_game_btn.current.disabled = False
         await self.launch_game_btn.current.update_async()
 
-    async def show_launch_opts_instruction(self, e):
+    async def show_launch_opts_instruction(self, e) -> None:
         await self.app.show_modal(tr("launch_options_instruction_text"),
                                   title=tr("launch_options_instructions").capitalize())
 
-    async def launch_game(self, e):
+    async def launch_game(self, e) -> None:
         current_time = datetime.now()
         self.launch_prog_ring.current.visible = True
         await self.launch_prog_ring.current.update_async()
@@ -4316,7 +4316,7 @@ class HomeScreen(UserControl):
                 return
         if self.app.current_game_process is None:
             if self.app.game.check_is_running():
-                await self.app.show_alert(tr('game_is_already_running'))
+                await self.app.show_alert(tr("game_is_already_running"))
                 self.game_is_running = True
                 self.launch_prog_ring.current.visible = False
                 await self.launch_prog_ring.current.update_async()
@@ -4324,7 +4324,7 @@ class HomeScreen(UserControl):
                 return
             other_game_running = await self.check_for_game()
             if other_game_running:
-                await self.app.show_alert(tr('game_is_already_running'))
+                await self.app.show_alert(tr("game_is_already_running"))
                 self.launch_prog_ring.current.visible = False
                 await self.launch_prog_ring.current.update_async()
                 return
@@ -4332,7 +4332,7 @@ class HomeScreen(UserControl):
             self.app.current_game_process = \
                 await create_subprocess_exec(
                     self.app.game.target_exe,
-                    '-console' if self.app.config.game_with_console else "",
+                    "-console" if self.app.config.game_with_console else "",
                     cwd=self.app.game.game_root_path,
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
@@ -4342,19 +4342,18 @@ class HomeScreen(UserControl):
             asyncio.create_task(self.keep_track_of_game_proc())
             self.game_is_running = True
             await self.app.refresh_page(AppSections.LAUNCH.value)
+        elif self.app.current_game_process.returncode is None:
+            # stopping game on a next step, needs to be explained with a changing
+            # button prompt
+            self.app.current_game_process.terminate()
+            self.app.current_game_process = None
+            await self.synchronise_launch_btn_prompt(starting=False)
         else:
-            if self.app.current_game_process.returncode is None:
-                # stopping game on a next step, needs to be explained with a changing
-                # button prompt
-                self.app.current_game_process.terminate()
-                self.app.current_game_process = None
-                await self.synchronise_launch_btn_prompt(starting=False)
-            else:
-                # game exited (1 - ok exit status, 3 - crash, maybe other options)
-                self.app.current_game_process = None
-                await self.synchronise_launch_btn_prompt(starting=False)
+            # game exited (1 - ok exit status, 3 - crash, maybe other options)
+            self.app.current_game_process = None
+            await self.synchronise_launch_btn_prompt(starting=False)
 
-    async def keep_track_of_game_proc(self):
+    async def keep_track_of_game_proc(self) -> None:
         while True:
             if self.app.current_game_process is None:
                 self.app.local_mods.game_is_running = False
@@ -4370,7 +4369,7 @@ class HomeScreen(UserControl):
                 break
             await asyncio.sleep(3)
 
-    async def synchronise_launch_btn_prompt(self, starting=True, started=False):
+    async def synchronise_launch_btn_prompt(self, starting: bool = True, started: bool = False) -> None:
         if started:
             self.launch_game_btn_text.current.value = tr("stop_game").capitalize()
             await self.launch_game_btn_text.current.update_async()
@@ -4386,10 +4385,10 @@ class HomeScreen(UserControl):
         self.launch_prog_ring.current.visible = False
         await self.launch_prog_ring.current.update_async()
 
-    async def game_console_mode_change(self, e):
-        self.app.config.game_with_console = e.data == 'true'
+    async def change_game_console_mode(self, e) -> None:
+        self.app.config.game_with_console = e.data == "true"
 
-    def get_no_game_placeholder(self):
+    def get_no_game_placeholder(self) -> Column:
         return Column([
             Text(tr("launch_full").capitalize(),
                  style=ft.TextThemeStyle.TITLE_MEDIUM),
@@ -4416,13 +4415,13 @@ class HomeScreen(UserControl):
                ), elevation=5, margin=ft.margin.symmetric(horizontal=80))
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
-    async def open_clicked(self, e):
+    async def open_clicked(self, e) -> None:
         # open game directory in Windows Explorer
         if os.path.isdir(self.app.game.game_root_path):
-            os.startfile(self.app.game.game_root_path)
+            os.startfile(self.app.game.game_root_path)  # noqa: S606
         await self.update_async()
 
-    async def select_game_from_home(self, e=None, path: Optional[str] = None):
+    async def select_game_from_home(self, e=None, path: str | None = None) -> None:
         if e is not None:
             game_path = e.control.data
         elif path is not None:
@@ -4439,12 +4438,12 @@ class HomeScreen(UserControl):
             pass
         except ExeIsRunning:
             if not self.game_is_running:
-                await self.app.show_alert(tr('game_is_running_cant_select'))
+                await self.app.show_alert(tr("game_is_running_cant_select"))
                 self.game_is_running = True
             return
         except Exception as ex:
             # TODO: Handle exceptions properly
-            await self.app.show_alert(tr('broken_game'), ex)
+            await self.app.show_alert(tr("broken_game"), ex)
             self.app.logger.error(f"[Game loading error] {ex}")
             return
 
@@ -4468,14 +4467,14 @@ class HomeScreen(UserControl):
 
         await self.app.refresh_page(AppSections.LAUNCH.value)
 
-    def build(self):
+    def build(self) -> ft.Container:
         self.app.page.floating_action_button = ft.FloatingActionButton(
             icon=ft.icons.REFRESH_ROUNDED,
             on_click=self.app.upd_pressed,
             mini=True
             # bgcolor=ft.colors.PRIMARY
             )
-        with open(get_internal_file_path("assets/placeholder.md"), "r", encoding="utf-8") as fh:
+        with open(get_internal_file_path("assets/placeholder.md"), encoding="utf-8") as fh:
             md1 = fh.read()
             md1 = process_markdown(md1)
 
@@ -4498,7 +4497,7 @@ class HomeScreen(UserControl):
                                   ft.Container(Column([
                                         Icon(ft.icons.QUESTION_MARK_ROUNDED,
                                              size=90,
-                                             color='red')],
+                                             color="red")],
                                         horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                         alignment=ft.alignment.center)
                                   ])
@@ -4688,7 +4687,7 @@ class HomeScreen(UserControl):
                                 Row([ft.Switch(
                                         value=self.app.config.game_with_console,
                                         scale=0.7,
-                                        on_change=self.game_console_mode_change,
+                                        on_change=self.change_game_console_mode,
                                         ref=self.game_console_switch),
                                      Text(tr("enable_console").capitalize(),
                                           weight=ft.FontWeight.W_500)

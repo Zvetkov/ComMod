@@ -4,21 +4,30 @@ import os
 import sys
 from pathlib import Path
 
-import console.console_ui as console_ui
-from console.color import bcolors, fconsole
 from game import data
 from game.environment import GameCopy, InstallationContext
 from game.mod import Mod
 from helpers import file_ops
-from helpers.errors import (CorruptedRemasterFiles, DistributionNotFound,
-                            DXRenderDllNotFound, ExeIsRunning, ExeNotFound,
-                            ExeNotSupported, FileLoggingSetupError,
-                            HasManifestButUnpatched, InvalidExistingManifest,
-                            InvalidGameDirectory, ModsDirMissing, NoModsFound,
-                            PatchedButDoesntHaveManifest,
-                            WrongGameDirectoryPath)
-from localisation.service import (COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH,
-                                  tr)
+from helpers.errors import (
+    CorruptedRemasterFiles,
+    DistributionNotFound,
+    DXRenderDllNotFound,
+    ExeIsRunning,
+    ExeNotFound,
+    ExeNotSupported,
+    FileLoggingSetupError,
+    HasManifestButUnpatched,
+    InvalidExistingManifest,
+    InvalidGameDirectory,
+    ModsDirMissing,
+    NoModsFound,
+    PatchedButDoesntHaveManifest,
+    WrongGameDirectoryPath,
+)
+from localisation.service import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH, tr
+
+from console import console_ui
+from console.color import bcolors, fconsole
 
 
 # Console UI to be deprecated in future release
@@ -32,7 +41,7 @@ def main(options: argparse.Namespace) -> None:
         context = InstallationContext(options.distribution_dir, dev_mode=options.dev, legacy_checks=True)
         session = context.current_session
     except DistributionNotFound as er:
-        console.simple_end('missing_distribution', er)
+        console.simple_end("missing_distribution", er)
         return
 
     # file and console logging setup
@@ -40,7 +49,7 @@ def main(options: argparse.Namespace) -> None:
         context.setup_logging_folder()
         context.setup_loggers()
     except FileLoggingSetupError as er:
-        console.simple_end('error_logging_setup', er)
+        console.simple_end("error_logging_setup", er)
         return
     logger = context.logger
     console.logger = context.logger
@@ -51,7 +60,7 @@ def main(options: argparse.Namespace) -> None:
         context.validate_remaster()
     except CorruptedRemasterFiles as er:
         logger.error(er)
-        console.simple_end('corrupted_installation', er)
+        console.simple_end("corrupted_installation", er)
         return
 
     logger.info("***")
@@ -86,7 +95,7 @@ def main(options: argparse.Namespace) -> None:
         return
     except ExeNotSupported as er:
         logger.error(f"Exe version is not supported. Version: {er.exe_version}")
-        console.simple_end("exe_not_supported", f'unsupported exe version - {er.exe_version}')
+        console.simple_end("exe_not_supported", f"unsupported exe version - {er.exe_version}")
         return
     except InvalidExistingManifest as er:
         logger.error(f"Invalid existing manifest at {er.manifest_path}")
@@ -136,7 +145,7 @@ def main(options: argparse.Namespace) -> None:
                     description = f'{fconsole(tr("already_installed"), bcolors.OKGREEN)}:\n'
                     for content_piece in game.installed_descriptions.values():
                         description += content_piece
-                    description += '\n' + tr("intro_modded_game") + '\n'
+                    description += "\n" + tr("intro_modded_game") + "\n"
                     reinstall_prompt = console.prompt_for(["mods", "exit"], accept_enter=False,
                                                           description=description)
                 else:
@@ -202,7 +211,7 @@ def main(options: argparse.Namespace) -> None:
         if options.comremaster:
             version_choice = "remaster"
             remaster_options = "all"
-        elif options.compatch and not ("ComRemaster" in game.exe_version):
+        elif options.compatch and "ComRemaster" not in game.exe_version:
             version_choice = "patch"
         else:
             description_intro = (f"{tr('simple_intro')}\n\n"
@@ -368,7 +377,7 @@ def install_base(version_choice: str, game: GameCopy, context: InstallationConte
 
 
 def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: InstallationContext) -> None:
-    logger = logging.getLogger('dem')
+    logger = logging.getLogger("dem")
     session = context.current_session
 
     logger.info("Starting mod manager")
@@ -405,7 +414,7 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
            or (mod_install_settings.get("base") == "no" and len(mod_install_settings) > 1)):
             logger.info("***")
             if console.auto_clear:
-                os.system('cls')
+                os.system("cls")
             logger.info(f"Starting mod {mod.name} {mod.version} installation "
                         f"with config {mod_install_settings}")
 
@@ -433,9 +442,9 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                 session.content_in_processing[mod.name]["display_name"] = mod.display_name
                 if mod.patcher_options is not None:
                     file_ops.patch_configurables(game.target_exe, mod.patcher_options)
-                    if mod.patcher_options.get('gravity') is not None:
+                    if mod.patcher_options.get("gravity") is not None:
                         file_ops.correct_damage_coeffs(game.game_root_path,
-                                                       mod.patcher_options.get('gravity'))
+                                                       mod.patcher_options.get("gravity"))
             if mod_error_msgs:
                 session.mod_installation_errors.extend(mod_error_msgs)
                 logger.error(f"mod errors: {mod_error_msgs}")
@@ -463,7 +472,7 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                                    description=description)
         else:
             logger.info(f"Skipping installation of mod '{mod.name} - install manifest: "
-                        f"{str(mod_install_settings)}")
+                        f"{mod_install_settings!s}")
 
     console.finilize_manifest(game, session)
 

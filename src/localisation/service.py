@@ -5,7 +5,7 @@ from enum import Enum
 from game.data import OWN_VERSION
 from helpers.file_ops import get_internal_file_path, read_yaml
 
-logger = logging.getLogger('dem')
+logger = logging.getLogger("dem")
 
 DEM_DISCORD = "https://discord.gg/jZHxYdF"
 DEM_DISCORD_MODS_DOWNLOAD_SCREEN = "https://discord.gg/deus-ex-machina-522817939616038912"
@@ -29,14 +29,15 @@ class SupportedLanguages(Enum):
     UA = "ua"
 
     @classmethod
-    def list_values(cls):
-        return list(map(lambda c: c.value, cls))
+    def list_values(cls) -> list:
+        return [c.value for c in cls]
 
     @classmethod
-    def list_names(cls):
-        return list(map(lambda c: c.name, cls))
+    def list_names(cls) -> list:
+        return [c.name for c in cls]
 
-
+# Fallback for new lines that are added in development,
+# before they can be translated to all supported langs
 local_dict = {
 }
 
@@ -46,9 +47,8 @@ def get_strings_dict() -> dict:
     rus = read_yaml(get_internal_file_path("localisation/strings_rus.yaml"))
     ukr = read_yaml(get_internal_file_path("localisation/strings_ukr.yaml"))
 
-    if eng.keys() != rus.keys() or eng.keys() != ukr.keys():
-        if not local_dict:
-            raise Exception("Localisation string for one of the languages is missing")
+    if (eng.keys() != rus.keys() or eng.keys() != ukr.keys()) and not local_dict:
+        raise ValueError("Localisation string for one of the languages is missing")
 
     loc_dict = {key: {"eng": value} for key, value in eng.items()}
 
@@ -63,8 +63,10 @@ def get_strings_dict() -> dict:
 
 def tr(str_name: str, **kwargs) -> str:
     # return "SomeString"
-    '''Returns localised string based on the current locale language,
-       uses localisation files for each supported language'''
+    """Return localised string based on the current locale language.
+
+    Uses localisation files for each supported language
+    """
     loc_str = STRINGS.get(str_name)
     if loc_str is not None:
         final_string = loc_str[LANG]
@@ -73,19 +75,20 @@ def tr(str_name: str, **kwargs) -> str:
         if kwargs:
             final_string = final_string.format(**kwargs)
         return final_string
-    # developer fallback
-    elif local_dict.get(str_name):
+
+    # development fallback
+    if local_dict.get(str_name):
         return local_dict[str_name]
-    else:
-        logger.warning(f"Localized string '{str_name}' not found!")
-        return f"Unlocalised string '{str_name}'"
+
+    logger.warning(f"Localized string '{str_name}' not found!")
+    return f"Unlocalised string '{str_name}'"
 
 
 def_locale = locale.getdefaultlocale()[0].replace("_", "-")
 
-if def_locale[-3:] == '-RU':
+if def_locale[-3:] == "-RU":
     LANG = "ru"
-elif def_locale[:2] == "uk" or def_locale[-3:] == '-UA':
+elif def_locale[:2] == "uk" or def_locale[-3:] == "-UA":
     LANG = "ua"
 elif def_locale[:3] == "ru-":
     LANG = "ru"

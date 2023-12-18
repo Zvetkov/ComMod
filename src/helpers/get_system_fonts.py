@@ -1,29 +1,31 @@
 import ctypes
 from ctypes import wintypes
+from typing import ClassVar
 
 
 class LOGFONT(ctypes.Structure):
-    _fields_ = [('lfHeight', wintypes.LONG),
-                ('lfWidth', wintypes.LONG),
-                ('lfEscapement', wintypes.LONG),
-                ('lfOrientation', wintypes.LONG),
-                ('lfWeight', wintypes.LONG),
-                ('lfItalic', wintypes.BYTE),
-                ('lfUnderline', wintypes.BYTE),
-                ('lfStrikeOut', wintypes.BYTE),
-                ('lfCharSet', wintypes.BYTE),
-                ('lfOutPrecision', wintypes.BYTE),
-                ('lfClipPrecision', wintypes.BYTE),
-                ('lfQuality', wintypes.BYTE),
-                ('lfPitchAndFamily', wintypes.BYTE),
-                ('lfFaceName', ctypes.c_wchar*32)]
+    _fields_: ClassVar =\
+        [("lfHeight", wintypes.LONG),
+         ("lfWidth", wintypes.LONG),
+         ("lfEscapement", wintypes.LONG),
+         ("lfOrientation", wintypes.LONG),
+         ("lfWeight", wintypes.LONG),
+         ("lfItalic", wintypes.BYTE),
+         ("lfUnderline", wintypes.BYTE),
+         ("lfStrikeOut", wintypes.BYTE),
+         ("lfCharSet", wintypes.BYTE),
+         ("lfOutPrecision", wintypes.BYTE),
+         ("lfClipPrecision", wintypes.BYTE),
+         ("lfQuality", wintypes.BYTE),
+         ("lfPitchAndFamily", wintypes.BYTE),
+         ("lfFaceName", ctypes.c_wchar*32)]
 
 
 FONTENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.POINTER(LOGFONT),
                                   wintypes.LPVOID, wintypes.DWORD, wintypes.LPARAM)
 
 
-def get_fonts():
+def get_fonts() -> list:
     font_list = []
 
     def font_enum(logfont, textmetricex, fonttype, param):
