@@ -39,6 +39,17 @@ Distributing mod as ComMod package gives modders support for:
 
 ComMod also includes super lightweight news section synced from web to notify users of new releases in their language, and the next major release is planned to add an option to download mods straight from the mod manager, reusing same pretty UI used to display mods added to library.
 
+## Running ComMod
+Install dependencies to your venv:
+```sh
+> pip install -r ./requirements.txt
+```
+
+Run entry point from:
+```sh
+> py ./src/commod.py
+```
+
 ## Demonstration
 ![Community Remaster installation][patcher_tutorial]
 *Installing Community Remaster with ComMod - Russian localisation shown*
@@ -70,7 +81,6 @@ In the installation process, the program applies binary patches the original exe
 [dem_logo_sml]: https://user-images.githubusercontent.com/79088546/174311991-c20e04bb-1cad-44e2-a0e9-5984de6d8d55.png
 
 [patcher_tutorial]: https://user-images.githubusercontent.com/79088546/246537517-5e8cb714-960c-4576-8722-498b6bba8b11.gif
-
 
 
 ## Licensing:
