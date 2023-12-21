@@ -1,12 +1,11 @@
 import os
 import sys
 
+from color import bcolors, fconsole
 from game.environment import GameCopy, InstallationContext
 from game.mod import Mod
 from helpers import file_ops
 from localisation.service import tr
-
-from .color import bcolors, fconsole
 
 
 class ConsoleUX:

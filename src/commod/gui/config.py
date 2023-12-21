@@ -1,6 +1,6 @@
 import os
 from enum import Enum
-from typing import Any, Literal
+from typing import Any
 
 import flet as ft
 import localisation.service as localisation

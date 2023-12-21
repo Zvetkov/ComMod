@@ -10,12 +10,13 @@ select = ["ALL"]
 cache-dir = "/tmp/ruff-cache/"
 ignore = ["D1", "TCH002", "TCH003", "ANN101", "ANN102", "COM812", "TD", "FIX", "DTZ005",
           "EM101", "EM102", "TRY003", "TRY301", "G004", # logging and exceptions improvements
-          "C901", "PLR0912", "PLR0915", # complexity suggestions
+          "C901", "PLR0912", "PLR0915", "PLR0913", # complexity suggestions
           "ERA001", # dead code
           "PTH", # migration to pathlib from os (mostly)
           "FBT", # booleans as args,
           "T201", "S605", "S607", # print, os.system("cls"),
           "TRY400", # logging.error -> exception
+          "ARG001", "ARG002", # Unused method argument, Unused function argument
           ]
 # D1 disabled for philosophical reason, hard docstrings requirement is debatable
 # ANN101, ANN102 are disabled as type checkers can infer this automatically
@@ -30,8 +31,9 @@ ignore = ["D1", "TCH002", "TCH003", "ANN101", "ANN102", "COM812", "TD", "FIX", "
 # ERA001 - remove ignore and fix on next version after 2.1
 # EM101, EM102 - reenable for a future refactor, too many instances to fix right now
 # TRY003, TRY301, G004 - reenable for a future refactor, too many instances to fix right now
-# C901", PLR0912, PRL0915 - complexity suggestions to remove branching and complexity of functions, maybe later
+# C901", PLR0912, PRL0915, PLR0913 - complexity suggestions to tone down branching and complexity of functions, maybe later
 # FBT - need to think about it, maybe implement later
+# ARG001, ARG002 - we have dosens of cases when ft.ControlEvent is passes implicitly by flet in signals, need to think
 
 [tool.ruff.lint.isort.sections]
 no-lines-before = ["standard-library", "local-folder"]

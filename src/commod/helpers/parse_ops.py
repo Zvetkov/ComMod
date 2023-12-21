@@ -1,3 +1,4 @@
+import argparse
 import html
 from collections.abc import Iterable
 from pathlib import Path
@@ -6,6 +7,23 @@ import markdownify
 from game import data
 from lxml import objectify
 
+
+def init_input_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="DEM Community Mod Manager")
+    parser.add_argument("-target_dir", help="path to game directory", required=False)
+    parser.add_argument("-distribution_dir",
+                        help=('path to folder where "mods" library is located'), required=False)
+    parser.add_argument("-dev", help="developer mode",
+                        action="store_true", default=False, required=False)
+    parser.add_argument("-console", help="run in console, not currently fully supported with modern mods",
+                        action="store_true", default=False, required=False)
+    installation_option = parser.add_mutually_exclusive_group()
+    installation_option.add_argument("-compatch", help="base ComPatch setup, silent console mode",
+                                     action="store_true", default=False)
+    installation_option.add_argument("-comremaster", help="base ComRemaster, silent console mode",
+                                     action="store_true", default=False)
+
+    return parser
 
 def remove_substrings(string: str, substrings: Iterable[str]) -> str:
     for substring in substrings:

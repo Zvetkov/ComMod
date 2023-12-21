@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+from console import console_ui
+from console.color import bcolors, fconsole
 from game import data
 from game.environment import GameCopy, InstallationContext
 from game.mod import Mod
@@ -24,10 +26,9 @@ from helpers.errors import (
     PatchedButDoesntHaveManifestError,
     WrongGameDirectoryPathError,
 )
-from localisation.service import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH, tr
+from localisation.service import tr
 
-from console import console_ui
-from console.color import bcolors, fconsole
+from commod.game.data import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH
 
 
 # Console UI to be deprecated in future release

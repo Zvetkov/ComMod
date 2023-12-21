@@ -2,15 +2,14 @@ import os
 import tempfile
 
 import flet as ft
-from commod import _init_input_parser
+from app_widgets import App, DownloadModsScreen, HomeScreen, LocalModsScreen, SettingsScreen
+from config import Config
 from flet import IconButton, Image, Page, Theme, ThemeVisualDensity
 from game.data import get_title
 from game.environment import GameCopy, InstallationContext
 from helpers.file_ops import get_internal_file_path
+from helpers.parse_ops import init_input_parser
 from localisation.service import tr
-
-from .app_widgets import App, DownloadModsScreen, HomeScreen, LocalModsScreen, SettingsScreen
-from .config import Config
 
 
 async def main(page: Page):
@@ -80,7 +79,7 @@ async def main(page: Page):
         app.logger.debug("config saved")
         await page.window_close_async()
 
-    options = _init_input_parser().parse_args()
+    options = init_input_parser().parse_args()
 
     page.window_title_bar_hidden = True
     page.title = "ComMod"

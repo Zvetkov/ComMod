@@ -16,6 +16,18 @@ from pathlib import Path
 import py7zr
 from aiopath import AsyncPath
 from console.color import bcolors, fconsole
+from data import (
+    OS_SCALE_FACTOR,
+    OWN_VERSION,
+    TARGEM_NEGATIVE,
+    TARGEM_POSITIVE,
+    VERSION_BYTES_100_STAR,
+    VERSION_BYTES_102_NOCD,
+    VERSION_BYTES_102_STAR,
+    VERSION_BYTES_103_NOCD,
+    VERSION_BYTES_103_STAR,
+    VERSION_BYTES_DEM_LNCH,
+)
 from flet import Text
 from helpers.errors import (
     CorruptedRemasterFilesError,
@@ -35,20 +47,7 @@ from helpers.errors import (
 from helpers.file_ops import get_config, load_yaml, read_yaml, running_in_venv, write_xml_to_file_async
 from helpers.parse_ops import shorten_path
 from localisation.service import tr
-
-from .data import (
-    OS_SCALE_FACTOR,
-    OWN_VERSION,
-    TARGEM_NEGATIVE,
-    TARGEM_POSITIVE,
-    VERSION_BYTES_100_STAR,
-    VERSION_BYTES_102_NOCD,
-    VERSION_BYTES_102_STAR,
-    VERSION_BYTES_103_NOCD,
-    VERSION_BYTES_103_STAR,
-    VERSION_BYTES_DEM_LNCH,
-)
-from .mod import GameInstallments, Mod
+from mod import GameInstallments, Mod
 
 
 class GameStatus(Enum):

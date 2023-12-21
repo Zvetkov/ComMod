@@ -15,14 +15,18 @@ COMPATCH_VER = f"ExMachina - Community Patch build v{VERSION} {DATE}"
 COMPATCH_MIN = f"ExMachina - Minimal ComPatch build 1.02 {DATE}"
 COMREM_VER = f"ExMachina - Community Remaster build v{VERSION} {DATE}"
 
-VERSION_BYTES_100_STAR = 0x005A69C2
 
+DEM_DISCORD = "https://discord.gg/jZHxYdF"
+DEM_DISCORD_MODS_DOWNLOAD_SCREEN = "https://discord.gg/deus-ex-machina-522817939616038912"
+COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
+WIKI_COMPATCH = "https://deuswiki.com/w/Community_Patch"
+
+
+VERSION_BYTES_100_STAR = 0x005A69C2
 VERSION_BYTES_102_NOCD = 0x005906A3
 VERSION_BYTES_102_STAR = 0x000102CD
-
 VERSION_BYTES_103_NOCD = 0x005917D2
 VERSION_BYTES_103_STAR = 0x000103CD
-
 VERSION_BYTES_DEM_LNCH = 0x0000DEAD
 
 ENCODING = 'windows-1251'
@@ -477,10 +481,6 @@ def get_known_mod_display_name(service_name):
                    "community_remaster": "Community Remaster"}
 
     return known_names.get(service_name)
-
-
-def is_known_lang(lang: str):
-    return lang in ["eng", "ru", "ua", "de", "pl", "tr"]
 
 
 def get_title() -> str:

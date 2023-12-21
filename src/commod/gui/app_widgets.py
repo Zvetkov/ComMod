@@ -12,8 +12,9 @@ from pathlib import Path
 import aiofiles.os
 import aioshutil
 import flet as ft
-import localisation.service as localisation
 from asyncio_requests.asyncio_request import request
+from common_widgets import ExpandableContainer
+from config import AppSections, Config
 from flet import (
     Column,
     FloatingActionButton,
@@ -29,7 +30,7 @@ from flet import (
     colors,
     icons,
 )
-from game.data import DATE, OWN_VERSION, is_known_lang
+from game.data import DATE, OWN_VERSION
 from game.environment import DistroStatus, GameCopy, GameStatus, InstallationContext
 from game.mod import GameInstallments, Mod
 from helpers import file_ops
@@ -45,17 +46,13 @@ from helpers.errors import (
 from helpers.file_ops import extract_archive_from_to, get_internal_file_path, get_proc_by_names, load_yaml
 from helpers.parse_ops import process_markdown
 from localisation.service import (
-    COMPATCH_GITHUB,
-    DEM_DISCORD,
-    DEM_DISCORD_MODS_DOWNLOAD_SCREEN,
-    WIKI_COMPATCH,
     LangFlags,
     SupportedLanguages,
+    is_known_lang,
     tr,
 )
 
-from .common_widgets import ExpandableContainer
-from .config import AppSections, Config
+from commod.game.data import COMPATCH_GITHUB, DEM_DISCORD, DEM_DISCORD_MODS_DOWNLOAD_SCREEN, WIKI_COMPATCH
 
 # TODO: separate to different submodules for different app screens
 

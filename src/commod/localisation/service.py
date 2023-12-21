@@ -3,16 +3,10 @@ import logging
 from enum import Enum
 
 from attr import dataclass
-
 from game.data import OWN_VERSION
 from helpers.file_ops import get_internal_file_path, read_yaml
 
 logger = logging.getLogger("dem")
-
-DEM_DISCORD = "https://discord.gg/jZHxYdF"
-DEM_DISCORD_MODS_DOWNLOAD_SCREEN = "https://discord.gg/deus-ex-machina-522817939616038912"
-COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
-WIKI_COMPATCH = "https://deuswiki.com/w/Community_Patch"
 
 @dataclass
 class LocalizationService:
@@ -105,3 +99,7 @@ def get_default_lang() -> str:
     return "eng"
 
 localization_service = LocalizationService(get_default_lang(), get_strings_dict())
+
+
+def is_known_lang(lang: str) -> bool:
+    return lang in ("eng", "ru", "ua", "de", "pl", "tr")

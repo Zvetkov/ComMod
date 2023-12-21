@@ -13,14 +13,14 @@ from typing import Any
 from zipfile import ZipInfo
 
 from console.color import bcolors, fconsole, remove_colors
+from data import get_known_mod_display_name
 from helpers.file_ops import copy_from_to_async_fast, get_internal_file_path, read_yaml
 from helpers.parse_ops import parse_simple_relative_path, process_markdown, remove_substrings
-from localisation.service import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH, tr
+from localisation.service import is_known_lang, tr
 from pathvalidate import sanitize_filename
 from py7zr import py7zr
 
-from ..localisation.service import is_known_lang
-from .data import get_known_mod_display_name
+from commod.game.data import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH
 
 logger = logging.getLogger("dem")
 
