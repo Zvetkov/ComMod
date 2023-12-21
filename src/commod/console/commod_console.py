@@ -9,20 +9,20 @@ from game.environment import GameCopy, InstallationContext
 from game.mod import Mod
 from helpers import file_ops
 from helpers.errors import (
-    CorruptedRemasterFiles,
-    DistributionNotFound,
-    DXRenderDllNotFound,
-    ExeIsRunning,
-    ExeNotFound,
-    ExeNotSupported,
+    CorruptedRemasterFilesError,
+    DistributionNotFoundError,
+    DXRenderDllNotFoundError,
+    ExeIsRunningError,
+    ExeNotFoundError,
+    ExeNotSupportedError,
     FileLoggingSetupError,
-    HasManifestButUnpatched,
-    InvalidExistingManifest,
-    InvalidGameDirectory,
-    ModsDirMissing,
-    NoModsFound,
-    PatchedButDoesntHaveManifest,
-    WrongGameDirectoryPath,
+    HasManifestButUnpatchedError,
+    InvalidExistingManifestError,
+    InvalidGameDirectoryError,
+    ModsDirMissingError,
+    NoModsFoundError,
+    PatchedButDoesntHaveManifestError,
+    WrongGameDirectoryPathError,
 )
 from localisation.service import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH, tr
 
@@ -31,7 +31,7 @@ from console.color import bcolors, fconsole
 
 
 # Console UI to be deprecated in future release
-def main(options: argparse.Namespace) -> None:
+def main(options: argparse.Namespace) -> None:  # noqa: PLR0911
     data.set_title()
     # helper to interact with user through console
     console = console_ui.ConsoleUX(dev_mode=options.dev)
@@ -40,16 +40,16 @@ def main(options: argparse.Namespace) -> None:
     try:
         context = InstallationContext(options.distribution_dir, dev_mode=options.dev, legacy_checks=True)
         session = context.current_session
-    except DistributionNotFound as er:
-        console.simple_end("missing_distribution", er)
+    except DistributionNotFoundError as ex:
+        console.simple_end("missing_distribution", ex)
         return
 
     # file and console logging setup
     try:
         context.setup_logging_folder()
         context.setup_loggers()
-    except FileLoggingSetupError as er:
-        console.simple_end("error_logging_setup", er)
+    except FileLoggingSetupError as ex:
+        console.simple_end("error_logging_setup", ex)
         return
     logger = context.logger
     console.logger = context.logger
@@ -58,9 +58,9 @@ def main(options: argparse.Namespace) -> None:
     try:
         logger.info("Prevalidating Community Patch and Remaster state")
         context.validate_remaster()
-    except CorruptedRemasterFiles as er:
-        logger.error(er)
-        console.simple_end("corrupted_installation", er)
+    except CorruptedRemasterFilesError as ex:
+        logger.error(ex)
+        console.simple_end("corrupted_installation", ex)
         return
 
     logger.info("***")
@@ -77,36 +77,36 @@ def main(options: argparse.Namespace) -> None:
         game.process_game_install(target_dir)
         if game.installed_content:
             logger.info(f"Installed content: {game.installed_content}")
-    except WrongGameDirectoryPath:
+    except WrongGameDirectoryPathError:
         logger.error(f"path doesn't exist: '{target_dir}'")
         console.simple_end("target_game_dir_doesnt_exist")
         return
-    except InvalidGameDirectory as er:
+    except InvalidGameDirectoryError as ex:
         logger.error(f"not all expected files were found in game dir: '{target_dir}'")
-        console.simple_end("cant_find_game_data", er)
+        console.simple_end("cant_find_game_data", ex)
         return
-    except ExeNotFound:
+    except ExeNotFoundError:
         logger.error("Exe not found")
         console.simple_end("exe_not_found")
         return
-    except ExeIsRunning:
+    except ExeIsRunningError:
         logger.error(tr("exe_is_running") + ". " + tr("exe_is_running_fix"))
-        console.simple_end("exe_is_running" + ". " + tr("exe_is_running_fix"))
+        console.simple_end("exe_is_running", tr("exe_is_running_fix"))
         return
-    except ExeNotSupported as er:
-        logger.error(f"Exe version is not supported. Version: {er.exe_version}")
-        console.simple_end("exe_not_supported", f"unsupported exe version - {er.exe_version}")
+    except ExeNotSupportedError as ex:
+        logger.error(f"Exe version is not supported. Version: {ex.exe_version}")
+        console.simple_end("exe_not_supported", f"unsupported exe version - {ex.exe_version}")
         return
-    except InvalidExistingManifest as er:
-        logger.error(f"Invalid existing manifest at {er.manifest_path}")
-        console.simple_end("invalid_existing_manifest", er)
+    except InvalidExistingManifestError as ex:
+        logger.error(f"Invalid existing manifest at {ex.manifest_path}")
+        console.simple_end("invalid_existing_manifest", ex)
         return
-    except HasManifestButUnpatched as er:
-        logger.warning(f"Found existing compatch manifest, but exe version is unexpected: {er.exe_version}"
-                       f"\nManifest contents: {er.manifest_content}")
+    except HasManifestButUnpatchedError as ex:
+        logger.warning(f"Found existing compatch manifest, but exe version is unexpected: {ex.exe_version}"
+                       f"\nManifest contents: {ex.manifest_content}")
         console.switch_header("leftovers")
-    except PatchedButDoesntHaveManifest as er:
-        logger.warning(f"Executable is patched (version: {er.exe_version}), but install manifest is missing")
+    except PatchedButDoesntHaveManifestError as ex:
+        logger.warning(f"Executable is patched (version: {ex.exe_version}), but install manifest is missing")
         console.switch_header("leftovers")
 
     logger.info(f"Target exe [{game.exe_version}]: {game.target_exe}")
@@ -117,9 +117,9 @@ def main(options: argparse.Namespace) -> None:
         # loads mods into current context, saves errors in current session
         logger.info("Starting loading mods")
         context.load_mods()
-    except ModsDirMissing:
+    except ModsDirMissingError:
         logger.info("No mods folder found, creating")
-    except NoModsFound:
+    except NoModsFoundError:
         logger.info("No mods found")
 
     try:
@@ -298,7 +298,7 @@ def main(options: argparse.Namespace) -> None:
                 patch_description = install_base(version_choice, game, context, exe_options)
                 patch_description = [tr(line) for line in patch_description]
                 patch_description.append("")  # separator
-            except DXRenderDllNotFound:
+            except DXRenderDllNotFoundError:
                 console.simple_end("dll_not_found")
                 return
             file_ops.rename_effects_bps(game.game_root_path)
@@ -349,10 +349,9 @@ def main(options: argparse.Namespace) -> None:
                  github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)) + "\n")
         input(fconsole(tr("press_enter_to_exit"), bcolors.OKGREEN) + "\n")
     # near-global exception handler
-    except Exception as er:
-        logger.exception(f"Encountered unhandled error: {er}")
-        logger.error("Exiting because of an error")
-        console.simple_end("failed_and_cleaned", err_msg=er)
+    except Exception as ex:
+        logger.exception("Encountered unhandled error, exiting")
+        console.simple_end("failed_and_cleaned", err_msg=ex)
 
 
 def install_base(version_choice: str, game: GameCopy, context: InstallationContext,
@@ -363,7 +362,7 @@ def install_base(version_choice: str, game: GameCopy, context: InstallationConte
         if os.path.exists(target_dll):
             file_ops.patch_render_dll(target_dll)
         else:
-            raise DXRenderDllNotFound
+            raise DXRenderDllNotFoundError
 
     build_id = context.remaster_config["build"]
 
@@ -373,7 +372,7 @@ def install_base(version_choice: str, game: GameCopy, context: InstallationConte
                                                   context.monitor_res,
                                                   exe_options,
                                                   context.under_windows)
-    return changes_description
+    return changes_description  # noqa: RET504
 
 
 def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: InstallationContext) -> None:
@@ -454,9 +453,8 @@ def mod_manager_console(console: console_ui.ConsoleUX, game: GameCopy, context: 
                 mod_info = console.format_mod_info(mod)
 
                 description_ends_with_new_line = False
-                if installed_mod_description:
-                    if isinstance(installed_mod_description[-1], str):
-                        description_ends_with_new_line = installed_mod_description[-1][-1:] == "\n"
+                if installed_mod_description and isinstance(installed_mod_description[-1], str):
+                    description_ends_with_new_line = installed_mod_description[-1].endswith("\n")
                 if not description_ends_with_new_line:
                     mod_info = "\n" + mod_info
 

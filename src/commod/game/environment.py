@@ -12,26 +12,25 @@ from ctypes import windll
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 import py7zr
 from aiopath import AsyncPath
 from console.color import bcolors, fconsole
 from flet import Text
 from helpers.errors import (
-    CorruptedRemasterFiles,
-    DistributionNotFound,
-    ExeIsRunning,
-    ExeNotFound,
-    ExeNotSupported,
+    CorruptedRemasterFilesError,
+    DistributionNotFoundError,
+    ExeIsRunningError,
+    ExeNotFoundError,
+    ExeNotSupportedError,
     FileLoggingSetupError,
-    HasManifestButUnpatched,
-    InvalidExistingManifest,
-    InvalidGameDirectory,
-    ModsDirMissing,
-    NoModsFound,
-    PatchedButDoesntHaveManifest,
-    WrongGameDirectoryPath,
+    HasManifestButUnpatchedError,
+    InvalidExistingManifestError,
+    InvalidGameDirectoryError,
+    ModsDirMissingError,
+    NoModsFoundError,
+    PatchedButDoesntHaveManifestError,
+    WrongGameDirectoryPathError,
 )
 from helpers.file_ops import get_config, load_yaml, read_yaml, running_in_venv, write_xml_to_file_async
 from helpers.parse_ops import shorten_path
@@ -148,7 +147,7 @@ class InstallationContext:
             self.distribution_dir = os.path.normpath(distribution_dir)
             self.short_path = shorten_path(self.distribution_dir, 45)
         elif not ignore_invalid:
-            raise DistributionNotFound(
+            raise DistributionNotFoundError(
                 distribution_dir,
                 "Couldn't find all required files in given distribuion dir")
 
@@ -193,14 +192,14 @@ class InstallationContext:
 
     def validate_remaster(self):
         if not self.distribution_dir:
-            raise CorruptedRemasterFiles("", "No ComRem files found")
+            raise CorruptedRemasterFilesError("", "No ComRem files found")
 
         yaml_path = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
         yaml_config = read_yaml(yaml_path)
         if yaml_config is None:
-            raise CorruptedRemasterFiles(yaml_path, "Couldn't read ComRemaster manifest")
+            raise CorruptedRemasterFilesError(yaml_path, "Couldn't read ComRemaster manifest")
         if not Mod.validate_install_config_struct(yaml_config, yaml_path):
-            raise CorruptedRemasterFiles(yaml_path, "Couldn't validate ComRemaster manifes or files")
+            raise CorruptedRemasterFilesError(yaml_path, "Couldn't validate ComRemaster manifes or files")
         else:
             self.remaster_config = yaml_config
             self.remaster_path = os.path.join(self.distribution_dir, "remaster")
@@ -232,7 +231,7 @@ class InstallationContext:
             self.distribution_dir = exe_path
             self.short_path = shorten_path(self.distribution_dir, 45)
         else:
-            raise DistributionNotFound(exe_path, "Distribution not found around mod manager exe")
+            raise DistributionNotFoundError(exe_path, "Distribution not found around mod manager exe")
 
     async def load_mods_async(self) -> None:
         # self.logger.debug("Load_mods entry")
@@ -246,13 +245,13 @@ class InstallationContext:
         mods_path = os.path.join(self.distribution_dir, "mods")
         if not os.path.isdir(mods_path):
             os.makedirs(mods_path, exist_ok=True)
-            raise ModsDirMissing
+            raise ModsDirMissingError
         # self.logger.debug("get_existing_mods_async call")
         mod_configs_paths, archived_mods = await self.get_existing_mods_async(mods_path)
         self.logger.debug("-- Got existing mods --")
         all_config_paths.extend(mod_configs_paths)
         if not all_config_paths and not archived_mods:
-            raise NoModsFound
+            raise NoModsFoundError
 
         for mod_config_path in all_config_paths:
             with open(mod_config_path, "rb") as f:
@@ -688,7 +687,7 @@ class GameCopy:
         """Parse game install to know the version and current state of it."""
         self.logger.debug(f"Checking that {target_dir} is dir")
         if not os.path.isdir(target_dir):
-            raise WrongGameDirectoryPath
+            raise WrongGameDirectoryPathError
 
         self.logger.debug(f"Starting dir validation {target_dir} is dir")
         valid_base_dir, missing_path = self.validate_game_dir(target_dir)
@@ -697,7 +696,7 @@ class GameCopy:
         if missing_path:
             self.logger.debug(f"Missing path: '{missing_path}'")
         if not valid_base_dir:
-            raise InvalidGameDirectory(missing_path)
+            raise InvalidGameDirectoryError(missing_path)
 
         self.logger.debug("Trying to get exe name from target dir")
         exe_path = self.get_exe_name(target_dir)
@@ -706,14 +705,14 @@ class GameCopy:
         if exe_path is not None:
             self.target_exe = exe_path
         else:
-            raise ExeNotFound
+            raise ExeNotFoundError
 
         self.logger.debug("Getting exe version")
         self.exe_version = self.get_exe_version(self.target_exe)
         self.logger.debug(f"Exe version: {self.exe_version}")
         if self.exe_version is None:
             self.exe_version = ""
-            raise ExeIsRunning
+            raise ExeIsRunningError
 
         if self.exe_version == "Unknown":
             self.installment = None
@@ -730,7 +729,7 @@ class GameCopy:
 
         self.logger.debug("Checking compatch compatibility")
         if not self.is_compatch_compatible_exe(self.exe_version):
-            raise ExeNotSupported(self.exe_version)
+            raise ExeNotSupportedError(self.exe_version)
 
         self.logger.debug("Is compatch compatible")
         self.game_root_path = target_dir
@@ -744,7 +743,7 @@ class GameCopy:
             self.fullscreen_game = self.get_is_fullscreen()
             if self.fullscreen_game is None:
                 # TODO: is not actually InvalidGameDirectory but more like BrokenGameConfig exception
-                raise InvalidGameDirectory(os.path.join(self.game_root_path, "data", "config.cfg"))
+                raise InvalidGameDirectoryError(os.path.join(self.game_root_path, "data", "config.cfg"))
             self.hi_dpi_aware = self.get_is_hidpi_aware()
             self.logger.debug(f"HiDPI awareness status: {self.hi_dpi_aware}")
             self.fullscreen_opts_disabled = self.get_is_fullscreen_opts_disabled()
@@ -769,16 +768,16 @@ class GameCopy:
                 self.patched_version = True
                 return
             elif patched_version and not valid_manifest:
-                raise InvalidExistingManifest(self.installed_manifest_path)
+                raise InvalidExistingManifestError(self.installed_manifest_path)
             else:
                 self.leftovers = True
-                raise HasManifestButUnpatched(self.exe_version, install_manifest)
+                raise HasManifestButUnpatchedError(self.exe_version, install_manifest)
 
         if patched_version:
             self.patched_version = True
             self.installed_content = {}
             self.leftovers = True
-            raise PatchedButDoesntHaveManifest(self.exe_version)
+            raise PatchedButDoesntHaveManifestError(self.exe_version)
 
         self.logger.debug("Finished process_game_install")
 

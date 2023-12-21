@@ -1,5 +1,6 @@
 import os
 from enum import Enum
+from typing import Any, Literal
 
 import flet as ft
 import localisation.service as localisation
@@ -13,6 +14,10 @@ class AppSections(Enum):
     DOWNLOAD_MODS = 2
     SETTINGS = 3
 
+    @classmethod
+    def list_values(cls) -> list[int]:
+        return [c.value for c in cls]
+
 
 class Config:
     def __init__(self, page: ft.Page) -> None:
@@ -22,24 +27,24 @@ class Config:
         self.init_pos_y: int = 0
         self.init_theme: ft.ThemeMode = ft.ThemeMode.SYSTEM
 
-        self.lang: str = localisation.LANG
+        self._lang: str = localisation.localization_service.current_language
 
         self.current_game: str = ""
-        self.known_games: set = set()
-        self.game_names: dict = {}
+        self.known_games: set[str] = set()
+        self.game_names: dict[str, str] = {}
 
         self.current_distro: str = ""
-        self.known_distros: set = set()
+        self.known_distros: set[str] = set()
 
         self.modder_mode: bool = False
 
-        self.current_section = AppSections.SETTINGS.value
-        self.current_game_filter = GameInstallments.ALL.value
-        self.game_with_console = False
+        self.current_section: int = AppSections.SETTINGS.value
+        self.current_game_filter: int = GameInstallments.ALL.value
+        self.game_with_console: bool = False
 
         self.page: ft.Page = page
 
-    def asdict(self) -> dict:
+    def asdict(self) -> dict[str, Any]:
         return {
             "current_game": self.current_game,
             "game_names": self.game_names,
@@ -56,6 +61,16 @@ class Config:
             "lang": self.lang
         }
 
+    @property
+    def lang(self) -> str:
+        return self._lang
+
+    @lang.setter
+    def lang(self, new_lang: localisation.SupportedLanguages) -> None:
+        if isinstance(new_lang, str) and new_lang in localisation.SupportedLanguages.list_values():
+            self._lang = new_lang
+            localisation.localization_service.current_language = new_lang
+
     def load_from_file(self, abs_path: str | None = None) -> None:
         if abs_path is not None and os.path.exists(abs_path):
             config = read_yaml(abs_path)
@@ -64,8 +79,9 @@ class Config:
 
         if isinstance(config, dict):
             lang = config.get("lang")
-            if isinstance(lang, str):
-                self.lang = lang
+            if isinstance(lang, str) and lang in localisation.SupportedLanguages.list_values():
+                self._lang = lang
+                localisation.localization_service.current_language = lang
 
             current_game = config.get("current_game")
             if isinstance(current_game, str) and os.path.isdir(current_game):
@@ -90,11 +106,11 @@ class Config:
                 self.modder_mode = modder_mode
 
             current_section = config.get("current_section")
-            if current_section in (0, 1, 2, 3):
+            if current_section in AppSections.list_values():
                 self.current_section = current_section
 
             current_game_filter = config.get("current_game_filter")
-            if current_game_filter in (0, 1, 2, 3):
+            if current_game_filter in GameInstallments.list_values():
                 self.current_game_filter = current_game_filter
 
             game_with_console = config.get("game_with_console")
@@ -103,11 +119,11 @@ class Config:
 
             window_config = config.get("window")
             # ignoring broken partial configs for window
-            if (isinstance(window_config, dict) and
-                all(isinstance(window_config.get("width"), float),
-                    isinstance(window_config.get("height"), float),
-                    isinstance(window_config.get("pos_x"), float),
-                    isinstance(window_config.get("pos_y"), float))):
+            if (isinstance(window_config, dict)
+                and isinstance(window_config.get("width"), float)
+                and isinstance(window_config.get("height"), float)
+                and isinstance(window_config.get("pos_x"), float)
+                and isinstance(window_config.get("pos_y"), float)):
                 # TODO: validate that window is not completely outside the screen area
                 self.init_height = window_config["height"]
                 self.init_width = window_config["width"]

@@ -10,7 +10,7 @@ import zipfile
 from collections.abc import Coroutine
 from math import ceil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import aiofiles
 import aioshutil
@@ -21,7 +21,7 @@ from console import progbar
 from flet import Text
 from game import data, hd_ui
 from lxml import etree, objectify
-from parse_ops import beautify_machina_xml, get_child_from_xml_node, xml_to_objfy
+from .parse_ops import beautify_machina_xml, get_child_from_xml_node, xml_to_objfy
 
 logger = logging.getLogger("dem")
 

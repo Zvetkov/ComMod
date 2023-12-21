@@ -2,28 +2,27 @@ import os
 import tempfile
 
 import flet as ft
-import localisation.service as localisation
 from commod import _init_input_parser
 from flet import IconButton, Image, Page, Theme, ThemeVisualDensity
 from game.data import get_title
 from game.environment import GameCopy, InstallationContext
 from helpers.file_ops import get_internal_file_path
-from localisation.service import SupportedLanguages, tr
+from localisation.service import tr
 
 from .app_widgets import App, DownloadModsScreen, HomeScreen, LocalModsScreen, SettingsScreen
 from .config import Config
 
 
 async def main(page: Page):
-    async def maximize(e) -> None:
+    async def maximize(e: ft.ControlEvent) -> None:
         page.window_maximized = not page.window_maximized
         await page.update_async()
 
-    async def minimize(e) -> None:
+    async def minimize(e: ft.ControlEvent) -> None:
         page.window_minimized = True
         await page.update_async()
 
-    async def change_theme_mode(e) -> None:
+    async def change_theme_mode(e: ft.ControlEvent) -> None:
         theme = page.theme_mode
         if theme == ft.ThemeMode.SYSTEM:
             page.theme_mode = ft.ThemeMode.DARK
@@ -40,14 +39,14 @@ async def main(page: Page):
 
         await page.update_async()
 
-    def title_btn_style(hover_color: ft.colors = None) -> ft.ButtonStyle:
+    def title_btn_style(hover_color: str | None = None) -> ft.ButtonStyle:
         color_dict = {ft.MaterialState.DEFAULT: ft.colors.ON_BACKGROUND}
         if hover_color is not None:
             color_dict[ft.MaterialState.HOVERED] = ft.colors.RED
         return ft.ButtonStyle(
             color=color_dict,
             padding={ft.MaterialState.DEFAULT: 0},
-            shape={ft.MaterialState.DEFAULT: ft.buttons.RoundedRectangleBorder(radius=2)}
+            shape={ft.MaterialState.DEFAULT: ft.RoundedRectangleBorder(radius=2)}
         )
 
     def create_sections(app: App) -> None:
@@ -63,7 +62,7 @@ async def main(page: Page):
 
         app.content_pages = [app.home, app.local_mods, app.download_mods, app.settings_page]
 
-    async def wrap_on_window_event(e) -> None:
+    async def wrap_on_window_event(e: ft.ControlEvent) -> None:
         if e.data == "close":
             await finalize(e)
         elif e.data in ("unmaximize", "maximize"):
@@ -75,7 +74,7 @@ async def main(page: Page):
                 page.icon_maximize.current.icon_size = 17
             await page.icon_maximize.current.update_async()
 
-    async def finalize(e) -> None:
+    async def finalize(e: ft.ControlEvent) -> None:
         app.logger.debug("closing")
         app.config.save_config()
         app.logger.debug("config saved")
@@ -89,31 +88,28 @@ async def main(page: Page):
     page.on_window_event = wrap_on_window_event
     page.window_min_width = 900
     page.window_min_height = 600
-    page.theme_mode = ft.ThemeMode.SYSTEM
-
     page.padding = 0
+
+    page.theme_mode = ft.ThemeMode.SYSTEM
     page.theme = Theme(color_scheme_seed="#FFA500", visual_density=ThemeVisualDensity.COMPACT)
     page.dark_theme = Theme(color_scheme_seed="#FFA500", visual_density=ThemeVisualDensity.COMPACT)
 
     app = App(context=InstallationContext(dev_mode=options.dev, can_skip_adding_distro=True),
               game=GameCopy(),
-              config=Config(page))
+              config=Config(page),
+              page=page)
 
-    page.app = app
-    app.page = page
+    # page.app = app
     # TODO: pass 'dev' options further, it's needed in case of changing the context
-
-    # TODO: move to app init
-    app.current_game_process = None
 
     # at the end of each operation, commod tries to create config near itself
     # if we can load it - we will use the data from it, except when overriden from console args
-    app.config = Config(page)
+
+    # TODO: remove if is really duplicate
+    # app.config = Config(page
     app.config.load_from_file()
 
     app.context.setup_loggers(stream_only=True)
-
-    app.logger = app.context.logger
     app.context.load_system_info()
 
     page.window_width = app.config.init_width
@@ -122,24 +118,8 @@ async def main(page: Page):
     page.window_top = app.config.init_pos_y
 
     page.theme_mode = app.config.init_theme
-    match app.config.lang:
-        case SupportedLanguages.ENG.value:
-            localisation.LANG = SupportedLanguages.ENG.value
-            app.config.prefered_mod_lang = SupportedLanguages.ENG.value
-        case SupportedLanguages.UA.value:
-            localisation.LANG = SupportedLanguages.UA.value
-            app.config.prefered_mod_lang = SupportedLanguages.UA.value
-        case SupportedLanguages.RU.value:
-            localisation.LANG = SupportedLanguages.RU.value
-            app.config.prefered_mod_lang = SupportedLanguages.RU.value
-        case _:
-            # override
-            app.config.lang = localisation.LANG
-            app.config.prefered_mod_lang = localisation.LANG
 
-    localisation.STRINGS = localisation.get_strings_dict()
-
-    app.logger.info(f"Current lang: {localisation.LANG}")
+    app.logger.info(f"Current lang: {app.config.lang}")
 
     # if app.config.known_games:
     target_dir = app.config.current_game
@@ -178,7 +158,7 @@ async def main(page: Page):
             # await app.load_distro_async()
         except Exception as ex:
             # TODO: handle individuals exceptions properly if they are not caught lower
-            app.logger.error(f"[Distro loading error] {ex}")
+            app.logger.error("[Distro loading error]", exc_info=ex)
 
     if app.context.distribution_dir:
         app.context.setup_logging_folder()
@@ -190,7 +170,7 @@ async def main(page: Page):
 
     create_sections(app)
 
-    page.theme_icon_btn = ft.Ref[IconButton]()
+    page.theme_icon_btn: ft.Ref[IconButton] = ft.Ref[IconButton]()
     theme_icon = ft.icons.BRIGHTNESS_AUTO
     match page.theme_mode:
         case ft.ThemeMode.SYSTEM:
@@ -236,10 +216,9 @@ async def main(page: Page):
                                       selected_icon_color=ft.colors.ON_SURFACE_VARIANT)),
         on_change=app.change_page,
     )
-    page.rail = rail
     app.rail = rail
 
-    page.icon_maximize = ft.Ref[IconButton]()
+    page.icon_maximize: ft.Ref[IconButton] = ft.Ref[IconButton]()
     # title bar to replace system one
     await page.add_async(
         ft.Row(

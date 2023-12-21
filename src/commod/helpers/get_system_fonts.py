@@ -29,9 +29,9 @@ def get_fonts() -> list:
     font_list = []
 
     def font_enum(logfont, textmetricex, fonttype, param):
-        str = logfont.contents.lfFaceName
-        if (any(str in s for s in font_list) is False):
-            font_list.append(str)
+        face_name = logfont.contents.lfFaceName
+        if (any(face_name in s for s in font_list) is False):
+            font_list.append(face_name)
         return True
 
     hdc = ctypes.windll.user32.GetDC(None)

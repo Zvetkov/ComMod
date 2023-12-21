@@ -2,6 +2,8 @@ import locale
 import logging
 from enum import Enum
 
+from attr import dataclass
+
 from game.data import OWN_VERSION
 from helpers.file_ops import get_internal_file_path, read_yaml
 
@@ -12,6 +14,10 @@ DEM_DISCORD_MODS_DOWNLOAD_SCREEN = "https://discord.gg/deus-ex-machina-522817939
 COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
 WIKI_COMPATCH = "https://deuswiki.com/w/Community_Patch"
 
+@dataclass
+class LocalizationService:
+    current_language: str
+    strings: dict[str, dict[str, str]]
 
 class LangFlags(Enum):
     eng = "assets\\flags\\openmoji_uk.svg"
@@ -29,20 +35,19 @@ class SupportedLanguages(Enum):
     UA = "ua"
 
     @classmethod
-    def list_values(cls) -> list:
+    def list_values(cls) -> list[str]:
         return [c.value for c in cls]
 
     @classmethod
-    def list_names(cls) -> list:
+    def list_names(cls) -> list[str]:
         return [c.name for c in cls]
 
 # Fallback for new lines that are added in development,
 # before they can be translated to all supported langs
-local_dict = {
+local_dict: dict[str, str] = {
 }
 
-
-def get_strings_dict() -> dict:
+def get_strings_dict() -> dict[str, dict[str, str]]:
     eng = read_yaml(get_internal_file_path("localisation/strings_eng.yaml"))
     rus = read_yaml(get_internal_file_path("localisation/strings_rus.yaml"))
     ukr = read_yaml(get_internal_file_path("localisation/strings_ukr.yaml"))
@@ -61,15 +66,15 @@ def get_strings_dict() -> dict:
     return loc_dict
 
 
-def tr(str_name: str, **kwargs) -> str:
+def tr(str_name: str, **kwargs: str) -> str:
     # return "SomeString"
     """Return localised string based on the current locale language.
 
     Uses localisation files for each supported language
     """
-    loc_str = STRINGS.get(str_name)
+    loc_str = localization_service.strings.get(str_name)
     if loc_str is not None:
-        final_string = loc_str[LANG]
+        final_string = loc_str[localization_service.current_language]
         if "{OWN_VERSION}" in final_string:
             final_string = final_string.replace("{OWN_VERSION}", OWN_VERSION)
         if kwargs:
@@ -83,16 +88,20 @@ def tr(str_name: str, **kwargs) -> str:
     logger.warning(f"Localized string '{str_name}' not found!")
     return f"Unlocalised string '{str_name}'"
 
+def get_default_lang() -> str:
+    def_locale_tuple = locale.getdefaultlocale()
+    if isinstance(def_locale_tuple[0], str):
+        def_locale = def_locale_tuple[0].replace("_", "-")
+    else:
+        return "eng"
 
-def_locale = locale.getdefaultlocale()[0].replace("_", "-")
+    if def_locale[-3:] == "-RU":
+        return "ru"
+    if def_locale[:2] == "uk" or def_locale[-3:] == "-UA":
+        return "ua"
+    if def_locale[:3] == "ru-":
+        return "ru"
 
-if def_locale[-3:] == "-RU":
-    LANG = "ru"
-elif def_locale[:2] == "uk" or def_locale[-3:] == "-UA":
-    LANG = "ua"
-elif def_locale[:3] == "ru-":
-    LANG = "ru"
-else:
-    LANG = "eng"
+    return "eng"
 
-STRINGS = get_strings_dict()
+localization_service = LocalizationService(get_default_lang(), get_strings_dict())

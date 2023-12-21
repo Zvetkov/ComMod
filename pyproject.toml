@@ -5,21 +5,26 @@ requires-python = "~=3.11"
 
 [tool.ruff]
 line-length = 110
+extend-exclude = ["venv", "C:\\Users\\**\\*.py"]
 select = ["ALL"]
 cache-dir = "/tmp/ruff-cache/"
-ignore = ["D1", "TCH002", "TCH003", "ANN101", "COM812", "TD", "FIX", "DTZ005",
+ignore = ["D1", "TCH002", "TCH003", "ANN101", "ANN102", "COM812", "TD", "FIX", "DTZ005",
           "EM101", "EM102", "TRY003", "TRY301", "G004", # logging and exceptions improvements
           "C901", "PLR0912", "PLR0915", # complexity suggestions
           "ERA001", # dead code
-          "PTH",
-          "FBT" # booleans as args
+          "PTH", # migration to pathlib from os (mostly)
+          "FBT", # booleans as args,
+          "T201", "S605", "S607", # print, os.system("cls"),
+          "TRY400", # logging.error -> exception
           ]
 # D1 disabled for philosophical reason, hard docstrings requirement is debatable
-# ANN101 disabled as type checkers can infer this automatically
+# ANN101, ANN102 are disabled as type checkers can infer this automatically
 # TCH *2, *3 disabled to decrease complexity of imports
 # COM812 is giving false positives on multiline string concatenation
 # TD and FIX disabled in a single developer context, as all responsibility is on him
 # DTZ005 is useless in context when TZ is local and datetime used for short timing
+# T201, S605\6 - 'print' and os.system("cls") are extensively used in cli version of the app
+# TRY400 - our usage of logging.error is not requiring to impicitly provide traceback 
 
 # PTH - not a pathlib evangelist and most of these are not hard truths, maybe consider later on
 # ERA001 - remove ignore and fix on next version after 2.1
@@ -30,11 +35,17 @@ ignore = ["D1", "TCH002", "TCH003", "ANN101", "COM812", "TD", "FIX", "DTZ005",
 
 [tool.ruff.lint.isort.sections]
 no-lines-before = ["standard-library", "local-folder"]
-known-local-folder = ["src"]
-sections = ["FUTURE", "STDLIB", "FIRSTPARTY", "THIRDPARTY", "LOCALFOLDER"]
+# known-local-folder = ["src"]
+section-order = ["future", "standard-library", "first-party", "third-party", "local-folder"]
+# sections = ["FUTURE", "STDLIB", "FIRSTPARTY", "THIRDPARTY", "LOCALFOLDER"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "pep257"
 
 # [tool.ruff.lint]
 # extend-select = ["E501"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+include = "./src/"
+exclude = ["venv", "C:\\Users\\**\\*.py"]

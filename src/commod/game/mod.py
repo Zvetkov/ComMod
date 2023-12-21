@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from functools import total_ordering
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from zipfile import ZipInfo
 
 from console.color import bcolors, fconsole, remove_colors
@@ -19,7 +19,8 @@ from localisation.service import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH, tr
 from pathvalidate import sanitize_filename
 from py7zr import py7zr
 
-from .data import get_known_mod_display_name, is_known_lang
+from ..localisation.service import is_known_lang
+from .data import get_known_mod_display_name
 
 logger = logging.getLogger("dem")
 
@@ -30,6 +31,10 @@ class GameInstallments(Enum):
     M113 = 2
     ARCADE = 3
     UNKNOWN = 4
+
+    @classmethod
+    def list_values(cls) -> list[int]:
+        return [c.value for c in cls]
 
 
 class BaseMod:
@@ -82,11 +87,11 @@ class BaseMod:
     @total_ordering
     class Version:
         class VersionPartCounts(Enum):
-            NO_VERSION: 0
-            MAJOR_ONLY: 1
-            SHORT_WITH_MINOR: 2
-            FULL: 3
-            FULL_WITH_ID: 4
+            NO_VERSION = 0
+            MAJOR_ONLY = 1
+            SHORT_WITH_MINOR = 2
+            FULL = 3
+            FULL_WITH_ID = 4
 
         def __init__(self, version_str: str) -> None:
             self.major = "0"
@@ -106,16 +111,16 @@ class BaseMod:
             if has_minor_ver:
                 version_split = numeric_version.split(".")
                 version_levels = len(version_split)
-                if version_levels >= self.VersionPartCounts.MAJOR_ONLY:
+                if version_levels >= self.VersionPartCounts.MAJOR_ONLY.value:
                     self.major = version_split[0][:4]
 
-                if version_levels >= self.VersionPartCounts.SHORT_WITH_MINOR:
+                if version_levels >= self.VersionPartCounts.SHORT_WITH_MINOR.value:
                     self.minor = version_split[1][:4]
 
-                if version_levels >= self.VersionPartCounts.FULL:
+                if version_levels >= self.VersionPartCounts.FULL.value:
                     self.patch = version_split[2][:10]
 
-                if version_levels >= self.VersionPartCounts.FULL_WITH_IDL:
+                if version_levels >= self.VersionPartCounts.FULL_WITH_ID.value:
                     self.patch = "".join(version_split[2:])
             else:
                 self.major = numeric_version
@@ -131,10 +136,10 @@ class BaseMod:
         def __repr__(self) -> str:
             return str(self)
 
-        def _is_valid_operand(self, other) -> bool:  # noqa: ANN001
+        def _is_valid_operand(self, other: object) -> bool:
             return isinstance(other, Mod.Version)
 
-        def __eq__(self, other: Mod.Version) -> bool:
+        def __eq__(self, other: object) -> bool:
             if not self._is_valid_operand(other):
                 return NotImplemented
 
@@ -168,7 +173,7 @@ class Mod(BaseMod):
        and related functions.
     """
 
-    def __init__(self, yaml_config: dict, distribution_dir: str) -> None:
+    def __init__(self, yaml_config: dict[str, Any], distribution_dir: str) -> None:
         super().__init__(yaml_config, distribution_dir)
         try:
             url = yaml_config.get("link")
@@ -1096,16 +1101,15 @@ class Mod(BaseMod):
         return compatible, error_msg
 
     @staticmethod
-    def validate_install_config_struct(install_config: Any) -> bool:
+    def validate_install_config_struct(install_config: Any) -> bool:  # noqa: ANN401
         logger.info("--- Validating install config struct ---")
-        is_dict = isinstance(install_config, dict)
-        if not is_dict:
+        if not isinstance(install_config, dict):
             logger.error("\tFAIL: broken config encountered, can't be read as dictionary")
             return False
 
         # schema type 1: list of possible types, required(bool)
         # schema type 2: list of possible types, required(bool), value[min, max]
-        schema_top_level = {
+        schema_top_level: dict[str, list[Any]] = {
             "name": [[str], True],
             "display_name": [[str], True],
             "installment": [[str], False],
@@ -1158,7 +1162,7 @@ class Mod(BaseMod):
             "DoNotLoadMainmenuLevel": [[str], False],
             "weather_AtmoRadius": [[str], False],
             "weather_ConfigFile": [[str], False]}
-        schema_optional_content = {
+        schema_optional_content: dict[str, list[Any]] = {
             "name": [[str], True],
             "display_name": [[str], True],
             "description": [[str], True],
@@ -1357,10 +1361,10 @@ class Mod(BaseMod):
         if not self.no_base_content:
             mod_base_paths = []
             if self.base_data_dirs:
-                mod_base_paths = [Path(mod_root_dir) / dir for dir in self.base_data_dirs]
+                mod_base_paths = [Path(mod_root_dir) / base_dir for base_dir in self.base_data_dirs]
 
             if self.bin_dirs:
-                mod_base_paths.extend(Path(mod_root_dir) / dir for dir in self.bin_dirs)
+                mod_base_paths.extend(Path(mod_root_dir) / bin_dir for bin_dir in self.bin_dirs)
 
             # TODO: is checking for is_dir enough? How it works for non existing but valid paths?
             data_dir_validated = all(base_path.is_dir() for base_path in mod_base_paths)
@@ -1373,7 +1377,6 @@ class Mod(BaseMod):
             else:
                 logger.info("\tPASS: base mod data folders validation result")
 
-        # TODO: replaced None check with empty check, is this OK?
         if self.optional_content:
             for option in self.optional_content:
                 validated &= Path(mod_root_dir, self.options_base_dir, option.get("name")).is_dir()
@@ -1403,7 +1406,7 @@ class Mod(BaseMod):
     def compatible_with_mod_manager(self, patcher_version: str | float) -> bool:
         compatible = True
 
-        patcher_version_parsed = Mod.Version(patcher_version)
+        patcher_version_parsed = Mod.Version(str(patcher_version))
         patcher_version_parsed.identifier = None
         error_msg = ""
         mod_manager_too_new = False
@@ -1637,7 +1640,7 @@ class Mod(BaseMod):
         UNCATEGORIZED = 10
 
         @classmethod
-        def list_values(cls) -> list:
+        def list_values(cls) -> list[int]:
             return [c.value for c in cls]
 
         @classmethod
