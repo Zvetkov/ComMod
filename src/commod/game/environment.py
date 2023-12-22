@@ -47,8 +47,16 @@ from helpers.errors import (
 from helpers.file_ops import get_config, load_yaml, read_yaml, running_in_venv, write_xml_to_file_async
 from helpers.parse_ops import shorten_path
 from localisation.service import tr
-from mod import GameInstallments, Mod
+from mod import GameInstallments, Mod, validate_manifest_struct
 
+class Games(Enum):
+    EM1 = "exmachina"
+    M113 = "m113"
+    ARCADE = "arcade"
+
+    @classmethod
+    def list_values(cls) -> list[str]:
+        return [c.value for c in cls]
 
 class GameStatus(Enum):
     COMPATIBLE = ""
@@ -144,7 +152,6 @@ class InstallationContext:
         """
         if self.validate_distribution_dir(distribution_dir, legacy_checks=legacy_checks):
             self.distribution_dir = os.path.normpath(distribution_dir)
-            self.short_path = shorten_path(self.distribution_dir, 45)
         elif not ignore_invalid:
             raise DistributionNotFoundError(
                 distribution_dir,
@@ -197,7 +204,7 @@ class InstallationContext:
         yaml_config = read_yaml(yaml_path)
         if yaml_config is None:
             raise CorruptedRemasterFilesError(yaml_path, "Couldn't read ComRemaster manifest")
-        if not Mod.validate_install_config_struct(yaml_config, yaml_path):
+        if not validate_manifest_struct(yaml_config, yaml_path):
             raise CorruptedRemasterFilesError(yaml_path, "Couldn't validate ComRemaster manifes or files")
         else:
             self.remaster_config = yaml_config
@@ -228,7 +235,6 @@ class InstallationContext:
 
         if self.validate_distribution_dir(exe_path, legacy_checks=legacy_checks):
             self.distribution_dir = exe_path
-            self.short_path = shorten_path(self.distribution_dir, 45)
         else:
             raise DistributionNotFoundError(exe_path, "Distribution not found around mod manager exe")
 
@@ -272,7 +278,7 @@ class InstallationContext:
                 if mod_config_path in self.validated_mod_configs:
                     self.validated_mod_configs.pop(mod_config_path, None)
                 continue
-            config_validated = Mod.validate_install_config_struct(yaml_config, mod_config_path)
+            config_validated = validate_manifest_struct(yaml_config, mod_config_path)
             if config_validated:
                 self.validated_mod_configs[mod_config_path] = yaml_config
                 self.logger.debug(f"Loaded and validated mod config: {mod_config_path}")
@@ -405,11 +411,11 @@ class InstallationContext:
                     manifest_b = archive.read(manifests[0])
                     if manifest_b:
                         manifest = load_yaml(manifest_b)
-                        if Mod.validate_install_config_struct(
+                        if validate_manifest_struct(
                                 manifest, manifests[0].filename,
                                 archive_file_list=file_list,
                                 root_path=archive_path):
-                            self.archived_manifests_cache[archive_path] = manifest
+                                self.archived_manifests_cache[archive_path] = manifest
                             return manifest
                         self.archived_manifests_cache[archive_path] = {}
                         return {}
@@ -445,7 +451,7 @@ class InstallationContext:
                         manifest_b = next(manifests_read_dict.values())
                     if manifest_b:
                         manifest = load_yaml(manifest_b)
-                        if Mod.validate_install_config_struct(manifest, manifests[0].filename,
+                        if validate_manifest_struct(manifest, manifests[0].filename,
                                                        archive_file_list=file_list,
                                                        root_path=archive_path):
                             self.archived_manifests_cache[archive_path] = manifest

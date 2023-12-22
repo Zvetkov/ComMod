@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 
 import logging
 import operator
@@ -14,9 +15,16 @@ from zipfile import ZipInfo
 
 from console.color import bcolors, fconsole, remove_colors
 from data import get_known_mod_display_name
+from helpers import validation
 from helpers.file_ops import copy_from_to_async_fast, get_internal_file_path, read_yaml
-from helpers.parse_ops import parse_simple_relative_path, process_markdown, remove_substrings
-from localisation.service import is_known_lang, tr
+from helpers.parse_ops import (
+    parse_bool_from_dict,
+    parse_simple_relative_path,
+    parse_str_from_dict,
+    process_markdown,
+    remove_substrings,
+)
+from localisation.service import SupportedLanguages, is_known_lang, tr
 from pathvalidate import sanitize_filename
 from py7zr import py7zr
 
@@ -24,6 +32,15 @@ from commod.game.data import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH
 
 logger = logging.getLogger("dem")
 
+
+class SupportedGames(Enum):
+    EXMACHINA = "exmachina"
+    M113 = "m113"
+    ARCADE = "arcade"
+
+    @classmethod
+    def list_values(cls) -> list[str]:
+        return [c.value for c in cls]
 
 class GameInstallments(Enum):
     ALL = 0
@@ -36,233 +53,317 @@ class GameInstallments(Enum):
     def list_values(cls) -> list[int]:
         return [c.value for c in cls]
 
+def validate_manifest_struct(install_config: Any) -> bool:  # noqa: ANN401
+    logger.info("--- Validating install config struct ---")
+    if not isinstance(install_config, dict):
+        logger.error("\tFAIL: broken config encountered, can't be read as dictionary")
+        return False
 
-class BaseMod:
-    def __init__(self, yaml_config: dict) -> None:
-        self.vanilla_mod = False
+    # schema type 1: list of possible types, required(bool)
+    # schema type 2: list of possible types, required(bool), value[min, max]
+    schema_top_level: dict[str, list[Any]] = {
+        # primary required
+        "name": [[str], True],
+        "display_name": [[str], True],
+        "version": [[str, int, float], True],
+        "build": [[str], True],
+        "description": [[str], True],
+        "authors": [[str], True],
+        "patcher_version_requirement": [[str, float, int, list[str | float | int]], True],
 
-        self.name: str = remove_substrings(yaml_config.get("name")[:64].strip(), ("/", "\\", "."))
-        self.installment = yaml_config.get("installment")[:64].strip()
-        self.display_name = yaml_config.get("display_name")[:64].strip()
-        self.description = yaml_config.get("description")[:2048].strip()
-        self.language = yaml_config.get("language")
-        self.authors = yaml_config.get("authors")[:256].strip()
-        self.version = str(yaml_config.get("version"))[:64].strip()
-        self.build = str(yaml_config.get("build"))[:7].strip()
+        # primary with defaults
+        "installment": [[str], False],
+        "language": [[str], False],  # defaults to ru
 
-        # loading defaults
-        if self.language is None:
-            self.language = "ru"
+        # compatibility
+        "prerequisites": [[list], True],
+        "incompatible": [[list], False],
+        "compatible_patch_versions": [[bool, str], False],
+        "compatible_minor_versions": [[bool, str], False],
+        "safe_reinstall_options": [[bool, str], False],
 
-        if self.installment is None:
-            self.installment = "exmachina"
-        else:
-            installment = self.installment.strip()
-            match installment.lower():
-                case "exmachina" | "m113" | "arcade":
-                    self.installment = installment.lower()
-                case _:
-                    msg = f"Game installment id '{installment}' is not in the supported games list!"
-                    raise ValueError(msg)
+        # child versions
+        "translations": [[list[str]], False],
+        "variants": [[list[str]], False],
 
-        self.id = self.calculate_id()
-        self.files_validated = False
+        # secondary
+        "release_date": [[str], False],
+        "link": [[str], False],
+        "trailer_url": [[str], False],
+        "tags": [[list[str]], False],
+        "logo": [[str], False],
+        "install_banner": [[str], False],
+        "screenshots": [[list], False],
+        "change_log": [[str], False],
+        "other_info": [[str], False],
+        "patcher_options": [[dict], False],
+        "config_options": [[dict], False],
+        "optional_content": [[list], False],
+        "strict_requirements": [[bool, str], False],
+        "no_base_content": [[bool, str], False],
+        "base_dirs": [[list[str]], False],
+        "options_base_dir": [[str], False]
+    }
 
-    def calculate_id(self) -> str:
-        return remove_substrings(
-            sanitize_filename(
-                self.name
-                + str(BaseMod.Version(self.version)).replace(".", "")
-                + self.build
-                + f"{self.language}"
-                + f"[{self.installment.replace('exmachina', 'em')}]"
-                ), (" ", "_", "-"))
+    schema_prereqs = {
+        "name": [[str, list[str]], True],
+        "versions": [[list[str | int | float]], False],
+        "optional_content": [[list[str]], False]
+    }
+    schema_patcher_options = {
+        "gravity": [[float], False, (-100.0, -1.0)],
+        "skins_in_shop": [[int], False, (8, 32)],
+        "blast_damage_friendly_fire": [[bool, str], False, None],
+        "game_font": [[str], False]
+    }
+    schema_config_options = {
+        "firstLevel": [[str], False],
+        "DoNotLoadMainmenuLevel": [[str], False],
+        "weather_AtmoRadius": [[str], False],
+        "weather_ConfigFile": [[str], False]}
+    schema_optional_content: dict[str, list[Any]] = {
+        "name": [[str], True],
+        "display_name": [[str], True],
+        "description": [[str], True],
 
-    # TODO: probably a bad idea, maybe move back to Mod? Need to decide what to do with archived mods
-    def validate_mod_paths(
-            self, mod_manifest_path: str,
-            archive_file_list: list[ZipInfo] | py7zr.ArchiveFileList | None = None):
-        pass
+        "default_option": [[str], False],
+        "forced_option": [[bool, str], False],
+        "install_settings": [[list], False],
+    }
+    schema_install_settins = {
+        "name": [[str], True],
+        "description": [[str], True],
+    }
+    validated = validation.validate_dict(install_config, schema_top_level)
+    if not validated:
+        logger.info("<! MOD MANIFEST STRUCTURE FAILED VALIDATION !>")
+        return validated
 
-    @total_ordering
-    class Version:
-        class VersionPartCounts(Enum):
-            NO_VERSION = 0
-            MAJOR_ONLY = 1
-            SHORT_WITH_MINOR = 2
-            FULL = 3
-            FULL_WITH_ID = 4
+    # TODO: minimize and wrap comrem specific checks as legacy logic,
+    # add proper checks for new base_dirs functionality
+    display_name = install_config.get("display_name")
+    mod_name = install_config.get("name")
+    mod_lang = install_config.get("language") or "ru"
+    logger.info(f"Validating mod '{display_name}' ({mod_name}, lang: {mod_lang})")
+    logger.info("\tPASS: Simple manifest validation result")
 
-        def __init__(self, version_str: str) -> None:
-            self.major = "0"
-            self.minor = "0"
-            self.patch = "0"
-            self.identifier = ""
+    patcher_options = install_config.get("patcher_options")
+    if patcher_options is not None:
+        validated &= validation.validate_dict_constrained(patcher_options, schema_patcher_options)
+        logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
+                    "patcher options dict validation result")
+        validated &= len(set(patcher_options.keys()) - set(schema_patcher_options.keys())) == 0
+        logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
+                    "only supported patcher options validation result")
 
-            identifier_index = version_str.find("-")
-            has_minor_ver = "." in version_str
+    config_options = install_config.get("config_options")
+    if validated and config_options is not None:
+        validated &= validation.validate_dict_constrained(config_options, schema_config_options)
+        logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
+                    "config options dict validation result")
+        validated &= len(set(config_options.keys()) - set(schema_config_options.keys())) == 0
+        logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
+                    "only supported config options validation result")
 
-            if identifier_index != -1:
-                self.identifier = version_str[identifier_index + 1:]
-                numeric_version = version_str[:identifier_index]
-            else:
-                numeric_version = version_str
+    prerequisites = install_config.get("prerequisites")
+    if validated and prerequisites is not None:
+        for prereq_entry in prerequisites:
+            validated &= validation.validate_dict(prereq_entry, schema_prereqs)
+        logger.info(f"\t{'PASS' if validated else 'FAIL'}: prerequisites validation result")
 
-            if has_minor_ver:
-                version_split = numeric_version.split(".")
-                version_levels = len(version_split)
-                if version_levels >= self.VersionPartCounts.MAJOR_ONLY.value:
-                    self.major = version_split[0][:4]
+    incompatibles = install_config.get("incompatible")
+    if validated and incompatibles is not None:
+        for incompatible_entry in incompatibles:
+            validated &= validation.validate_dict(incompatible_entry, schema_prereqs)
+        logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
+                    "incompatible content validation result")
 
-                if version_levels >= self.VersionPartCounts.SHORT_WITH_MINOR.value:
-                    self.minor = version_split[1][:4]
+    optional_content = install_config.get("optional_content")
+    if validated and optional_content is not None:
+        validated &= validation.validate_list(optional_content, schema_optional_content)
+        logger.info(f"\t{'PASS' if validated else 'FAIL'}: optional content validation result")
+        if not validated:
+            return None
 
-                if version_levels >= self.VersionPartCounts.FULL.value:
-                    self.patch = version_split[2][:10]
+        for option in optional_content:
+            if option.get("name") in ["base", "display_name", "build", "version"]:
+                validated = False
+                logger.error(f"\tFAIL: optional content name '"
+                             f"{option.get('name')}' is one of the reserved service names, "
+                             f"can't load mod properly!")
+            install_settings = option.get("install_settings")
+            if validated and install_settings is not None:
+                # not ideal place to validate data compliance, but separating this
+                # requires another round of nested reading and checks which is equally ugly
+                validated &= (len(install_settings) > 1)
+                logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
+                            "multiple install settings exists for complex optional content '"
+                            f"{option.get('name')}' validation result")
+                validated &= validation.validate_list(install_settings, schema_install_settins)
+                logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
+                            f"install settings for content '{option.get('name')}' "
+                            "validation result")
+            patcher_options_additional = option.get("patcher_options")
+            if validated and patcher_options_additional is not None:
+                validated &= validation.validate_dict_constrained(patcher_options_additional,
+                                                           schema_patcher_options)
+                logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
+                            "patcher options for additional content "
+                            "validation result")
 
-                if version_levels >= self.VersionPartCounts.FULL_WITH_ID.value:
-                    self.patch = "".join(version_split[2:])
-            else:
-                self.major = numeric_version
+    # if not validated:
+        # logger.info("<! MOD MANIFEST FAILED VALIDATION, SKIPPING DATA CHECK !>")
+        # return validated
 
-            self.is_numeric = all(part.isnumeric() for part in [self.major, self.minor, self.patch])
+    # validated &= Mod.validate_install_config_paths(install_config, archive_file_list)
 
-        def __str__(self) -> str:
-            version = f"{self.major}.{self.minor}.{self.patch}"
-            if self.identifier:
-                version += f"-{self.identifier}"
-            return version
+    logger.info("< MOD MANIFEST STRUCTURE VALIDATED >" if validated
+                else "<! MOD MANIFEST STRUCTURE FAILED VALIDATION !>")
+    return validated
 
-        def __repr__(self) -> str:
-            return str(self)
+# TODO: remove deprecated?
+def get_unique_id_from_manifest(manifest: Any) -> str | None:
+    try:
+        if not isinstance(manifest, dict):
+            raise TypeError("Manifest is broken")
 
-        def _is_valid_operand(self, other: object) -> bool:
-            return isinstance(other, Mod.Version)
+        installment = parse_str_from_dict(manifest, "installment", default="exmachina").lower()
+        if installment not in SupportedGames.list_values():
+            raise ValueError("Incompatible installment", installment)
 
-        def __eq__(self, other: object) -> bool:
-            if not self._is_valid_operand(other):
-                return NotImplemented
+        name = manifest.get("name")
+        if not isinstance(name, str):
+            raise TypeError("Missing name")
 
-            if self.is_numeric and other.is_numeric:
-                return ((int(self.major), int(self.minor), int(self.patch))
-                        ==
-                        (int(other.major), int(other.minor), int(other.patch)))
+        build = manifest.get("build")
+        if not isinstance(build, str):
+            raise TypeError("Missing build")
 
-            return ((self.major.lower(), self.minor.lower(), self.patch.lower())
-                    ==
-                    (self.major.lower(), self.minor.lower(), self.patch.lower()))
+        version = manifest.get("version")
+        if not isinstance(version, str | int | float):
+            raise TypeError("Missing or incorrect version")
 
-        def __lt__(self, other: Mod.Version) -> bool:
-            if not self._is_valid_operand(other):
-                return NotImplemented
+        language = manifest.get("language") or "ru"
+        if not isinstance(language, str):
+            raise TypeError("Incorrect language value")
 
-            if self.is_numeric and other.is_numeric:
-                return ((int(self.major), int(self.minor), int(self.patch))
-                        <
-                        (int(other.major), int(other.minor), int(other.patch)))
+        mod_id_full = "".join((
+            installment,
+            name.lower(),
+            str(Mod.Version(str(version))).lower(),
+            build.lower(),
+            language.lower()
+        ))
+    except (ValueError, TypeError):
+        logger.exception("Error when calculating hash for mod manifest")
+        return None
+    else:
+        return mod_id_full
 
-            return ((self.major.lower(), self.minor.lower(), self.patch.lower())
-                    <
-                    (self.major.lower(), self.minor.lower(), self.patch.lower()))
+class Mod:
+    """Mod for HTA/EM, created from valid manifest.
 
-
-class Mod(BaseMod):
-    """Mod for HTA/EM.
-
-    Contains mod data, installation instructions
-       and related functions.
+    Contains mod data, installation instructions and related functions.
     """
 
-    def __init__(self, yaml_config: dict[str, Any], distribution_dir: str) -> None:
-        super().__init__(yaml_config, distribution_dir)
+    def __init__(self, manifest: dict[str, Any], distribution_dir: str) -> None:
         try:
-            url = yaml_config.get("link")
-            trailer_url = yaml_config.get("trailer_link")
-            self.url = url[:128].strip() if url is not None else ""
-            self.trailer_url = trailer_url[:128].strip() if trailer_url is not None else ""
+            # primary required
+            self.name: str = sanitize_filename(manifest["name"])[:64].strip()
+            self.display_name: str = manifest["display_name"][:64].strip()
+            self.description: str = manifest["description"][:2048].strip()
+            self.authors: str = manifest["authors"][:256].strip()
+            self.version: str = str(manifest.get("version"))[:64].strip()
+            self.build: str = str(manifest.get("build"))[:7].strip()
 
-            self.prerequisites = yaml_config.get("prerequisites")
-            self.incompatible = yaml_config.get("incompatible")
-            self.release_date = yaml_config.get("release_date")
-            self.install_banner = yaml_config.get("install_banner")
-            self.tags = yaml_config.get("tags")
-            self.logo = yaml_config.get("logo")
-            self.screenshots = yaml_config.get("screenshots")
-            self.change_log = yaml_config.get("change_log")
-            self.other_info = yaml_config.get("other_info")
-            self.compatible_minor_versions = False
-            self.compatible_patch_versions = False
-            self.safe_reinstall_options = False
-
-            compatible_minor_versions = yaml_config.get("compatible_minor_versions")
-            if compatible_minor_versions is not None:
-                if isinstance(compatible_minor_versions, bool):
-                    self.compatible_minor_versions = compatible_minor_versions
-                else:
-                    compatible_minor_versions = str(compatible_minor_versions)
-
-                    if compatible_minor_versions.lower() == "true":
-                        self.compatible_minor_versions = True
-                    elif compatible_minor_versions.lower() == "false":
-                        pass
-                    else:
-                        raise ValueError("'compatible_minor_versions' should be boolean!")
-
-            if self.compatible_minor_versions:
-                self.compatible_patch_versions = True
-                if yaml_config.get("compatible_patch_versions") is not None:
-                    self.logger.debug(f"Warn for content '{self.name}': "
-                                      "when compatible_minor_versions is True, "
-                                      "compatible_patch_versions is automatically True. No need to specify.")
+            # primary with defaults
+            self.language: str = parse_str_from_dict(manifest, "language",
+                                                     default=SupportedLanguages.RU.value).lower()
+            installment: str = parse_str_from_dict(manifest, "installment",
+                                                   default=SupportedGames.EXMACHINA.value).lower()
+            if installment in SupportedGames.list_values():
+                self.installment = installment
             else:
-                compatible_patch_versions = yaml_config.get("compatible_patch_versions")
-                if compatible_patch_versions is not None:
-                    if isinstance(compatible_patch_versions, bool):
-                        self.compatible_patch_versions = compatible_patch_versions
-                    else:
-                        compatible_patch_versions = str(compatible_patch_versions)
+                raise ValueError("Game installment is not in the supported games list!", installment)
 
-                        if compatible_patch_versions.lower() == "true":
-                            self.compatible_patch_versions = True
-                        elif compatible_patch_versions.lower() == "false":
-                            pass
-                        else:
-                            raise ValueError("'compatible_patch_versions' should be boolean!")
+            # compatibility
+            self.prerequisites = manifest.get("prerequisites")
+            self.incompatible = manifest.get("incompatible")
+            # TODO: clean this up
+            # to simplify hadling of incomps and reqs
+            # we always work with them as if they are list of choices
+            if self.prerequisites is None:
+                self.prerequisites = []
+            elif isinstance(self.prerequisites, list):
+                if not self.prerequisites:
+                    self.strict_requirements = True
+                for prereq in self.prerequisites:
+                    if isinstance(prereq.get("name"), str):
+                        prereq["name"] = [prereq["name"]]
+                    if isinstance(prereq.get("versions"), str):
+                        prereq["versions"] = [prereq["versions"]]
 
-            safe_reinstall_options = yaml_config.get("safe_reinstall_options")
-            if safe_reinstall_options is not None:
-                if isinstance(safe_reinstall_options, bool):
-                    self.safe_reinstall_options = safe_reinstall_options
-                else:
-                    safe_reinstall_options = str(safe_reinstall_options)
+            if self.incompatible is None:
+                self.incompatible = []
+            elif isinstance(self.incompatible, list):
+                for incomp in self.incompatible:
+                    if isinstance(incomp.get("name"), str):
+                        incomp["name"] = [incomp["name"]]
+                    if isinstance(incomp.get("versions"), str):
+                        incomp["versions"] = [incomp["versions"]]
 
-                    if safe_reinstall_options.lower() == "true":
-                        self.safe_reinstall_options = True
-                    elif safe_reinstall_options.lower() == "false":
-                        pass
-                    else:
-                        raise ValueError("'safe_reinstall_options' should be boolean!")
-
-            self.individual_require_status = []
-            self.individual_incomp_status = []
+            # TODO: can be calculated once on loading reqs and incomps
             self.requirements_style = "mixed"
             self.incompatibles_style = "mixed"
 
-            translations = yaml_config.get("translations")
+            self.compatible_minor_versions = parse_bool_from_dict(
+                manifest, "compatible_minor_versions", default=False)
+
+            if self.compatible_minor_versions:
+                self.compatible_patch_versions = True
+            else:
+                self.compatible_patch_versions = parse_bool_from_dict(
+                    manifest, "compatible_patch_versions", default=False)
+
+            self.safe_reinstall_options = parse_bool_from_dict(
+                    manifest, "safe_reinstall_options", default=False)
+
+            # child versions
+            ...
+
+            # secondary
+            release_date = manifest.get("release_date")
+            url = manifest.get("link")
+            trailer_url = manifest.get("trailer_link")
+            self.release_date: str = release_date[:32] if release_date else ""
+            self.url: str = url[:128].strip() if url else ""
+            self.trailer_url: str = trailer_url[:128].strip() if trailer_url else ""
+
+            tags = manifest.get("tags")
+            if tags is None:
+                self.tags = [Mod.Tags.UNCATEGORIZED.name]
+            else:
+                # removing unknown values
+                self.tags = list({tag.upper() for tag in self.tags} & set(Mod.Tags.list_names()))
+
+
+            self.logo = manifest.get("logo")
+            self.install_banner = manifest.get("install_banner")
+            self.screenshots = manifest.get("screenshots")
+            self.change_log = manifest.get("change_log")
+            self.other_info = manifest.get("other_info")
+
+            # TODO: make this runtime computed properties?
+            self.individual_require_status = []
+            self.individual_incomp_status = []
+
+
+            translations = manifest.get("translations")
             self.translations = {}
             self.translations_loaded = {}
             if translations is not None:
                 for translation in translations:
                     self.translations[translation] = is_known_lang(translation)
-
-            if self.release_date is None:
-                self.release_date = ""
-
-            if self.tags is None:
-                self.tags = [Mod.Tags.UNCATEGORIZED.name]
-            else:
-                # removing unknown values
-                self.tags = list({tag.upper() for tag in self.tags} & set(Mod.Tags.list_names()))
 
             if self.screenshots is None:
                 self.screenshots = []
@@ -289,7 +390,7 @@ class Mod(BaseMod):
                 self.other_info = ""
 
             self.strict_requirements = True
-            strict_requirements = yaml_config.get("strict_requirements")
+            strict_requirements = manifest.get("strict_requirements")
             if strict_requirements is not None:
                 if isinstance(strict_requirements, bool):
                     self.strict_requirements = strict_requirements
@@ -303,32 +404,8 @@ class Mod(BaseMod):
                     else:
                         raise ValueError("'strict_requirements' should be boolean!")
 
-            # to simplify hadling of incomps and reqs
-            # we always work with them as if they are list of choices
-            if self.prerequisites is None:
-                self.prerequisites = []
-            elif isinstance(self.prerequisites, list):
-                if not self.prerequisites:
-                    self.strict_requirements = True
-                for prereq in self.prerequisites:
-                    if isinstance(prereq.get("name"), str):
-                        prereq["name"] = [prereq["name"]]
-                    if isinstance(prereq.get("versions"), str):
-                        prereq["versions"] = [prereq["versions"]]
 
-            if not self.prerequisites:
-                self.vanilla_mod = True
-
-            if self.incompatible is None:
-                self.incompatible = []
-            elif isinstance(self.incompatible, list):
-                for incomp in self.incompatible:
-                    if isinstance(incomp.get("name"), str):
-                        incomp["name"] = [incomp["name"]]
-                    if isinstance(incomp.get("versions"), str):
-                        incomp["versions"] = [incomp["versions"]]
-
-            patcher_version_requirement = yaml_config.get("patcher_version_requirement")
+            patcher_version_requirement = manifest.get("patcher_version_requirement")
             if patcher_version_requirement is None:
                 self.patcher_version_requirement = [">=1.10"]
             elif not isinstance(patcher_version_requirement, list):
@@ -336,14 +413,14 @@ class Mod(BaseMod):
             else:
                 self.patcher_version_requirement = [str(ver) for ver in patcher_version_requirement]
 
-            self.patcher_options = yaml_config.get("patcher_options")
-            self.config_options = yaml_config.get("config_options")
+            self.patcher_options = manifest.get("patcher_options")
+            self.config_options = manifest.get("config_options")
 
             self.mod_files_root = str(distribution_dir)
             self.options_dict = {}
             self.no_base_content = False
 
-            no_base_content = yaml_config.get("no_base_content")
+            no_base_content = manifest.get("no_base_content")
             if no_base_content is not None:
                 if isinstance(no_base_content, bool):
                     self.no_base_content = no_base_content
@@ -361,7 +438,7 @@ class Mod(BaseMod):
             if self.no_base_content:
                 self.base_data_dirs = []
             else:
-                base_dirs = yaml_config.get("base_dirs")
+                base_dirs = manifest.get("base_dirs")
                 if base_dirs:
                     self.base_data_dirs = [parse_simple_relative_path(one_dir) for one_dir in base_dirs]
                 elif self.name == "community_patch":
@@ -373,20 +450,20 @@ class Mod(BaseMod):
 
             # TODO: add verification, fix naming of libs_dirs param
             self.bin_dirs = []
-            libs_dirs = yaml_config.get("libs_dirs")
+            libs_dirs = manifest.get("libs_dirs")
             if libs_dirs is not None:
                 self.bin_dirs = [parse_simple_relative_path(one_dir) for one_dir in libs_dirs]
             elif self.name in ("community_path", "community_remaster"):
                 self.bin_dirs = ["libs"]
 
             self.options_base_dir = ""
-            options_base_dir = yaml_config.get("options_base_dir")
+            options_base_dir = manifest.get("options_base_dir")
             if options_base_dir is not None:
                 self.options_base_dir = parse_simple_relative_path(options_base_dir)
 
             self.optional_content = []
 
-            optional_content = yaml_config.get("optional_content")
+            optional_content = manifest.get("optional_content")
             if optional_content and optional_content is not None:
                 if isinstance(optional_content, list):
                     for option in optional_content:
@@ -406,10 +483,24 @@ class Mod(BaseMod):
             # logger.error(er_message)
             raise ValueError(er_message)
 
-    def load_translations(self, load_gui_info: bool = False) -> None:
+    @property
+    def id(self) -> str:
+        return remove_substrings(
+            sanitize_filename(
+                self.name
+                + str(Mod.Version(self.version)).replace(".", "")
+                + self.build
+                + f"{self.language}"
+                + f"[{self.installment.replace('exmachina', 'em')}]"
+                ), (" ", "_", "-"))
+
+    @property
+    def vanilla_mod(self) -> bool:
+        return not self.prerequisites
+
+    def load_translations(self) -> None:
         self.translations_loaded[self.language] = self
-        if load_gui_info:
-            self.load_gui_info()
+        self.load_gui_info()
         if self.translations:
             for lang in self.translations:
                 lang_manifest_path = Path(self.mod_files_root, f"manifest_{lang}.yaml")
@@ -417,7 +508,7 @@ class Mod(BaseMod):
                     raise ValueError(f"Lang '{lang}' specified but manifest for it is missing! "
                                      f"(Mod: {self.name})")
                 yaml_config = read_yaml(lang_manifest_path)
-                config_validated = Mod.validate_install_config_struct(yaml_config, lang_manifest_path)
+                config_validated = validate_manifest_struct(yaml_config, lang_manifest_path)
                 if config_validated:
                     mod_tr = Mod(yaml_config, self.mod_files_root)
                     if mod_tr.name != self.name:
@@ -450,8 +541,7 @@ class Mod(BaseMod):
                                          f"in manifest name! (Mod: {self.name})")
 
                     self.translations_loaded[lang] = mod_tr
-                    if load_gui_info:
-                        mod_tr.load_gui_info()
+                    mod_tr.load_gui_info()
 
         for lang, mod in self.translations_loaded.items():
             mod.known_language = is_known_lang(lang)
@@ -1100,168 +1190,6 @@ class Mod(BaseMod):
                     (fake_incomp, False, [f'{tr("already_installed")}: {existing_string}']))
         return compatible, error_msg
 
-    @staticmethod
-    def validate_install_config_struct(install_config: Any) -> bool:  # noqa: ANN401
-        logger.info("--- Validating install config struct ---")
-        if not isinstance(install_config, dict):
-            logger.error("\tFAIL: broken config encountered, can't be read as dictionary")
-            return False
-
-        # schema type 1: list of possible types, required(bool)
-        # schema type 2: list of possible types, required(bool), value[min, max]
-        schema_top_level: dict[str, list[Any]] = {
-            "name": [[str], True],
-            "display_name": [[str], True],
-            "installment": [[str], False],
-            "version": [[str, int, float], True],
-            "build": [[str], True],
-            "description": [[str], True],
-            "authors": [[str], True],
-            "language": [[str], False],  # defaults to ru
-
-            "patcher_version_requirement": [[str, float, int, list[str | float | int]], True],
-            "prerequisites": [[list], True],
-            "incompatible": [[list], False],
-            "compatible_patch_versions": [[bool, str], False],
-            "compatible_minor_versions": [[bool, str], False],
-            "safe_reinstall_options": [[bool, str], False],
-
-            "release_date": [[str], False],
-            "trailer_url": [[str], False],
-            "variants": [[list[str]], False],
-            "translations": [[list[str]], False],
-            "link": [[str], False],
-            "tags": [[list[str]], False],
-            "logo": [[str], False],
-            "install_banner": [[str], False],
-            "screenshots": [[list], False],
-            "change_log": [[str], False],
-            "other_info": [[str], False],
-            "patcher_options": [[dict], False],
-            "config_options": [[dict], False],
-            "optional_content": [[list], False],
-            "strict_requirements": [[bool, str], False],
-            "no_base_content": [[bool, str], False],
-            "base_dirs": [[list[str]], False],
-            "options_base_dir": [[str], False]
-        }
-
-        schema_prereqs = {
-            "name": [[str, list[str]], True],
-            "versions": [[list[str | int | float]], False],
-            "optional_content": [[list[str]], False]
-        }
-        schema_patcher_options = {
-            "gravity": [[float], False, [-100.0, -1.0]],
-            "skins_in_shop": [[int], False, [8, 32]],
-            "blast_damage_friendly_fire": [[bool, str], False, None],
-            "game_font": [[str], False]
-        }
-        schema_config_options = {
-            "firstLevel": [[str], False],
-            "DoNotLoadMainmenuLevel": [[str], False],
-            "weather_AtmoRadius": [[str], False],
-            "weather_ConfigFile": [[str], False]}
-        schema_optional_content: dict[str, list[Any]] = {
-            "name": [[str], True],
-            "display_name": [[str], True],
-            "description": [[str], True],
-
-            "default_option": [[str], False],
-            "forced_option": [[bool, str], False],
-            "install_settings": [[list], False],
-        }
-        schema_install_settins = {
-            "name": [[str], True],
-            "description": [[str], True],
-        }
-        validated = Mod.validate_dict(install_config, schema_top_level)
-        if not validated:
-            logger.info("<! MOD MANIFEST STRUCTURE FAILED VALIDATION !>")
-            return validated
-
-        # TODO: minimize and wrap comrem specific checks as legacy logic,
-        # add proper checks for new base_dirs functionality
-        display_name = install_config.get("display_name")
-        mod_name = install_config.get("name")
-        mod_lang = install_config.get("language")
-        logger.info(f"Validating mod '{display_name}' ({mod_name}, lang: {mod_lang})")
-        logger.info("\tPASS: Simple manifest validation result")
-
-        patcher_options = install_config.get("patcher_options")
-        if patcher_options is not None:
-            validated &= Mod.validate_dict_constrained(patcher_options, schema_patcher_options)
-            logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
-                        "patcher options dict validation result")
-            validated &= len(set(patcher_options.keys()) - set(schema_patcher_options.keys())) == 0
-            logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
-                        "only supported patcher options validation result")
-
-        config_options = install_config.get("config_options")
-        if validated and config_options is not None:
-            validated &= Mod.validate_dict_constrained(config_options, schema_config_options)
-            logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
-                        "config options dict validation result")
-            validated &= len(set(config_options.keys()) - set(schema_config_options.keys())) == 0
-            logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
-                        "only supported config options validation result")
-
-        prerequisites = install_config.get("prerequisites")
-        if validated and prerequisites is not None:
-            for prereq_entry in prerequisites:
-                validated &= Mod.validate_dict(prereq_entry, schema_prereqs)
-            logger.info(f"\t{'PASS' if validated else 'FAIL'}: prerequisites validation result")
-
-        incompatibles = install_config.get("incompatible")
-        if validated and incompatibles is not None:
-            for incompatible_entry in incompatibles:
-                validated &= Mod.validate_dict(incompatible_entry, schema_prereqs)
-            logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
-                        "incompatible content validation result")
-
-        optional_content = install_config.get("optional_content")
-        if validated and optional_content is not None:
-            validated &= Mod.validate_list(optional_content, schema_optional_content)
-            logger.info(f"\t{'PASS' if validated else 'FAIL'}: optional content validation result")
-            if not validated:
-                return None
-
-            for option in optional_content:
-                if option.get("name") in ["base", "display_name", "build", "version"]:
-                    validated = False
-                    logger.error(f"\tFAIL: optional content name '"
-                                 f"{option.get('name')}' is one of the reserved service names, "
-                                 f"can't load mod properly!")
-                install_settings = option.get("install_settings")
-                if validated and install_settings is not None:
-                    # not ideal place to validate data compliance, but separating this
-                    # requires another round of nested reading and checks which is equally ugly
-                    validated &= (len(install_settings) > 1)
-                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
-                                "multiple install settings exists for complex optional content '"
-                                f"{option.get('name')}' validation result")
-                    validated &= Mod.validate_list(install_settings, schema_install_settins)
-                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
-                                f"install settings for content '{option.get('name')}' "
-                                "validation result")
-                patcher_options_additional = option.get("patcher_options")
-                if validated and patcher_options_additional is not None:
-                    validated &= Mod.validate_dict_constrained(patcher_options_additional,
-                                                               schema_patcher_options)
-                    logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
-                                "patcher options for additional content "
-                                "validation result")
-
-        # if not validated:
-            # logger.info("<! MOD MANIFEST FAILED VALIDATION, SKIPPING DATA CHECK !>")
-            # return validated
-
-        # validated &= Mod.validate_install_config_paths(install_config, archive_file_list)
-
-        logger.info("< MOD MANIFEST STRUCTURE VALIDATED >" if validated
-                    else "<! MOD MANIFEST STRUCTURE FAILED VALIDATION !>")
-        return validated
-
     def load_legacy_path_defaults(self):
         """Needed to support older mods existed before configurable mod file structure.
 
@@ -1457,131 +1385,6 @@ class Mod(BaseMod):
 
         return compatible, error_msg.strip()
 
-    @staticmethod
-    def validate_dict(validating_dict: dict, scheme: dict) -> bool:
-        """Validate dictionary based on scheme.
-
-        Supported scheme formats:
-        {name: [list of possible types, required(bool)]}.
-        Supports generics for type checking in schemes
-        """
-        # logger.debug(f"Validating dict with scheme {scheme.keys()}")
-        if not isinstance(validating_dict, dict):
-            logger.error(f"Validated part of scheme is not a dict: {validating_dict}")
-            return False
-        for field in scheme:
-            types = scheme[field][0]
-            required = scheme[field][1]
-            value = validating_dict.get(field)
-            if required and value is None:
-                logger.error(f"key '{field}' is required but couldn't be found in manifest")
-                return False
-
-            if required or (not required and value is not None):
-                generics_present = any([hasattr(type_entry, "__origin__") for type_entry in types])
-                if not generics_present:
-                    valid_type = any([isinstance(value, type_entry) for type_entry in types])
-                else:
-                    valid_type = True
-                    for type_entry in types:
-                        if (hasattr(type_entry, "__origin__")
-                           and isinstance(value, typing.get_origin(type_entry))):
-                            if type(value) in [dict, list]:
-                                for value_internal in value:
-                                    if not isinstance(value_internal, typing.get_args(type_entry)):
-                                        valid_type = False
-                                        break
-                            else:
-                                valid_type = False
-                                break
-
-                if not valid_type:
-                    logger.error(f"key '{field}' has value {value} of invalid type '{type(value)}', "
-                                 f"expected: {' or '.join(str(type_inst) for type_inst in types)}")
-                    return False
-        return True
-
-    @staticmethod
-    def get_unique_id_from_manifest(manifest: dict) -> str | None:
-        try:
-            mod_id = []
-            installment = manifest.get("installment")
-            if installment is None:
-                mod_id.append("exmachina")
-            else:
-                if installment.lower() not in ("exmachina", "m113", "arcade"):
-                    return None
-                mod_id.append(installment.lower())
-
-            mod_id.append(manifest.get("name"))
-            mod_id.append(str(Mod.Version(manifest.get("version"))))
-            mod_id.append(manifest.get("build"))
-            mod_id.append(manifest.get("language"))
-
-            if any(part is None for part in mod_id):
-                return None
-
-            mod_id_full = "".join(mod_id)
-            return mod_id_full
-        except Exception as ex:
-            logger.error("Error when calculating hash for mod manifest", ex)
-            return None
-
-    @staticmethod
-    def validate_dict_constrained(validating_dict: dict, scheme: dict) -> bool:
-        """Validate dictionary based on scheme.
-
-        Supported scheme format:
-        {name: [list of possible types, required(bool), int or float value[min, max]]}.
-        Doesn't support generics in schemes.
-        """
-        # logger.debug(f"Validating constrained dict with scheme {scheme.keys()}")
-        for field in scheme:
-            types = scheme[field][0]
-            required = scheme[field][1]
-            value = validating_dict.get(field)
-            if (float in types) or (int in types):
-                min_req = scheme[field][2][0]
-                max_req = scheme[field][2][1]
-
-            if required and value is None:
-                logger.error(f"key '{field}' is required but couldn't be found in manifest")
-                return False
-
-            if required or (not required and value is not None):
-                valid_type = any(isinstance(value, type_entry) for type_entry in types)
-                if not valid_type:
-                    logger.error(f"key '{field}' is of invalid type '{type(field)}', expected '{types}'")
-                    return False
-                if float in types:
-                    try:
-                        value = float(value)
-                    except ValueError:
-                        logger.error(f"key '{field}' can't be converted to float as supported - "
-                                     f"found value '{value}'")
-                        return False
-                if int in types:
-                    try:
-                        value = int(value)
-                    except ValueError:
-                        logger.error(f"key '{field}' can't be converted to int as supported - "
-                                     f"found value '{value}'")
-                        return False
-                if ((float in types) or (int in types)) and (not (min_req <= value <= max_req)):
-                    logger.error(f"key '{field}' is not in supported range '{min_req}-{max_req}'")
-                    return False
-
-        return True
-
-    @staticmethod
-    def validate_list(validating_list: list[dict], scheme: dict) -> bool:
-        """Run validate_dict for multiple lists with the same scheme.
-
-        Return total validation result for them
-        """
-        to_validate = [element for element in validating_list if isinstance(element, dict)]
-        return all(Mod.validate_dict(element, scheme) for element in to_validate)
-
     def get_full_install_settings(self) -> dict:
         """Return settings that describe default installation of the mod."""
         install_settings = {}
@@ -1644,8 +1447,28 @@ class Mod(BaseMod):
             return [c.value for c in cls]
 
         @classmethod
-        def list_names(cls) -> list:
+        def list_names(cls) -> list[str]:
             return [c.name for c in cls]
+
+    @dataclass
+    class Screenshot:
+        img: str
+        text: str | None = None
+        compare: str | None = None
+
+        @property
+        def text(self) -> str | None:
+            return self.compare if isinstance(self._compare, str) else None
+
+        @text.setter
+        def text(self, value) -> None:
+            if isinstance(value, str):
+                self.text = value
+
+        @property
+        def compare(self) -> str | None:
+            return self.compare if isinstance(self._compare, str) else None
+
 
     class OptionalContent:
         def __init__(self, description: dict, parent: Mod) -> None:
@@ -1711,3 +1534,84 @@ class Mod(BaseMod):
                 for option in patcher_options:
                     # optional content can overwrite base mode options
                     parent.patcher_options[option] = patcher_options[option]
+
+    @total_ordering
+    class Version:
+        class VersionPartCounts(Enum):
+            NO_VERSION = 0
+            MAJOR_ONLY = 1
+            SHORT_WITH_MINOR = 2
+            FULL = 3
+            FULL_WITH_ID = 4
+
+        def __init__(self, version_str: str) -> None:
+            self.major = "0"
+            self.minor = "0"
+            self.patch = "0"
+            self.identifier = ""
+
+            identifier_index = version_str.find("-")
+            has_minor_ver = "." in version_str
+
+            if identifier_index != -1:
+                self.identifier = version_str[identifier_index + 1:]
+                numeric_version = version_str[:identifier_index]
+            else:
+                numeric_version = version_str
+
+            if has_minor_ver:
+                version_split = numeric_version.split(".")
+                version_levels = len(version_split)
+                if version_levels >= self.VersionPartCounts.MAJOR_ONLY.value:
+                    self.major = version_split[0][:4]
+
+                if version_levels >= self.VersionPartCounts.SHORT_WITH_MINOR.value:
+                    self.minor = version_split[1][:4]
+
+                if version_levels >= self.VersionPartCounts.FULL.value:
+                    self.patch = version_split[2][:10]
+
+                if version_levels >= self.VersionPartCounts.FULL_WITH_ID.value:
+                    self.patch = "".join(version_split[2:])
+            else:
+                self.major = numeric_version
+
+            self.is_numeric = all(part.isnumeric() for part in [self.major, self.minor, self.patch])
+
+        def __str__(self) -> str:
+            version = f"{self.major}.{self.minor}.{self.patch}"
+            if self.identifier:
+                version += f"-{self.identifier}"
+            return version
+
+        def __repr__(self) -> str:
+            return str(self)
+
+        def _is_valid_operand(self, other: object) -> bool:
+            return isinstance(other, Mod.Version)
+
+        def __eq__(self, other: object) -> bool:
+            if not self._is_valid_operand(other):
+                return NotImplemented
+
+            if self.is_numeric and other.is_numeric:
+                return ((int(self.major), int(self.minor), int(self.patch))
+                        ==
+                        (int(other.major), int(other.minor), int(other.patch)))
+
+            return ((self.major.lower(), self.minor.lower(), self.patch.lower())
+                    ==
+                    (self.major.lower(), self.minor.lower(), self.patch.lower()))
+
+        def __lt__(self, other: Mod.Version) -> bool:
+            if not self._is_valid_operand(other):
+                return NotImplemented
+
+            if self.is_numeric and other.is_numeric:
+                return ((int(self.major), int(self.minor), int(self.patch))
+                        <
+                        (int(other.major), int(other.minor), int(other.patch)))
+
+            return ((self.major.lower(), self.minor.lower(), self.patch.lower())
+                    <
+                    (self.major.lower(), self.minor.lower(), self.patch.lower()))

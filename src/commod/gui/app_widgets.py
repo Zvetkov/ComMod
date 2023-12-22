@@ -247,7 +247,7 @@ class App:
                     self.logger.debug(f"{mod.id} was tracked but hash is different, removing from distro")
                 try:
                     self.logger.debug(f"--- Loading {mod.id} to distro ---")
-                    mod.load_translations(load_gui_info=True)
+                    mod.load_translations()
                     mod.load_commod_compatibility(self.context.commod_version)
                     mod.load_game_compatibility(self.game.installment)
                     mod.load_session_compatibility(self.game.installed_content,

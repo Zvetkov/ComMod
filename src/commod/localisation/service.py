@@ -1,8 +1,8 @@
 import locale
 import logging
+from dataclasses import dataclass
 from enum import Enum
 
-from attr import dataclass
 from game.data import OWN_VERSION
 from helpers.file_ops import get_internal_file_path, read_yaml
 

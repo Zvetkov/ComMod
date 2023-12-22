@@ -2,6 +2,7 @@ import argparse
 import html
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import markdownify
 from game import data
@@ -24,6 +25,25 @@ def init_input_parser() -> argparse.ArgumentParser:
                                      action="store_true", default=False)
 
     return parser
+
+def parse_str_from_dict(dictionary: dict[str, Any], key: str, default: str) -> str:
+    value = dictionary.get(key)
+    if isinstance(value, str):
+        return value.strip()
+    return default
+
+def parse_bool_from_dict(dictionary: dict[str, Any], key: str, default: bool) -> bool:
+    value = dictionary.get(key)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        if value.lower() == "true":
+            return True
+        if value.lower() == "false":
+            return False
+    return default
 
 def remove_substrings(string: str, substrings: Iterable[str]) -> str:
     for substring in substrings:
