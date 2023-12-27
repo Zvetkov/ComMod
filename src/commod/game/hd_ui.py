@@ -2,9 +2,8 @@ import logging
 import os
 from pathlib import Path
 
-import data
-from helpers import file_ops, parse_ops
-from helpers.get_system_fonts import get_fonts
+from commod.helpers import file_ops, parse_ops
+from commod.helpers.get_system_fonts import get_fonts
 
 logger = logging.getLogger("dem")
 

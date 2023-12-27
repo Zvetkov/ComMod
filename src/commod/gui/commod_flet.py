@@ -2,14 +2,15 @@ import os
 import tempfile
 
 import flet as ft
-from app_widgets import App, DownloadModsScreen, HomeScreen, LocalModsScreen, SettingsScreen
-from config import Config
 from flet import IconButton, Image, Page, Theme, ThemeVisualDensity
-from game.data import get_title
-from game.environment import GameCopy, InstallationContext
-from helpers.file_ops import get_internal_file_path
-from helpers.parse_ops import init_input_parser
-from localisation.service import tr
+
+from commod.game.data import get_title
+from commod.game.environment import GameCopy, InstallationContext
+from commod.gui.app_widgets import App, DownloadModsScreen, HomeScreen, LocalModsScreen, SettingsScreen
+from commod.gui.config import Config
+from commod.helpers.file_ops import get_internal_file_path
+from commod.helpers.parse_ops import init_input_parser
+from commod.localisation.service import tr
 
 
 async def main(page: Page):

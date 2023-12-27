@@ -1,32 +1,36 @@
 import locale
 import logging
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum, auto
 
-from game.data import OWN_VERSION
-from helpers.file_ops import get_internal_file_path, read_yaml
+from commod.game.data import OWN_VERSION
+from commod.helpers.file_ops import get_internal_file_path, read_yaml
 
 logger = logging.getLogger("dem")
 
 @dataclass
 class LocalizationService:
-    current_language: str
+    language: str
     strings: dict[str, dict[str, str]]
 
-class LangFlags(Enum):
+class KnownLangFlags(Enum):
     eng = "assets\\flags\\openmoji_uk.svg"
     ru = "assets\\flags\\openmoji_ru.svg"
     ua = "assets\\flags\\openmoji_ua.svg"
     de = "assets\\flags\\openmoji_de.svg"
     tr = "assets\\flags\\openmoji_tr.svg"
     pl = "assets\\flags\\openmoji_pl.svg"
+    kz = "assets\\flags\\openmoji_kz.svg"
     other = "assets\\flags\\openmoji_orange.svg"
 
+    @classmethod
+    def list_values(cls) -> list[str]:
+        return [c.value for c in cls]
 
-class SupportedLanguages(Enum):
-    ENG = "eng"
-    RU = "ru"
-    UA = "ua"
+class SupportedLanguages(StrEnum):
+    ENG = auto()
+    RU = auto()
+    UA = auto()
 
     @classmethod
     def list_values(cls) -> list[str]:
@@ -35,6 +39,14 @@ class SupportedLanguages(Enum):
     @classmethod
     def list_names(cls) -> list[str]:
         return [c.name for c in cls]
+
+    @classmethod
+    def _missing_(cls, value: str):
+        value = value.lower()
+        for member in cls:
+            if member == value:
+                return member
+        return None
 
 # Fallback for new lines that are added in development,
 # before they can be translated to all supported langs
@@ -66,9 +78,9 @@ def tr(str_name: str, **kwargs: str) -> str:
 
     Uses localisation files for each supported language
     """
-    loc_str = localization_service.strings.get(str_name)
+    loc_str = stored.strings.get(str_name)
     if loc_str is not None:
-        final_string = loc_str[localization_service.current_language]
+        final_string = loc_str[stored.language]
         if "{OWN_VERSION}" in final_string:
             final_string = final_string.replace("{OWN_VERSION}", OWN_VERSION)
         if kwargs:
@@ -98,7 +110,7 @@ def get_default_lang() -> str:
 
     return "eng"
 
-localization_service = LocalizationService(get_default_lang(), get_strings_dict())
+stored = LocalizationService(get_default_lang(), get_strings_dict())
 
 
 def is_known_lang(lang: str) -> bool:

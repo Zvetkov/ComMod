@@ -1,11 +1,10 @@
 from __future__ import annotations
-from dataclasses import dataclass
 
 import logging
 import operator
 import os
-import typing
 from collections.abc import Awaitable
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from functools import total_ordering
@@ -13,45 +12,30 @@ from pathlib import Path
 from typing import Any
 from zipfile import ZipInfo
 
-from console.color import bcolors, fconsole, remove_colors
-from data import get_known_mod_display_name
-from helpers import validation
-from helpers.file_ops import copy_from_to_async_fast, get_internal_file_path, read_yaml
-from helpers.parse_ops import (
+from pathvalidate import sanitize_filename
+from py7zr import py7zr
+
+from commod.console.color import bcolors, fconsole, remove_colors
+from commod.game.data import (
+    COMPATCH_GITHUB,
+    DEM_DISCORD,
+    WIKI_COMPATCH,
+    SupportedGames,
+    get_known_mod_display_name,
+)
+from commod.helpers import validation
+from commod.helpers.file_ops import copy_from_to_async_fast, get_internal_file_path, read_yaml
+from commod.helpers.parse_ops import (
     parse_bool_from_dict,
     parse_simple_relative_path,
     parse_str_from_dict,
     process_markdown,
     remove_substrings,
 )
-from localisation.service import SupportedLanguages, is_known_lang, tr
-from pathvalidate import sanitize_filename
-from py7zr import py7zr
-
-from commod.game.data import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH
+from commod.localisation.service import SupportedLanguages, is_known_lang, tr
 
 logger = logging.getLogger("dem")
 
-
-class SupportedGames(Enum):
-    EXMACHINA = "exmachina"
-    M113 = "m113"
-    ARCADE = "arcade"
-
-    @classmethod
-    def list_values(cls) -> list[str]:
-        return [c.value for c in cls]
-
-class GameInstallments(Enum):
-    ALL = 0
-    EXMACHINA = 1
-    M113 = 2
-    ARCADE = 3
-    UNKNOWN = 4
-
-    @classmethod
-    def list_values(cls) -> list[int]:
-        return [c.value for c in cls]
 
 def validate_manifest_struct(install_config: Any) -> bool:  # noqa: ANN401
     logger.info("--- Validating install config struct ---")
@@ -130,7 +114,7 @@ def validate_manifest_struct(install_config: Any) -> bool:  # noqa: ANN401
         "forced_option": [[bool, str], False],
         "install_settings": [[list], False],
     }
-    schema_install_settins = {
+    schema_install_settings = {
         "name": [[str], True],
         "description": [[str], True],
     }
@@ -199,7 +183,7 @@ def validate_manifest_struct(install_config: Any) -> bool:  # noqa: ANN401
                 logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                             "multiple install settings exists for complex optional content '"
                             f"{option.get('name')}' validation result")
-                validated &= validation.validate_list(install_settings, schema_install_settins)
+                validated &= validation.validate_list(install_settings, schema_install_settings)
                 logger.info(f"\t{'PASS' if validated else 'FAIL'}: "
                             f"install settings for content '{option.get('name')}' "
                             "validation result")
@@ -221,45 +205,6 @@ def validate_manifest_struct(install_config: Any) -> bool:  # noqa: ANN401
                 else "<! MOD MANIFEST STRUCTURE FAILED VALIDATION !>")
     return validated
 
-# TODO: remove deprecated?
-def get_unique_id_from_manifest(manifest: Any) -> str | None:
-    try:
-        if not isinstance(manifest, dict):
-            raise TypeError("Manifest is broken")
-
-        installment = parse_str_from_dict(manifest, "installment", default="exmachina").lower()
-        if installment not in SupportedGames.list_values():
-            raise ValueError("Incompatible installment", installment)
-
-        name = manifest.get("name")
-        if not isinstance(name, str):
-            raise TypeError("Missing name")
-
-        build = manifest.get("build")
-        if not isinstance(build, str):
-            raise TypeError("Missing build")
-
-        version = manifest.get("version")
-        if not isinstance(version, str | int | float):
-            raise TypeError("Missing or incorrect version")
-
-        language = manifest.get("language") or "ru"
-        if not isinstance(language, str):
-            raise TypeError("Incorrect language value")
-
-        mod_id_full = "".join((
-            installment,
-            name.lower(),
-            str(Mod.Version(str(version))).lower(),
-            build.lower(),
-            language.lower()
-        ))
-    except (ValueError, TypeError):
-        logger.exception("Error when calculating hash for mod manifest")
-        return None
-    else:
-        return mod_id_full
-
 class Mod:
     """Mod for HTA/EM, created from valid manifest.
 
@@ -279,12 +224,12 @@ class Mod:
             # primary with defaults
             self.language: str = parse_str_from_dict(manifest, "language",
                                                      default=SupportedLanguages.RU.value).lower()
-            installment: str = parse_str_from_dict(manifest, "installment",
+            self.installment: str = parse_str_from_dict(manifest, "installment",
                                                    default=SupportedGames.EXMACHINA.value).lower()
-            if installment in SupportedGames.list_values():
-                self.installment = installment
-            else:
-                raise ValueError("Game installment is not in the supported games list!", installment)
+            # if installment in SupportedGames.list_values():
+                # self.installment = installment
+            # else:
+                # raise ValueError("Game installment is not in the supported games list!", installment)
 
             # compatibility
             self.prerequisites = manifest.get("prerequisites")
@@ -313,7 +258,7 @@ class Mod:
                         incomp["versions"] = [incomp["versions"]]
 
             # TODO: can be calculated once on loading reqs and incomps
-            self.requirements_style = "mixed"
+            self.prerequisites_style = "mixed"
             self.incompatibles_style = "mixed"
 
             self.compatible_minor_versions = parse_bool_from_dict(
@@ -344,7 +289,7 @@ class Mod:
                 self.tags = [Mod.Tags.UNCATEGORIZED.name]
             else:
                 # removing unknown values
-                self.tags = list({tag.upper() for tag in self.tags} & set(Mod.Tags.list_names()))
+                self.tags = list({tag.upper() for tag in tags} & set(Mod.Tags.list_names()))
 
 
             self.logo = manifest.get("logo")
@@ -407,11 +352,11 @@ class Mod:
 
             patcher_version_requirement = manifest.get("patcher_version_requirement")
             if patcher_version_requirement is None:
-                self.patcher_version_requirement = [">=1.10"]
+                self.patcher_requirement = [">=1.10"]
             elif not isinstance(patcher_version_requirement, list):
-                self.patcher_version_requirement = [str(patcher_version_requirement)]
+                self.patcher_requirement = [str(patcher_version_requirement)]
             else:
-                self.patcher_version_requirement = [str(ver) for ver in patcher_version_requirement]
+                self.patcher_requirement = [str(ver) for ver in patcher_version_requirement]
 
             self.patcher_options = manifest.get("patcher_options")
             self.config_options = manifest.get("config_options")
@@ -436,11 +381,11 @@ class Mod:
 
             # TODO: fix horrible duplication for verification and loading the mod
             if self.no_base_content:
-                self.base_data_dirs = []
+                self.data_dirs = []
             else:
                 base_dirs = manifest.get("base_dirs")
                 if base_dirs:
-                    self.base_data_dirs = [parse_simple_relative_path(one_dir) for one_dir in base_dirs]
+                    self.data_dirs = [parse_simple_relative_path(one_dir) for one_dir in base_dirs]
                 elif self.name == "community_patch":
                     base_dirs = ["patch"]
                 elif self.name == "community_remaster":
@@ -484,7 +429,7 @@ class Mod:
             raise ValueError(er_message)
 
     @property
-    def id(self) -> str:
+    def id_str(self) -> str:
         return remove_substrings(
             sanitize_filename(
                 self.name
@@ -508,7 +453,7 @@ class Mod:
                     raise ValueError(f"Lang '{lang}' specified but manifest for it is missing! "
                                      f"(Mod: {self.name})")
                 yaml_config = read_yaml(lang_manifest_path)
-                config_validated = validate_manifest_struct(yaml_config, lang_manifest_path)
+                config_validated = validate_manifest_struct(yaml_config)
                 if config_validated:
                     mod_tr = Mod(yaml_config, self.mod_files_root)
                     if mod_tr.name != self.name:
@@ -665,7 +610,7 @@ class Mod:
                 logger.debug("No base content will be installed")
             else:
                 bin_paths = [Path(self.mod_files_root, one_dir) for one_dir in self.bin_dirs]
-                data_paths = [Path(self.mod_files_root, one_dir) for one_dir in self.base_data_dirs]
+                data_paths = [Path(self.mod_files_root, one_dir) for one_dir in self.data_dirs]
                 await callback_status(tr("copying_base_files_please_wait"))
                 mod_files.extend(data_paths)
                 start = datetime.now()
@@ -797,17 +742,17 @@ class Mod:
                 compare_ops = list(compare_ops)
                 len_ops = len(compare_ops)
                 if len_ops == 1 and operator.eq in compare_ops:
-                    self.requirements_style = "strict"
+                    self.prerequisites_style = "strict"
                 elif len_ops == 2 and operator.eq not in compare_ops:
                     if ((compare_ops[0] in (operator.ge, operator.gt)
                        and compare_ops[1] in (operator.le, operator.lt)) or
                         (compare_ops[0] in (operator.lt, operator.lt)
                           and compare_ops[1] in (operator.ge, operator.gt))):
-                        self.requirements_style = "range"
+                        self.prerequisites_style = "range"
                     else:
-                        self.requirements_style = "mixed"
+                        self.prerequisites_style = "mixed"
                 else:
-                    self.requirements_style = "mixed"
+                    self.prerequisites_style = "mixed"
 
         optional_content = prereq.get("optional_content")
         if optional_content and optional_content is not None:
@@ -876,7 +821,7 @@ class Mod:
         if patcher_version and not self.compatible_with_mod_manager(patcher_version):
             requirements_met &= False
             error_msg.append(f"{tr('usupported_patcher_version')}: "
-                             f"{self.display_name} - {self.patcher_version_requirement}"
+                             f"{self.display_name} - {self.patcher_requirement}"
                              f" > {patcher_version}")
 
         self.individual_require_status.clear()
@@ -1198,14 +1143,14 @@ class Mod:
         and to make them installable with ComMod 2.1+ we need this fallback
         """
         if self.no_base_content:
-            self.base_data_dirs = []
-        elif not self.base_data_dirs:
+            self.data_dirs = []
+        elif not self.data_dirs:
             if self.name == "community_patch":
-                self.base_data_dirs = ["patch"]
+                self.data_dirs = ["patch"]
             elif self.name == "community_remaster":
-                self.base_data_dirs = ["patch", "remaster/data"]
+                self.data_dirs = ["patch", "remaster/data"]
             else:
-                self.base_data_dirs = ["data"]
+                self.data_dirs = ["data"]
 
         if not self.bin_dirs and self.name in ("community_remaster", "community_patch"):
             self.bin_dirs = ["libs"]
@@ -1288,8 +1233,8 @@ class Mod:
         mod_root_dir = Path(mod_config_path).parent
         if not self.no_base_content:
             mod_base_paths = []
-            if self.base_data_dirs:
-                mod_base_paths = [Path(mod_root_dir) / base_dir for base_dir in self.base_data_dirs]
+            if self.data_dirs:
+                mod_base_paths = [Path(mod_root_dir) / base_dir for base_dir in self.data_dirs]
 
             if self.bin_dirs:
                 mod_base_paths.extend(Path(mod_root_dir) / bin_dir for bin_dir in self.bin_dirs)
@@ -1339,7 +1284,7 @@ class Mod:
         error_msg = ""
         mod_manager_too_new = False
 
-        for version_string in self.patcher_version_requirement:
+        for version_string in self.patcher_requirement:
             version = version_string
             if version[:2] == ">=":
                 compare_operation = operator.ge
@@ -1367,12 +1312,12 @@ class Mod:
 
         if not compatible:
             logger.warning(f"{self.display_name} manifest asks for an other mod manager version. "
-                           f"Required: {self.patcher_version_requirement}, available: {patcher_version}")
+                           f"Required: {self.patcher_requirement}, available: {patcher_version}")
             and_word = f" {tr('and')} "
 
             error_msg = (tr("usupported_patcher_version",
                             content_name=fconsole(self.display_name, bcolors.WARNING),
-                            required_version=and_word.join(self.patcher_version_requirement),
+                            required_version=and_word.join(self.patcher_requirement),
                             current_version=patcher_version,
                             github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)))
 

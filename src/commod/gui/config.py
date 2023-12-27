@@ -3,9 +3,10 @@ from enum import Enum
 from typing import Any
 
 import flet as ft
-import localisation.service as localisation
-from game.environment import GameInstallments, InstallationContext
-from helpers.file_ops import dump_yaml, read_yaml
+
+import commod.localisation.service as localisation
+from commod.game.environment import GameInstallments, InstallationContext
+from commod.helpers.file_ops import dump_yaml, read_yaml
 
 
 class AppSections(Enum):
@@ -27,7 +28,7 @@ class Config:
         self.init_pos_y: int = 0
         self.init_theme: ft.ThemeMode = ft.ThemeMode.SYSTEM
 
-        self._lang: str = localisation.localization_service.current_language
+        self._lang: str = localisation.stored.language
 
         self.current_game: str = ""
         self.known_games: set[str] = set()
@@ -69,7 +70,7 @@ class Config:
     def lang(self, new_lang: localisation.SupportedLanguages) -> None:
         if isinstance(new_lang, str) and new_lang in localisation.SupportedLanguages.list_values():
             self._lang = new_lang
-            localisation.localization_service.current_language = new_lang
+            localisation.stored.language = new_lang
 
     def load_from_file(self, abs_path: str | None = None) -> None:
         if abs_path is not None and os.path.exists(abs_path):
@@ -81,7 +82,7 @@ class Config:
             lang = config.get("lang")
             if isinstance(lang, str) and lang in localisation.SupportedLanguages.list_values():
                 self._lang = lang
-                localisation.localization_service.current_language = lang
+                localisation.stored.language = lang
 
             current_game = config.get("current_game")
             if isinstance(current_game, str) and os.path.isdir(current_game):

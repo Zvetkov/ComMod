@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any
 
 import markdownify
-from game import data
 from lxml import objectify
+
+from commod.game import data
 
 
 def init_input_parser() -> argparse.ArgumentParser:

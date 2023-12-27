@@ -13,8 +13,6 @@ import aiofiles.os
 import aioshutil
 import flet as ft
 from asyncio_requests.asyncio_request import request
-from common_widgets import ExpandableContainer
-from config import AppSections, Config
 from flet import (
     Column,
     FloatingActionButton,
@@ -30,11 +28,23 @@ from flet import (
     colors,
     icons,
 )
-from game.data import DATE, OWN_VERSION
-from game.environment import DistroStatus, GameCopy, GameStatus, InstallationContext
-from game.mod import GameInstallments, Mod
-from helpers import file_ops
-from helpers.errors import (
+from pydantic import ValidationError
+
+from commod.game import pydantic_mod
+from commod.game.data import (
+    COMPATCH_GITHUB,
+    DATE,
+    DEM_DISCORD,
+    DEM_DISCORD_MODS_DOWNLOAD_SCREEN,
+    OWN_VERSION,
+    WIKI_COMPATCH,
+)
+from commod.game.environment import DistroStatus, GameCopy, GameInstallments, GameStatus, InstallationContext
+from commod.game.mod import Mod
+from commod.gui.common_widgets import ExpandableContainer
+from commod.gui.config import AppSections, Config
+from commod.helpers import file_ops
+from commod.helpers.errors import (
     DXRenderDllNotFoundError,
     ExeIsRunningError,
     HasManifestButUnpatchedError,
@@ -43,16 +53,19 @@ from helpers.errors import (
     NoModsFoundError,
     PatchedButDoesntHaveManifestError,
 )
-from helpers.file_ops import extract_archive_from_to, get_internal_file_path, get_proc_by_names, load_yaml
-from helpers.parse_ops import process_markdown
-from localisation.service import (
-    LangFlags,
+from commod.helpers.file_ops import (
+    extract_archive_from_to,
+    get_internal_file_path,
+    get_proc_by_names,
+    load_yaml,
+)
+from commod.helpers.parse_ops import process_markdown
+from commod.localisation.service import (
+    KnownLangFlags,
     SupportedLanguages,
     is_known_lang,
     tr,
 )
-
-from commod.game.data import COMPATCH_GITHUB, DEM_DISCORD, DEM_DISCORD_MODS_DOWNLOAD_SCREEN, WIKI_COMPATCH
 
 # TODO: separate to different submodules for different app screens
 
@@ -234,27 +247,33 @@ class App:
         if self.context.validated_mod_configs:
             for manifest_path, manifest in self.context.validated_mod_configs.items():
                 mod = Mod(manifest, Path(manifest_path).parent)
+                try:
+                    mod_new = pydantic_mod.Mod(**manifest, mod_files_root=Path(manifest_path).parent)
+                except (ValueError, ValidationError):
+                    ...
+                else:
+                    ...
 
-                if mod.id in self.session.tracked_mods:
-                    if (self.session.tracked_mods_hashes[mod.id]
+                if mod.id_str in self.session.tracked_mods:
+                    if (self.session.tracked_mods_hashes[mod.id_str]
                        == self.context.hashed_mod_manifests[manifest_path]):
-                        # self.logger.debug(f"{mod.id} already loaded to distro, skipping")
+                        # self.logger.debug(f"{mod.uid} already loaded to distro, skipping")
                         continue
 
-                    self.session.tracked_mods.remove(mod.id)
-                    self.session.tracked_mods_hashes.pop(mod.id, None)
+                    self.session.tracked_mods.remove(mod.id_str)
+                    self.session.tracked_mods_hashes.pop(mod.id_str, None)
                     self.session.mods.pop(manifest_path, None)
-                    self.logger.debug(f"{mod.id} was tracked but hash is different, removing from distro")
+                    self.logger.debug(f"{mod.id_str} was tracked but hash is different, removing from distro")
                 try:
-                    self.logger.debug(f"--- Loading {mod.id} to distro ---")
+                    self.logger.debug(f"--- Loading {mod.id_str} to distro ---")
                     mod.load_translations()
                     mod.load_commod_compatibility(self.context.commod_version)
                     mod.load_game_compatibility(self.game.installment)
                     mod.load_session_compatibility(self.game.installed_content,
                                                    self.game.installed_descriptions)
                     self.session.mods[manifest_path] = mod
-                    self.session.tracked_mods.add(mod.id)
-                    self.session.tracked_mods_hashes[mod.id] = \
+                    self.session.tracked_mods.add(mod.id_str)
+                    self.session.tracked_mods_hashes[mod.id_str] = \
                         self.context.hashed_mod_manifests[manifest_path]
                 except Exception as ex:
                     self.logger.error(f"{ex!r}")
@@ -263,7 +282,7 @@ class App:
 
         removed_mods = set(self.session.mods.keys()) - set(self.context.validated_mod_configs.keys())
         for mod_path in removed_mods:
-            mod_id = self.session.mods[mod_path].id
+            mod_id = self.session.mods[mod_path].uid
             self.session.tracked_mods.remove(mod_id)
             self.session.tracked_mods_hashes.pop(mod_id, None)
             self.session.mods.pop(mod_path, None)
@@ -1087,9 +1106,9 @@ class SettingsScreen(UserControl):
 
         self.app.context.setup_logging_folder()
         self.app.context.setup_loggers()
-        self.app.logger = self.app.context.logger
+        # self.app.logger = self.app.context.logger
         self.app.context.load_system_info()
-        self.app.session = self.app.context.current_session
+        # self.app.session = self.app.context.current_session
         self.app.session.steam_game_paths = loaded_steam_game_paths
         if self.app.config.current_game:
             # self.app.load_distro()
@@ -1220,8 +1239,8 @@ class SettingsScreen(UserControl):
         if self.app.context.distribution_dir:
             # self.app.context.validated_mod_configs.clear()
             loaded_steam_game_paths = self.app.context.current_session.steam_game_paths
-            self.app.context.current_session = InstallationContext.Session()
-            self.app.session = self.app.context.current_session
+            self.app.context.new_session()
+            # self.app.session = self.app.context.current_session
             # TODO: maybe do a full steam path reload?
             # or maybe also copy steam_parsing_error
             self.app.session.steam_game_paths = loaded_steam_game_paths
@@ -1242,8 +1261,8 @@ class SettingsScreen(UserControl):
             if self.app.context.distribution_dir:
                 # self.app.context.validated_mod_configs.clear()
                 loaded_steam_game_paths = self.app.context.current_session.steam_game_paths
-                self.app.context.current_session = InstallationContext.Session()
-                self.app.session = self.app.context.current_session
+                self.app.context.new_session()
+                # self.app.session = self.app.context.current_session
                 # TODO: maybe do a full steam path reload?
                 # or maybe also copy steam_parsing_error
                 self.app.session.steam_game_paths = loaded_steam_game_paths
@@ -1553,9 +1572,9 @@ class ModInfo(UserControl):
         if self.main_mod.translations_loaded:
             for lang, mod in self.main_mod.translations_loaded.items():
                 if mod.known_language:
-                    flag = get_internal_file_path(LangFlags[lang].value)
+                    flag = get_internal_file_path(KnownLangFlags[lang].value)
                 else:
-                    flag = get_internal_file_path(LangFlags.other.value)
+                    flag = get_internal_file_path(KnownLangFlags.other.value)
 
                 icon = Image(flag, width=26)
                 icon.tooltip = mod.lang_label.capitalize()
@@ -1751,14 +1770,14 @@ class ModInfo(UserControl):
 
             if version is None:
                 version = ""
-            elif self.mod.requirements_style == "strict":
+            elif self.mod.prerequisites_style == "strict":
                 version = [ver_str.replace("=", "") for ver_str in version]
                 if len(version) <= 2:
                     version = or_word.join(version)
                 else:
                     version = (", ".join(version[:-2])
                                + ", " + or_word.join(version[-2:]))
-            elif self.mod.requirements_style == "range":
+            elif self.mod.prerequisites_style == "range":
                 version = but_word.join(version)
             else:
                 version = and_word.join(version)
@@ -2110,7 +2129,7 @@ class ModArchiveItem(UserControl):
         self.archive_path: str = archive_path
         self.archive_extension = Path(self.archive_path).suffix.replace(".", "").upper()
         self.mod = mod_dummy
-        self.key = self.mod.id
+        self.key = self.mod.id_str
 
         self.extract_btn = ft.Ref[ft.ElevatedButton]()
         self.about_archived_mod = ft.Ref[ft.OutlinedButton]()
@@ -2145,7 +2164,7 @@ class ModArchiveItem(UserControl):
         self.version_label.current.visible = False
         await self.version_label.current.update_async()
         mods_path = os.path.join(self.app.context.distribution_dir, "mods")
-        await extract_archive_from_to(self.archive_path, os.path.join(mods_path, self.mod.id),
+        await extract_archive_from_to(self.archive_path, os.path.join(mods_path, self.mod.id_str),
                               self.progress_show, loading_text)
         self.extracting = False
         self.app.context.archived_mods.pop(self.archive_path, None)
@@ -2160,7 +2179,7 @@ class ModArchiveItem(UserControl):
             self.about_info.current.height = None
             await self.about_info.current.update_async()
             await self.parent.mods_list_view.current.scroll_to_async(
-                key=self.mod.id, duration=500)
+                key=self.mod.id_str, duration=500)
         else:
             self.about_archived_mod.current.text = tr("about_mod").capitalize()
             self.about_info.current.height = 0
@@ -2265,7 +2284,7 @@ class ModItem(UserControl):
         self.mod = self.main_mod
         self.other_versions = {}
         self.primary = True
-        self.key = self.main_mod.id
+        self.key = self.main_mod.id_str
 
         self.version_info = ft.Ref[ft.Container]()
         self.install_btn = ft.Ref[ft.ElevatedButton]()
@@ -2300,7 +2319,7 @@ class ModItem(UserControl):
             self.about_mod_btn.current.text = tr("hide_menu").capitalize()
             await self.info_container.current.toggle()
             await self.app.local_mods.mods_list_view.current.scroll_to_async(
-                key=self.main_mod.id, duration=500)
+                key=self.main_mod.id_str, duration=500)
         else:
             self.about_mod_btn.current.text = tr("about_mod").capitalize()
             await self.info_container.current.toggle()
@@ -3148,9 +3167,9 @@ class ModInstallWizard(UserControl):
         flag_buttons = []
         for lang, mod in self.main_mod.translations_loaded.items():
             if mod.known_language:
-                flag = get_internal_file_path(LangFlags[lang].value)
+                flag = get_internal_file_path(KnownLangFlags[lang].value)
             else:
-                flag = get_internal_file_path(LangFlags.other.value)
+                flag = get_internal_file_path(KnownLangFlags.other.value)
 
             icon = Image(flag, fit=ft.ImageFit.FILL)
 
@@ -3743,13 +3762,13 @@ class LocalModsScreen(UserControl):
                 # if we can detect that it's safe, we will delete whole nested structure
                 elif mod_path.parent.parent == main_distro:
                     # we only want to delete parent dir if it was automatically created by commod
-                    if mod_path.parent.stem == mod.id:
+                    if mod_path.parent.stem == mod.id_str:
                         await aioshutil.rmtree(mod_path.parent)
                     else:
                         await aioshutil.rmtree(mod_path)
                 elif mod_path.parent.parent.parent == main_distro:
                     # same as above
-                    if mod_path.parent.parent.stem == mod.id:
+                    if mod_path.parent.parent.stem == mod.id_str:
                         await aioshutil.rmtree(mod_path.parent.parent)
                     else:
                         await aioshutil.rmtree(mod_path)
@@ -3779,11 +3798,11 @@ class LocalModsScreen(UserControl):
         self.tracked_loaded_mods = set()
         for mod_item in mod_items:
             if isinstance(mod_item, ModItem):
-                self.tracked_loaded_mods.add(mod_item.main_mod.id)
+                self.tracked_loaded_mods.add(mod_item.main_mod.id_str)
             elif isinstance(mod_item, ft.AnimatedSwitcher):
-                self.tracked_loaded_mods.add(mod_item.content.main_mod.id)
+                self.tracked_loaded_mods.add(mod_item.content.main_mod.uid)
                 for other_version in mod_item.content.other_versions.values():
-                    self.tracked_loaded_mods.add(other_version.main_mod.id)
+                    self.tracked_loaded_mods.add(other_version.main_mod.uid)
 
         if self.app.config.current_distro:
             self.app.logger.debug(f"Have current distro {self.app.config.current_distro}")
@@ -3814,16 +3833,16 @@ class LocalModsScreen(UserControl):
         mods_to_show = []
 
         for mod in self.app.session.mods.values():
-            session_mods.add(mod.id)
-            if mod.id not in self.tracked_loaded_mods:
+            session_mods.add(mod.uid)
+            if mod.uid not in self.tracked_loaded_mods:
                 mods_to_show.append(ModItem(self.app, mod))
-                # self.app.logger.debug(f"Adding mod {mod.id} to list")
-                self.tracked_loaded_mods.add(mod.id)
+                # self.app.logger.debug(f"Adding mod {mod.uid} to list")
+                self.tracked_loaded_mods.add(mod.uid)
             else:
                 pass
-                # self.app.logger.debug(f"Mod {mod.id} already in list")
+                # self.app.logger.debug(f"Mod {mod.uid} already in list")
 
-        mods_to_show.sort(key=lambda item: item.main_mod.id.lower())
+        mods_to_show.sort(key=lambda item: item.main_mod.uid.lower())
 
         mods_families = {}
         for mod_item in mods_to_show:
@@ -3857,29 +3876,29 @@ class LocalModsScreen(UserControl):
         outdated_mods = self.tracked_loaded_mods - session_mods
         if outdated_mods:
             for mod_item in mod_items:
-                if mod_item.main_mod.id in outdated_mods:
-                    self.app.logger.debug(f"Removing mod {mod_item.main_mod.id} from list")
+                if mod_item.main_mod.uid in outdated_mods:
+                    self.app.logger.debug(f"Removing mod {mod_item.main_mod.uid} from list")
                     mod_items.remove(mod_item)
 
         archived_mod_items = self.mods_archived_list_view.current.controls
-        tracked_archived_mods = {mod_item.mod.id for mod_item in archived_mod_items}
+        tracked_archived_mods = {mod_item.mod.uid for mod_item in archived_mod_items}
         for path, mod_dummy in self.app.context.archived_mods.items():
-            if mod_dummy.id in self.tracked_loaded_mods:
+            if mod_dummy.uid in self.tracked_loaded_mods:
                 # TODO: investigate dead code
                 self.mods_archived_list_view.current
-                # self.app.logger.info(f"Archived mod id '{mod_dummy.id}' is already tracked in main list")
-            elif mod_dummy.id in tracked_archived_mods:
+                # self.app.logger.info(f"Archived mod id '{mod_dummy.uid}' is already tracked in main list")
+            elif mod_dummy.uid in tracked_archived_mods:
                 pass
-                # self.app.logger.info(f"Archived mod id '{mod_dummy.id}' is already tracked as a zip")
+                # self.app.logger.info(f"Archived mod id '{mod_dummy.uid}' is already tracked as a zip")
             else:
-                # self.app.logger.info(f"Archived mod id '{mod_dummy.id}' - adding to list")
+                # self.app.logger.info(f"Archived mod id '{mod_dummy.uid}' - adding to list")
                 self.mods_archived_list_view.current.controls.append(
                     ModArchiveItem(self.app, self, path, mod_dummy)
                 )
         for mod_item in archived_mod_items:
-            if mod_item.mod.id in self.tracked_loaded_mods:
+            if mod_item.mod.uid in self.tracked_loaded_mods:
                 archived_mod_items.remove(mod_item)
-                # self.app.logger.debug(f"Removed archived {mod_item.mod.id} from list, already tracked")
+                # self.app.logger.debug(f"Removed archived {mod_item.mod.uid} from list, already tracked")
 
         # self.app.logger.debug(f"{len(self.mods_list_view.current.controls)} elements in mods list view")
         self.app.logger.debug(f"Tracked mods: {self.tracked_loaded_mods}")
@@ -3919,13 +3938,13 @@ class LocalModsScreen(UserControl):
                         raise NotImplementedError
                         continue
 
-                    if mod_dummy.id in self.app.session.tracked_mods:
-                        self.app.logger.info(f"Archived mod id '{mod_dummy.id}' is already tracked")
+                    if mod_dummy.id_str in self.app.session.tracked_mods:
+                        self.app.logger.info(f"Archived mod id '{mod_dummy.id_str}' is already tracked")
                         await self.app.show_alert(
                             f"{mod_dummy.display_name} {mod_dummy.version} [{mod_dummy.build}]",
                             tr("mod_already_in_library").capitalize())
                     else:
-                        self.app.logger.info(f"Archived mod id '{mod_dummy.id}' - adding to list")
+                        self.app.logger.info(f"Archived mod id '{mod_dummy.id_str}' - adding to list")
                         self.mods_archived_list_view.current.controls.append(
                             ModArchiveItem(self.app, self, file.path, mod_dummy)
                         )
@@ -4466,8 +4485,8 @@ class HomeScreen(UserControl):
         if self.app.context.distribution_dir:
             # self.app.context.validated_mod_configs.clear()
             loaded_steam_game_paths = self.app.context.current_session.steam_game_paths
-            self.app.context.current_session = InstallationContext.Session()
-            self.app.session = self.app.context.current_session
+            self.app.context.new_session()
+            # self.app.session = self.app.context.current_session
             # TODO: maybe do a full steam path reload?
             # or maybe also copy steam_parsing_error
             self.app.session.steam_game_paths = loaded_steam_game_paths

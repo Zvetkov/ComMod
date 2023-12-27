@@ -17,14 +17,16 @@ import aioshutil
 import psutil
 import py7zr
 import yaml
-from console import progbar
 from flet import Text
-from game import data, hd_ui
 from lxml import etree, objectify
-from parse_ops import beautify_machina_xml, get_child_from_xml_node, xml_to_objfy
+
+from commod.console import progbar
+from commod.game import data, hd_ui
+from commod.helpers.parse_ops import beautify_machina_xml, get_child_from_xml_node, xml_to_objfy
 
 logger = logging.getLogger("dem")
 
+SUPPORTED_IMG_TYPES = (".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
 
 def write_xml_to_file(objectify_tree: objectify.ObjectifiedElement, path: str,
                  machina_beautify: bool = True) -> None:
@@ -334,7 +336,7 @@ def dump_yaml(data, path: str | Path, sort_keys: bool = True) -> bool:
     return True
 
 
-def get_internal_file_path(file_name: str) -> str:
+def get_internal_file_path(file_name: str) -> Path:
     return Path(__file__).parent.parent / file_name
 
 

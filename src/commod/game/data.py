@@ -1,5 +1,6 @@
 # flake8: noqa
 from ctypes import windll
+from enum import StrEnum, auto
 from os import system
 
 OWN_VERSION = "2.1-krakentest"
@@ -514,3 +515,17 @@ def get_text_offsets(version: str) -> dict:
                     0x5BDCE8: [version_text, 70],
                     0x598DCC: ["169", 3]}
     return offsets_text
+
+
+class SupportedGames(StrEnum):
+    EXMACHINA = auto()
+    M113 = auto()
+    ARCADE = auto()
+
+    @classmethod
+    def _missing_(cls, value: str):
+        value = value.lower()
+        for member in cls:
+            if member == value:
+                return member
+        return None

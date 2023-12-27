@@ -15,8 +15,10 @@ from pathlib import Path
 
 import py7zr
 from aiopath import AsyncPath
-from console.color import bcolors, fconsole
-from data import (
+from flet import Text
+
+from commod.console.color import bcolors, fconsole
+from commod.game.data import (
     OS_SCALE_FACTOR,
     OWN_VERSION,
     TARGEM_NEGATIVE,
@@ -28,8 +30,8 @@ from data import (
     VERSION_BYTES_103_STAR,
     VERSION_BYTES_DEM_LNCH,
 )
-from flet import Text
-from helpers.errors import (
+from commod.game.mod import Mod, validate_manifest_struct
+from commod.helpers.errors import (
     CorruptedRemasterFilesError,
     DistributionNotFoundError,
     ExeIsRunningError,
@@ -44,19 +46,10 @@ from helpers.errors import (
     PatchedButDoesntHaveManifestError,
     WrongGameDirectoryPathError,
 )
-from helpers.file_ops import get_config, load_yaml, read_yaml, running_in_venv, write_xml_to_file_async
-from helpers.parse_ops import shorten_path
-from localisation.service import tr
-from mod import GameInstallments, Mod, validate_manifest_struct
+from commod.helpers.file_ops import get_config, load_yaml, read_yaml, running_in_venv, write_xml_to_file_async
+from commod.helpers.parse_ops import shorten_path
+from commod.localisation.service import tr
 
-class Games(Enum):
-    EM1 = "exmachina"
-    M113 = "m113"
-    ARCADE = "arcade"
-
-    @classmethod
-    def list_values(cls) -> list[str]:
-        return [c.value for c in cls]
 
 class GameStatus(Enum):
     COMPATIBLE = ""
@@ -107,11 +100,11 @@ class InstallationContext:
 
         self.current_session = self.Session()
 
-    def new_session(self):
+    def new_session(self) -> None:
         self.current_session = self.Session()
 
     @staticmethod
-    def validate_distribution_dir(distribution_dir: str, legacy_checks=False) -> bool:
+    def validate_distribution_dir(distribution_dir: str, legacy_checks: bool = False) -> bool:
         """
         Distribution dir is a storage location for mods.
 
@@ -204,7 +197,7 @@ class InstallationContext:
         yaml_config = read_yaml(yaml_path)
         if yaml_config is None:
             raise CorruptedRemasterFilesError(yaml_path, "Couldn't read ComRemaster manifest")
-        if not validate_manifest_struct(yaml_config, yaml_path):
+        if not validate_manifest_struct(yaml_config):
             raise CorruptedRemasterFilesError(yaml_path, "Couldn't validate ComRemaster manifes or files")
         else:
             self.remaster_config = yaml_config
@@ -278,7 +271,7 @@ class InstallationContext:
                 if mod_config_path in self.validated_mod_configs:
                     self.validated_mod_configs.pop(mod_config_path, None)
                 continue
-            config_validated = validate_manifest_struct(yaml_config, mod_config_path)
+            config_validated = validate_manifest_struct(yaml_config)
             if config_validated:
                 self.validated_mod_configs[mod_config_path] = yaml_config
                 self.logger.debug(f"Loaded and validated mod config: {mod_config_path}")
@@ -412,10 +405,11 @@ class InstallationContext:
                     if manifest_b:
                         manifest = load_yaml(manifest_b)
                         if validate_manifest_struct(
-                                manifest, manifests[0].filename,
-                                archive_file_list=file_list,
-                                root_path=archive_path):
-                                self.archived_manifests_cache[archive_path] = manifest
+                            # manifest, manifests[0].filename,
+                            # archive_file_list=file_list,
+                            # root_path=archive_path):
+                            manifest): # TODO: removed file validation, reimplement it
+                            self.archived_manifests_cache[archive_path] = manifest
                             return manifest
                         self.archived_manifests_cache[archive_path] = {}
                         return {}
@@ -451,9 +445,11 @@ class InstallationContext:
                         manifest_b = next(manifests_read_dict.values())
                     if manifest_b:
                         manifest = load_yaml(manifest_b)
-                        if validate_manifest_struct(manifest, manifests[0].filename,
-                                                       archive_file_list=file_list,
-                                                       root_path=archive_path):
+                        if validate_manifest_struct(
+                            # manifest, manifests[0].filename,
+                            # archive_file_list=file_list,
+                            # root_path=archive_path):
+                            manifest): # TODO: removed file validation, reimplement it
                             self.archived_manifests_cache[archive_path] = manifest
                             return manifest
                         self.archived_manifests_cache[archive_path] = {}
@@ -602,6 +598,18 @@ class InstallationContext:
 
             self.steam_game_paths = validated_dirs
             return True
+
+
+class GameInstallments(Enum):
+    ALL = 0
+    EXMACHINA = 1
+    M113 = 2
+    ARCADE = 3
+    UNKNOWN = 4
+
+    @classmethod
+    def list_values(cls) -> list[int]:
+        return [c.value for c in cls]
 
 
 class GameCopy:
@@ -1152,3 +1160,5 @@ class GameCopy:
                 return "Unknown"
         except PermissionError:
             return None
+
+

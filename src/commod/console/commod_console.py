@@ -4,13 +4,14 @@ import os
 import sys
 from pathlib import Path
 
-from console import console_ui
-from console.color import bcolors, fconsole
-from game import data
-from game.environment import GameCopy, InstallationContext
-from game.mod import Mod
-from helpers import file_ops
-from helpers.errors import (
+from commod.console import console_ui
+from commod.console.color import bcolors, fconsole
+from commod.game import data
+from commod.game.data import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH
+from commod.game.environment import GameCopy, InstallationContext
+from commod.game.mod import Mod
+from commod.helpers import file_ops
+from commod.helpers.errors import (
     CorruptedRemasterFilesError,
     DistributionNotFoundError,
     DXRenderDllNotFoundError,
@@ -26,9 +27,7 @@ from helpers.errors import (
     PatchedButDoesntHaveManifestError,
     WrongGameDirectoryPathError,
 )
-from localisation.service import tr
-
-from commod.game.data import COMPATCH_GITHUB, DEM_DISCORD, WIKI_COMPATCH
+from commod.localisation.service import tr
 
 
 # Console UI to be deprecated in future release

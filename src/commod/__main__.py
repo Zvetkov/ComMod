@@ -3,9 +3,9 @@ import platform
 import sys
 from ctypes import windll
 
-from console import commod_console
-from gui import commod_flet
-from helpers.parse_ops import init_input_parser
+from commod.console import commod_console
+from commod.gui import commod_flet
+from commod.helpers.parse_ops import init_input_parser
 
 
 def main_gui() -> None:
