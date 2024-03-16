@@ -20,7 +20,6 @@ import yaml
 from flet import Text
 from lxml import etree, objectify
 
-from commod.console import progbar
 from commod.game import data, hd_ui
 from commod.helpers.parse_ops import beautify_machina_xml, get_child_from_xml_node, xml_to_objfy
 
@@ -75,30 +74,6 @@ def count_files(directory: str) -> int:
             files.extend(filenames)
 
     return len(files)
-
-
-def copy_from_to(from_path_list: list[str], to_path: str, console: bool = False) -> None:
-    files_count = 0
-    for from_path in from_path_list:
-        logger.debug(f"Copying files from '{from_path}' to '{to_path}'")
-        files_count += count_files(from_path)
-    file_num = 1
-    for from_path in from_path_list:
-        for path, dirs, _ in os.walk(from_path):
-            for directory in dirs:
-                dest_dir = path.replace(from_path, to_path)
-                os.makedirs(os.path.join(dest_dir, directory), exist_ok=True)
-        for path, _, filenames in os.walk(from_path):
-            for sfile in filenames:
-                dest_file = os.path.join(path.replace(from_path, to_path), sfile)
-                description = (
-                    f" - [{file_num} of {files_count}] - name {sfile} - "
-                    f"size {round(Path(os.path.join(path, sfile)).stat().st_size / 1024, 2)} KB")
-                logger.debug(description)
-                shutil.copy2(os.path.join(path, sfile), dest_file)
-                if console:
-                    progbar.copy_progress(file_num, files_count)
-                file_num += 1
 
 
 async def copy_from_to_async(from_path_list: list[str],

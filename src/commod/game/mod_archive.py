@@ -2,15 +2,16 @@ import logging
 from pathlib import Path
 from zipfile import ZipInfo
 
-from mod import Mod
 from py7zr import py7zr
+
+from commod.game.mod import Mod
 
 logger = logging.getLogger("dem")
 
 def validate_archive_mod_paths(
         mod: Mod,
         mod_config_path: str,
-        archive_file_list: list[ZipInfo] | py7zr.ArchiveFileList):
+        archive_file_list: list[ZipInfo] | py7zr.ArchiveFileList) -> bool:
 
     validated = True
 
@@ -26,16 +27,16 @@ def validate_archive_mod_paths(
     else:
         raise NotImplementedError("Wrong archive type passed to validator")
 
-    if not self.no_base_content:
+    if not mod.no_base_content:
         mod_base_paths: list[Path] = []
-        if self.base_data_dirs:
+        if mod.data_dirs:
             # TODO: check that using Path instead of str is not breaking checks here
-            mod_base_paths = [Path(mod_config_path).parent / dir for dir in self.base_data_dirs]
+            mod_base_paths = [Path(mod_config_path).parent / base_dir for base_dir in mod.data_dirs]
         else:
             mod_base_paths.append(Path(mod_config_path).parent / "data")
 
-        if self.bin_dirs:
-            mod_base_paths.extend(Path(mod_config_path).parent / dir for dir in self.bin_dirs)
+        if mod.bin_dirs:
+            mod_base_paths.extend(Path(mod_config_path).parent / bin_dir for bin_dir in mod.bin_dirs)
 
         data_dir_validated = all(base_path in archive_files for base_path in mod_base_paths)
         validated &= data_dir_validated

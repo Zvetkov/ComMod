@@ -8,16 +8,6 @@ class DistributionNotFoundError(Exception):
         return f"{self.message}: '{self.path}'"
 
 
-class CorruptedRemasterFilesError(Exception):
-    def __init__(self, path: str, message: str = "Corrupted remaster files") -> None:
-        self.path = path
-        self.message = message
-        super().__init__(self.message)
-
-    def __str__(self) -> str:
-        return f"{self.message}: '{self.path}'"
-
-
 class FileLoggingSetupError(Exception):
     def __init__(self, path: str, message: str = "Couldn't setup file logging") -> None:
         self.path = path

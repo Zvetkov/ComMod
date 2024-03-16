@@ -16,8 +16,8 @@ from pathlib import Path
 import py7zr
 from aiopath import AsyncPath
 from flet import Text
+from pydantic import ValidationError
 
-from commod.console.color import bcolors, fconsole
 from commod.game.data import (
     OS_SCALE_FACTOR,
     OWN_VERSION,
@@ -30,9 +30,8 @@ from commod.game.data import (
     VERSION_BYTES_103_STAR,
     VERSION_BYTES_DEM_LNCH,
 )
-from commod.game.mod import Mod, validate_manifest_struct
+from commod.game.mod import Mod
 from commod.helpers.errors import (
-    CorruptedRemasterFilesError,
     DistributionNotFoundError,
     ExeIsRunningError,
     ExeNotFoundError,
@@ -78,8 +77,7 @@ class InstallationContext:
     """
 
     def __init__(self, distribution_dir: str = "",
-                 dev_mode: bool = False, can_skip_adding_distro: bool = False,
-                 legacy_checks: bool = False) -> None:
+                 dev_mode: bool = False) -> None:
         self.dev_mode = dev_mode
         self.distribution_dir = ""
         self.validated_mod_configs = {}
@@ -92,11 +90,9 @@ class InstallationContext:
 
         if distribution_dir:
             try:
-                self.add_distribution_dir(distribution_dir, legacy_checks=legacy_checks)
+                self.add_distribution_dir(distribution_dir)
             except OSError:
                 logging.error(f"Couldn't add '{distribution_dir = }'")
-        elif not can_skip_adding_distro:
-            self.add_default_distribution_dir(legacy_checks=True)
 
         self.current_session = self.Session()
 
@@ -104,48 +100,31 @@ class InstallationContext:
         self.current_session = self.Session()
 
     @staticmethod
-    def validate_distribution_dir(distribution_dir: str, legacy_checks: bool = False) -> bool:
-        """
-        Distribution dir is a storage location for mods.
-
-        In a console UI flow it needs to have at least files of ComPatch and ComRem.
-        Unused in GUI, as that allows work without ComPatch files.
-        """
+    def validate_distribution_dir(distribution_dir: str) -> bool:
+        """Distribution dir is a storage location for mods."""
         if not distribution_dir or not os.path.isdir(distribution_dir):
             return False
 
-        if legacy_checks:
-            paths_to_check = [os.path.join(distribution_dir, "patch"),
-                              os.path.join(distribution_dir, "remaster"),
-                              os.path.join(distribution_dir, "remaster", "data"),
-                              os.path.join(distribution_dir, "remaster", "manifest.yaml"),
-                              os.path.join(distribution_dir, "libs", "library.dll"),
-                              os.path.join(distribution_dir, "libs", "library.pdb")]
-
-            for path in paths_to_check:
-                if not os.path.exists(path):
-                    return False
         return True
 
     @staticmethod
-    def get_config():
+    def get_config() -> dict | None:
         config_path = os.path.join(InstallationContext.get_local_path(), "commod.yaml")
         if os.path.exists(config_path):
             config = read_yaml(config_path)
+            # TODO: what if yaml config syntax is broken? Handle exception before return
             return config
         return None
 
-    def add_distribution_dir(self, distribution_dir: str,
-                             ignore_invalid: bool = False,
-                             legacy_checks: bool = False) -> None:
+    def add_distribution_dir(self, distribution_dir: str) -> None:
         """
         Distribution dir is a storage location for mods.
 
         By default it's ComPatch and ComRemaster files, but can also contain mods
         """
-        if self.validate_distribution_dir(distribution_dir, legacy_checks=legacy_checks):
+        if self.validate_distribution_dir(distribution_dir):
             self.distribution_dir = os.path.normpath(distribution_dir)
-        elif not ignore_invalid:
+        else:
             raise DistributionNotFoundError(
                 distribution_dir,
                 "Couldn't find all required files in given distribuion dir")
@@ -189,20 +168,6 @@ class InstallationContext:
             self.logger.info(f"os scale factor: {OS_SCALE_FACTOR}")
         return monitor_res
 
-    def validate_remaster(self):
-        if not self.distribution_dir:
-            raise CorruptedRemasterFilesError("", "No ComRem files found")
-
-        yaml_path = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
-        yaml_config = read_yaml(yaml_path)
-        if yaml_config is None:
-            raise CorruptedRemasterFilesError(yaml_path, "Couldn't read ComRemaster manifest")
-        if not validate_manifest_struct(yaml_config):
-            raise CorruptedRemasterFilesError(yaml_path, "Couldn't validate ComRemaster manifes or files")
-        else:
-            self.remaster_config = yaml_config
-            self.remaster_path = os.path.join(self.distribution_dir, "remaster")
-
     @staticmethod
     def get_local_path():
         sys_exe = str(Path(sys.executable).resolve())
@@ -222,17 +187,7 @@ class InstallationContext:
 
         return str(exe_path)
 
-    def add_default_distribution_dir(self, legacy_checks=False) -> None:
-        """Look for distribution files arround exe and set as distribution dir if its validated."""
-        exe_path = self.get_local_path()
-
-        if self.validate_distribution_dir(exe_path, legacy_checks=legacy_checks):
-            self.distribution_dir = exe_path
-        else:
-            raise DistributionNotFoundError(exe_path, "Distribution not found around mod manager exe")
-
     async def load_mods_async(self) -> None:
-        # self.logger.debug("Load_mods entry")
         all_config_paths = []
         # TODO: deprecate all code related to legacy comrem file structure
         # legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
@@ -271,19 +226,23 @@ class InstallationContext:
                 if mod_config_path in self.validated_mod_configs:
                     self.validated_mod_configs.pop(mod_config_path, None)
                 continue
-            config_validated = validate_manifest_struct(yaml_config)
-            if config_validated:
+            try:
+                mod = Mod(**yaml_config, mod_files_root=Path(mod_config_path).parent)
+                # TODO: just load mods straight away, no need to store manifests now
                 self.validated_mod_configs[mod_config_path] = yaml_config
                 self.logger.debug(f"Loaded and validated mod config: {mod_config_path}")
-            else:
+            except (ValueError, ValidationError) as ex:
                 if mod_config_path in self.validated_mod_configs:
                     self.validated_mod_configs.pop(mod_config_path, None)
-                self.logger.warning(f"Couldn't validate mod install manifest: {mod_config_path}")
+
+                self.logger.warning(f"Couldn't load mod install manifest: {mod_config_path}")
                 mod_loading_errors.append(f"\n{tr('not_validated_mod_manifest')}.\n"
-                                          f"{tr('folder').capitalize()}: "
-                                          f"/{Path(mod_config_path).parent.parent.name}"
-                                          f"/{Path(mod_config_path).parent.name}"
-                                          f"/{Path(mod_config_path).name}")
+                          f"{tr('folder').capitalize()}: "
+                          f"/{Path(mod_config_path).parent.parent.name}"
+                          f"/{Path(mod_config_path).parent.name}"
+                          f"/{Path(mod_config_path).name}")
+            except Exception as ex:
+                ...
 
         outdated_mods = set(self.validated_mod_configs.keys()) - set(all_config_paths)
         if outdated_mods:
@@ -295,7 +254,7 @@ class InstallationContext:
         if archived_mods:
             for path, manifest in archived_mods.items():
                 try:
-                    mod_dummy = Mod(manifest, Path(path).parent)
+                    mod_dummy = Mod(**manifest, mod_files_root=Path(path).parent)
                     self.archived_mods[path] = mod_dummy
                 except Exception as ex:
                     self.logger.error("Error on archived mod preload", exc_info=ex)
@@ -306,10 +265,10 @@ class InstallationContext:
         if mod_loading_errors:
             self.logger.error("-- Errors occurred when loading mods! --")
 
-    def get_dir_manifests(self, dir: str, nesting_levels: int = 3, top_level=True) -> str:
+    def get_dir_manifests(self, directory: str, nesting_levels: int = 3, top_level: bool = True) -> str:
         found_manifests = []
         levels_left = nesting_levels - 1
-        for entry in os.scandir(dir):
+        for entry in os.scandir(directory):
             if entry.is_dir():
                 manifest_path = os.path.join(entry, "manifest.yaml")
                 if os.path.exists(manifest_path):
@@ -808,7 +767,7 @@ class GameCopy:
 
         return False
 
-    def load_installed_descriptions(self, additional_manifests: list | None = None, colourise: bool = False) -> list[str]:
+    def load_installed_descriptions(self, additional_manifests: list | None = None) -> list[str]:
         """Construct dict of pretty description strings for list of installed content.
 
         Do so based on existing manifest inside the game and optional list of full mod manifests.
@@ -850,20 +809,13 @@ class GameCopy:
             if install_manifest.get("build") is not None:
                 build = f" [{install_manifest['build']}]"
 
-            if colourise:
-                description = fconsole(f'{name} ({tr("version")} '
-                                       f'{install_manifest["version"]}){build}\n',
-                                       bcolors.OKBLUE)
-            else:
-                description = f'{name} ({tr("version")} {install_manifest["version"]})\n'
+            description = f'{name} ({tr("version")} {install_manifest["version"]}){build}\n'
 
             if installed_optional_content:
-                if colourise:
-                    description += fconsole("*", bcolors.OKCYAN)
                 description += (f'{tr("optional_content").capitalize()}: '
                                 f'{", ".join(sorted(installed_optional_content))}\n')
             elif optional_content_keys:
-                description += f'{fconsole("*", bcolors.OKCYAN)} {tr("base_version")}\n'
+                description += f'* {tr("base_version")}\n'
 
             self.installed_descriptions[content_piece] = description.strip()
 

@@ -30,7 +30,6 @@ from flet import (
 )
 from pydantic import ValidationError
 
-from commod.game import pydantic_mod
 from commod.game.data import (
     COMPATCH_GITHUB,
     DATE,
@@ -40,7 +39,7 @@ from commod.game.data import (
     WIKI_COMPATCH,
 )
 from commod.game.environment import DistroStatus, GameCopy, GameInstallments, GameStatus, InstallationContext
-from commod.game.mod import Mod
+from commod.game.mod import Mod, OptionalContent
 from commod.gui.common_widgets import ExpandableContainer
 from commod.gui.config import AppSections, Config
 from commod.helpers import file_ops
@@ -246,35 +245,33 @@ class App:
 
         if self.context.validated_mod_configs:
             for manifest_path, manifest in self.context.validated_mod_configs.items():
-                mod = Mod(manifest, Path(manifest_path).parent)
+                # mod_old = Mod(manifest, Path(manifest_path).parent)
                 try:
-                    mod_new = pydantic_mod.Mod(**manifest, mod_files_root=Path(manifest_path).parent)
-                except (ValueError, ValidationError):
-                    ...
-                else:
-                    ...
+                    mod = Mod(**manifest, mod_files_root=Path(manifest_path).parent)
 
-                if mod.id_str in self.session.tracked_mods:
-                    if (self.session.tracked_mods_hashes[mod.id_str]
-                       == self.context.hashed_mod_manifests[manifest_path]):
-                        # self.logger.debug(f"{mod.uid} already loaded to distro, skipping")
-                        continue
+                    if mod.id_str in self.session.tracked_mods:
+                        if (self.session.tracked_mods_hashes[mod.id_str]
+                           == self.context.hashed_mod_manifests[manifest_path]):
+                            # self.logger.debug(f"{mod.id_str} already loaded to distro, skipping")
+                            continue
 
-                    self.session.tracked_mods.remove(mod.id_str)
-                    self.session.tracked_mods_hashes.pop(mod.id_str, None)
-                    self.session.mods.pop(manifest_path, None)
-                    self.logger.debug(f"{mod.id_str} was tracked but hash is different, removing from distro")
-                try:
+                        self.session.tracked_mods.remove(mod.id_str)
+                        self.session.tracked_mods_hashes.pop(mod.id_str, None)
+                        self.session.mods.pop(manifest_path, None)
+                        self.logger.debug(f"{mod.id_str} was tracked but hash is different, removing from distro")
+
                     self.logger.debug(f"--- Loading {mod.id_str} to distro ---")
-                    mod.load_translations()
-                    mod.load_commod_compatibility(self.context.commod_version)
-                    mod.load_game_compatibility(self.game.installment)
-                    mod.load_session_compatibility(self.game.installed_content,
-                                                   self.game.installed_descriptions)
+                    # mod.load_translation_manifests()
+                    # mod.load_commod_compatibility(self.context.commod_version)
+                    # mod.load_game_compatibility(self.game.installment)
+                    # mod.load_session_compatibility(self.game.installed_content,
+                                                #    self.game.installed_descriptions)
                     self.session.mods[manifest_path] = mod
                     self.session.tracked_mods.add(mod.id_str)
                     self.session.tracked_mods_hashes[mod.id_str] = \
                         self.context.hashed_mod_manifests[manifest_path]
+                except (ValueError, ValidationError):
+                    ...
                 except Exception as ex:
                     self.logger.error(f"{ex!r}")
                     continue
@@ -282,7 +279,7 @@ class App:
 
         removed_mods = set(self.session.mods.keys()) - set(self.context.validated_mod_configs.keys())
         for mod_path in removed_mods:
-            mod_id = self.session.mods[mod_path].uid
+            mod_id = self.session.mods[mod_path].id_str
             self.session.tracked_mods.remove(mod_id)
             self.session.tracked_mods_hashes.pop(mod_id, None)
             self.session.mods.pop(mod_path, None)
@@ -1102,7 +1099,7 @@ class SettingsScreen(UserControl):
         # check that overwriting distro is working correctly
         loaded_steam_game_paths = self.app.context.current_session.steam_game_paths
         self.app.context = InstallationContext(self.app.config.current_distro,
-                                               self.app.context.dev_mode)
+                                               dev_mode=self.app.context.dev_mode)
 
         self.app.context.setup_logging_folder()
         self.app.context.setup_loggers()
@@ -1353,17 +1350,17 @@ class SettingsScreen(UserControl):
             await self.expand_adding_game_steam()
         await self.update_async()
 
-    def check_distro(self, distro_path: str) -> DistroStatus | None:
-        if not distro_path:
+    def check_distro(self, distribution_dir: str) -> DistroStatus | None:
+        if not distribution_dir:
             return None
 
-        if not os.path.exists(distro_path):
+        if not os.path.exists(distribution_dir):
             return DistroStatus.NOT_EXISTS
 
-        if distro_path in self.app.config.known_distros:
+        if distribution_dir in self.app.config.known_distros:
             return DistroStatus.ALREADY_ADDED
 
-        validated = InstallationContext.validate_distribution_dir(distro_path)
+        validated = InstallationContext.validate_distribution_dir(distribution_dir)
         return DistroStatus.COMPATIBLE if validated else DistroStatus.MISSING_FILES
 
     async def check_distro_field(self, e: ft.ControlEvent) -> None:
@@ -2598,7 +2595,7 @@ class ModInstallWizard(UserControl):
         RESULTS = 3
 
     class ModOption(UserControl):
-        def __init__(self, parent, option: Mod.OptionalContent,
+        def __init__(self, parent, option: OptionalContent,
                      existing_content: str = "", **kwargs):
             super().__init__(self, **kwargs)
             self.option = option
@@ -3800,9 +3797,9 @@ class LocalModsScreen(UserControl):
             if isinstance(mod_item, ModItem):
                 self.tracked_loaded_mods.add(mod_item.main_mod.id_str)
             elif isinstance(mod_item, ft.AnimatedSwitcher):
-                self.tracked_loaded_mods.add(mod_item.content.main_mod.uid)
+                self.tracked_loaded_mods.add(mod_item.content.main_mod.id_str)
                 for other_version in mod_item.content.other_versions.values():
-                    self.tracked_loaded_mods.add(other_version.main_mod.uid)
+                    self.tracked_loaded_mods.add(other_version.main_mod.id_str)
 
         if self.app.config.current_distro:
             self.app.logger.debug(f"Have current distro {self.app.config.current_distro}")
@@ -3833,16 +3830,16 @@ class LocalModsScreen(UserControl):
         mods_to_show = []
 
         for mod in self.app.session.mods.values():
-            session_mods.add(mod.uid)
-            if mod.uid not in self.tracked_loaded_mods:
+            session_mods.add(mod.id_str)
+            if mod.id_str not in self.tracked_loaded_mods:
                 mods_to_show.append(ModItem(self.app, mod))
-                # self.app.logger.debug(f"Adding mod {mod.uid} to list")
-                self.tracked_loaded_mods.add(mod.uid)
+                # self.app.logger.debug(f"Adding mod {mod.id_str} to list")
+                self.tracked_loaded_mods.add(mod.id_str)
             else:
                 pass
-                # self.app.logger.debug(f"Mod {mod.uid} already in list")
+                # self.app.logger.debug(f"Mod {mod.id_str} already in list")
 
-        mods_to_show.sort(key=lambda item: item.main_mod.uid.lower())
+        mods_to_show.sort(key=lambda item: item.main_mod.id_str.lower())
 
         mods_families = {}
         for mod_item in mods_to_show:
@@ -3876,29 +3873,29 @@ class LocalModsScreen(UserControl):
         outdated_mods = self.tracked_loaded_mods - session_mods
         if outdated_mods:
             for mod_item in mod_items:
-                if mod_item.main_mod.uid in outdated_mods:
-                    self.app.logger.debug(f"Removing mod {mod_item.main_mod.uid} from list")
+                if mod_item.main_mod.id_str in outdated_mods:
+                    self.app.logger.debug(f"Removing mod {mod_item.main_mod.id_str} from list")
                     mod_items.remove(mod_item)
 
         archived_mod_items = self.mods_archived_list_view.current.controls
-        tracked_archived_mods = {mod_item.mod.uid for mod_item in archived_mod_items}
+        tracked_archived_mods = {mod_item.mod.id_str for mod_item in archived_mod_items}
         for path, mod_dummy in self.app.context.archived_mods.items():
-            if mod_dummy.uid in self.tracked_loaded_mods:
+            if mod_dummy.id_str in self.tracked_loaded_mods:
                 # TODO: investigate dead code
                 self.mods_archived_list_view.current
-                # self.app.logger.info(f"Archived mod id '{mod_dummy.uid}' is already tracked in main list")
-            elif mod_dummy.uid in tracked_archived_mods:
+                # self.app.logger.info(f"Archived mod id '{mod_dummy.id_str}' is already tracked in main list")
+            elif mod_dummy.id_str in tracked_archived_mods:
                 pass
-                # self.app.logger.info(f"Archived mod id '{mod_dummy.uid}' is already tracked as a zip")
+                # self.app.logger.info(f"Archived mod id '{mod_dummy.id_str}' is already tracked as a zip")
             else:
-                # self.app.logger.info(f"Archived mod id '{mod_dummy.uid}' - adding to list")
+                # self.app.logger.info(f"Archived mod id '{mod_dummy.id_str}' - adding to list")
                 self.mods_archived_list_view.current.controls.append(
                     ModArchiveItem(self.app, self, path, mod_dummy)
                 )
         for mod_item in archived_mod_items:
-            if mod_item.mod.uid in self.tracked_loaded_mods:
+            if mod_item.mod.id_str in self.tracked_loaded_mods:
                 archived_mod_items.remove(mod_item)
-                # self.app.logger.debug(f"Removed archived {mod_item.mod.uid} from list, already tracked")
+                # self.app.logger.debug(f"Removed archived {mod_item.mod.id_str} from list, already tracked")
 
         # self.app.logger.debug(f"{len(self.mods_list_view.current.controls)} elements in mods list view")
         self.app.logger.debug(f"Tracked mods: {self.tracked_loaded_mods}")
@@ -3931,7 +3928,7 @@ class LocalModsScreen(UserControl):
                 else:
                     self.app.logger.debug(f'Read manifest for: {manifest.get("display_name")}')
                     try:
-                        mod_dummy = Mod(manifest, Path(file.path).parent)
+                        mod_dummy = Mod(**manifest, mod_files_root=Path(file.path).parent)
                     except Exception as ex:
                         self.app.logger.error("Error on ZIP mod preload", ex)
                         # TODO: remove raise, need to test

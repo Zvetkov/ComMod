@@ -94,7 +94,7 @@ async def main(page: Page):
     page.theme = Theme(color_scheme_seed="#FFA500", visual_density=ThemeVisualDensity.COMPACT)
     page.dark_theme = Theme(color_scheme_seed="#FFA500", visual_density=ThemeVisualDensity.COMPACT)
 
-    app = App(context=InstallationContext(dev_mode=options.dev, can_skip_adding_distro=True),
+    app = App(context=InstallationContext(dev_mode=options.dev),
               game=GameCopy(),
               config=Config(page),
               page=page)
@@ -104,9 +104,6 @@ async def main(page: Page):
 
     # at the end of each operation, commod tries to create config near itself
     # if we can load it - we will use the data from it, except when overriden from console args
-
-    # TODO: remove if is really duplicate
-    # app.config = Config(page
     app.config.load_from_file()
 
     app.context.setup_loggers(stream_only=True)
@@ -143,17 +140,10 @@ async def main(page: Page):
             # TODO: Handle exceptions properly
             app.logger.error(f"[Game loading error] {ex}")
 
-    # TODO: do we want to check env arround binary to detect that we are running in distro directory?
-    # local_path = InstallationContext.get_local_path()
-    # if (app.context.get_config() is None
-    #    and not distribution_dir
-    #    and Path(Path(local_path) / "remaster").is_dir()
-    #    and Path(Path(local_path) / "patch").is_dir()):
-    #     distribution_dir = local_path
-
     if distribution_dir:
         try:
             # TODO: all distribution validation needs to be async in case of many distro folders present
+            # LATER NOTE: it seems this can't be perf critical right now, benchmark it if needed
             app.context.add_distribution_dir(distribution_dir)
             # await app.load_distro_async()
         except Exception as ex:
