@@ -13,7 +13,7 @@ from commod.helpers.parse_ops import init_input_parser
 from commod.localisation.service import tr
 
 
-async def main(page: Page):
+async def main(page: Page) -> None:
     async def maximize(e: ft.ControlEvent) -> None:
         page.window_maximized = not page.window_maximized
         await page.update_async()
@@ -136,9 +136,9 @@ async def main(page: Page):
     if target_dir:
         try:
             app.game.process_game_install(target_dir)
-        except Exception as ex:
+        except Exception:
             # TODO: Handle exceptions properly
-            app.logger.error(f"[Game loading error] {ex}")
+            app.logger.exception("[Game loading error]")
 
     if distribution_dir:
         try:
@@ -146,9 +146,9 @@ async def main(page: Page):
             # LATER NOTE: it seems this can't be perf critical right now, benchmark it if needed
             app.context.add_distribution_dir(distribution_dir)
             # await app.load_distro_async()
-        except Exception as ex:
+        except Exception:
             # TODO: handle individuals exceptions properly if they are not caught lower
-            app.logger.error("[Distro loading error]", exc_info=ex)
+            app.logger.exception("[Distro loading error]")
 
     if app.context.distribution_dir:
         app.context.setup_logging_folder()
@@ -160,7 +160,7 @@ async def main(page: Page):
 
     create_sections(app)
 
-    page.theme_icon_btn: ft.Ref[IconButton] = ft.Ref[IconButton]()
+    page.theme_icon_btn = ft.Ref[IconButton]()
     theme_icon = ft.icons.BRIGHTNESS_AUTO
     match page.theme_mode:
         case ft.ThemeMode.SYSTEM:
@@ -208,7 +208,7 @@ async def main(page: Page):
     )
     app.rail = rail
 
-    page.icon_maximize: ft.Ref[IconButton] = ft.Ref[IconButton]()
+    page.icon_maximize = ft.Ref[IconButton]()
     # title bar to replace system one
     await page.add_async(
         ft.Row(

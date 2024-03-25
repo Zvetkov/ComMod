@@ -1,3 +1,6 @@
+# ruff: noqa
+# type: ignore
+
 from __future__ import annotations
 
 import logging
@@ -15,13 +18,11 @@ from zipfile import ZipInfo
 from pathvalidate import sanitize_filename
 from py7zr import py7zr
 
-from commod.console.color import bcolors, fconsole, remove_colors
 from commod.game.data import (
     COMPATCH_GITHUB,
     DEM_DISCORD,
     WIKI_COMPATCH,
     SupportedGames,
-    get_known_mod_display_name,
 )
 from commod.helpers import validation
 from commod.helpers.file_ops import copy_from_to_async_fast, get_internal_file_path, read_yaml
@@ -32,7 +33,7 @@ from commod.helpers.parse_ops import (
     process_markdown,
     remove_substrings,
 )
-from commod.localisation.service import SupportedLanguages, is_known_lang, tr
+from commod.localisation.service import SupportedLanguages, get_known_mod_display_name, is_known_lang, tr
 
 logger = logging.getLogger("dem")
 
@@ -859,19 +860,10 @@ class Mod:
         return requirements_met, error_msg
 
     def check_reinstallability(self, existing_content: dict,
-                               existing_content_descriptions: dict) -> tuple[bool, bool, str]:
+                               existing_content_descriptions: dict) -> tuple[bool, bool, str, str]:
         """Return is_reinstallation: bool, can_be_installed: bool, warning_text: str."""
         previous_install = existing_content.get(self.name)
         comrem_on_compatch = False
-
-        # comrem = existing_content.get("community_remaster")
-        # compatch = existing_content.get("community_patch")
-        # if comrem is not None:
-        #     installing_on = "comrem"
-        # elif compatch is not None:
-        #     installing_on = "compatch"
-        # else:
-        #     installing_on = "clean"
 
         if self.name == "community_remaster":
             compatch_preivous = existing_content.get("community_patch")
@@ -1276,7 +1268,7 @@ class Mod:
                         else "<! MOD FILES FAILED VALIDATION !>")
         return validated
 
-    def compatible_with_mod_manager(self, patcher_version: str | float) -> bool:
+    def compatible_with_mod_manager(self, patcher_version: str | float) -> tuple(bool, str):
         compatible = True
 
         patcher_version_parsed = Mod.Version(str(patcher_version))

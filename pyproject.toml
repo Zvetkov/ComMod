@@ -13,8 +13,9 @@ ignore = ["D1", "TCH002", "TCH003", "ANN101", "ANN102", "COM812", "TD", "FIX", "
           "C901", "PLR0912", "PLR0915", "PLR0913", # complexity suggestions
           "ERA001", # dead code
           "PTH", # migration to pathlib from os (mostly)
-          "FBT", # booleans as args,
-          "T201", "S605", "S607", # print, os.system("cls"),
+          "FBT", # booleans as args
+          "T201", "S605", "S607", # print, os.system("cls")
+          "S324", # cryptographic warning
           "TRY400", # logging.error -> exception
           "ARG001", "ARG002", # Unused method argument, Unused function argument
           ]

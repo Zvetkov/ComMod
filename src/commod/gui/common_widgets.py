@@ -6,7 +6,7 @@ class ExpandableContainer(ft.Container):
     def __init__(self, label_expanded: str, label_collapsed: str, content: ft.Control,
                  expanded: bool = True, min_height: int = 48,
                  *args, **kwargs) -> None:
-        kwargs.setdefault("content", self.internal_content)
+        kwargs.setdefault("content", content)
         kwargs.setdefault("animate", ft.animation.Animation(200, ft.AnimationCurve.EASE_IN_OUT))
         super().__init__(*args, **kwargs)
 

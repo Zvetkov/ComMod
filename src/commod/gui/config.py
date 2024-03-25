@@ -5,7 +5,7 @@ from typing import Any
 import flet as ft
 
 import commod.localisation.service as localisation
-from commod.game.environment import GameInstallments, InstallationContext
+from commod.game.environment import GameCopy, GameInstallment, InstallationContext
 from commod.helpers.file_ops import dump_yaml, read_yaml
 
 
@@ -31,16 +31,17 @@ class Config:
         self._lang: str = localisation.stored.language
 
         self.current_game: str = ""
-        self.known_games: set[str] = set()
         self.game_names: dict[str, str] = {}
+        self.loaded_games: dict[str, GameCopy] = {}
 
         self.current_distro: str = ""
+        # pretty much useless right now as only single distro is supported at the same time
         self.known_distros: set[str] = set()
 
         self.modder_mode: bool = False
 
         self.current_section: int = AppSections.SETTINGS.value
-        self.current_game_filter: int = GameInstallments.ALL.value
+        self.current_game_filter: int = GameInstallment.ALL.value
         self.game_with_console: bool = False
 
         self.page: ft.Page = page
@@ -61,6 +62,19 @@ class Config:
             "theme": self.page.theme_mode.value,
             "lang": self.lang
         }
+
+    @property
+    def known_games(self) -> set[str]:
+        return {game_path.lower() for game_path in self.game_names}
+
+    def get_game_copy(self, game_path: str | None = None,
+                      reset_cache: bool = False) -> GameCopy:
+        cached_game = self.loaded_games.get(game_path)
+        if game_path and cached_game and not reset_cache:
+            return cached_game
+        new_game = GameCopy()
+        self.loaded_games[game_path] = new_game
+        return new_game
 
     @property
     def lang(self) -> str:
@@ -94,8 +108,6 @@ class Config:
                     if isinstance(path, str) and os.path.isdir(path) and (name is not None):
                         self.game_names[path] = str(name)
 
-            self.known_games = {game_path.lower() for game_path in self.game_names}
-
             current_distro = config.get("current_distro")
             if isinstance(current_distro, str) and os.path.isdir(current_distro):
                 self.current_distro = current_distro
@@ -111,7 +123,7 @@ class Config:
                 self.current_section = current_section
 
             current_game_filter = config.get("current_game_filter")
-            if current_game_filter in GameInstallments.list_values():
+            if current_game_filter in GameInstallment.list_values():
                 self.current_game_filter = current_game_filter
 
             game_with_console = config.get("game_with_console")

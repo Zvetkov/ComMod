@@ -41,7 +41,7 @@ class SupportedLanguages(StrEnum):
         return [c.name for c in cls]
 
     @classmethod
-    def _missing_(cls, value: str):
+    def _missing_(cls, value: str) -> str | None:
         value = value.lower()
         for member in cls:
             if member == value:
@@ -61,16 +61,23 @@ def get_strings_dict() -> dict[str, dict[str, str]]:
     if (eng.keys() != rus.keys() or eng.keys() != ukr.keys()) and not local_dict:
         raise ValueError("Localisation string for one of the languages is missing")
 
-    loc_dict = {key: {"eng": value} for key, value in eng.items()}
+    loc_dict = {key: {SupportedLanguages.ENG.value: value} for key, value in eng.items()}
 
     for key in rus:
-        loc_dict[key]["ru"] = rus[key]
+        loc_dict[key][SupportedLanguages.RU.value] = rus[key]
 
     for key in ukr:
-        loc_dict[key]["ua"] = ukr[key]
+        loc_dict[key][SupportedLanguages.UA.value] = ukr[key]
 
     return loc_dict
 
+
+def tr_lang(str_name: str, lang: SupportedLanguages) -> str:
+    """Return localised string in specific supported language."""
+    loc_str = stored.strings.get(str_name)
+    if loc_str is not None:
+        return loc_str[lang]
+    return f"Unlocalised string '{str_name}'"
 
 def tr(str_name: str, **kwargs: str) -> str:
     # return "SomeString"
@@ -99,19 +106,38 @@ def get_default_lang() -> str:
     if isinstance(def_locale_tuple[0], str):
         def_locale = def_locale_tuple[0].replace("_", "-")
     else:
-        return "eng"
+        return SupportedLanguages.ENG.value
 
     if def_locale[-3:] == "-RU":
-        return "ru"
+        return SupportedLanguages.RU.value
     if def_locale[:2] == "uk" or def_locale[-3:] == "-UA":
-        return "ua"
+        return SupportedLanguages.UA.value
     if def_locale[:3] == "ru-":
-        return "ru"
+        return SupportedLanguages.RU.value
 
-    return "eng"
+    return SupportedLanguages.ENG.value
 
 stored = LocalizationService(get_default_lang(), get_strings_dict())
 
+def get_current_lang() -> SupportedLanguages:
+    return stored.language
 
 def is_known_lang(lang: str) -> bool:
-    return lang in ("eng", "ru", "ua", "de", "pl", "tr")
+    return lang in (SupportedLanguages.ENG.value,
+                    SupportedLanguages.RU.value,
+                    SupportedLanguages.UA.value,
+                    "de", "pl", "tr")
+
+
+def get_known_mod_display_name(
+        service_name: str, library_mods_info: dict[dict[str, str]] | None = None) -> str | None:
+    current_lang = get_current_lang()
+    lang_dict = library_mods_info[service_name]
+    if library_mods_info and lang_dict:
+        if translated := lang_dict.get(current_lang):
+            return translated
+        if lang_dict.values():
+            return next(iter(lang_dict.values()))
+    known_names = {"community_patch": "Community Patch",
+                   "community_remaster": "Community Remaster"}
+    return known_names.get(service_name)

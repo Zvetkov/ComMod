@@ -1,24 +1,33 @@
+# ruff: noqa: S603
+
 import asyncio
 import hashlib
 import logging
 import os
 import platform
+import pprint
 import subprocess
 import sys
 import winreg
 import zipfile
 from asyncio import gather
+from collections import defaultdict
 from ctypes import windll
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
+# import aiofiles
 import py7zr
+import yaml
 from aiopath import AsyncPath
 from flet import Text
 from pydantic import ValidationError
 
 from commod.game.data import (
+    KNOWN_RESOLUTIONS,
     OS_SCALE_FACTOR,
     OWN_VERSION,
     TARGEM_NEGATIVE,
@@ -28,9 +37,12 @@ from commod.game.data import (
     VERSION_BYTES_102_STAR,
     VERSION_BYTES_103_NOCD,
     VERSION_BYTES_103_STAR,
+    VERSION_BYTES_ARCD_100,
     VERSION_BYTES_DEM_LNCH,
+    VERSION_BYTES_M113_101,
 )
 from commod.game.mod import Mod
+from commod.game.mod_auxiliary import RESERVED_CONTENT_NAMES, ConfigOptions, Version
 from commod.helpers.errors import (
     DistributionNotFoundError,
     ExeIsRunningError,
@@ -47,13 +59,13 @@ from commod.helpers.errors import (
 )
 from commod.helpers.file_ops import get_config, load_yaml, read_yaml, running_in_venv, write_xml_to_file_async
 from commod.helpers.parse_ops import shorten_path
-from commod.localisation.service import tr
+from commod.localisation.service import SupportedLanguages, tr
 
 
 class GameStatus(Enum):
     COMPATIBLE = ""
     NOT_EXISTS = "not_a_valid_path"
-    BAD_EXE = "unsupported_exe_version"
+    BAD_EXE = "exe_not_supported"
     EXE_RUNNING = "exe_is_running"
     MISSING_FILES = "target_dir_missing_files"
     LEFTOVERS = "install_leftovers"
@@ -68,6 +80,14 @@ class DistroStatus(Enum):
     ALREADY_ADDED = "already_chosen"
     GENERAL_ERROR = "error"
 
+# TODO: maybe implement a hashable description of installed Mod
+@dataclass(frozen=True)
+class ModDescription:
+    base: Literal["yes", "no"]
+    build: str
+    display_name: str
+    installment: str
+
 
 class InstallationContext:
     """
@@ -79,11 +99,11 @@ class InstallationContext:
     def __init__(self, distribution_dir: str = "",
                  dev_mode: bool = False) -> None:
         self.dev_mode = dev_mode
-        self.distribution_dir = ""
-        self.validated_mod_configs = {}
-        self.hashed_mod_manifests = {}
-        self.archived_mods = {}
-        self.archived_manifests_cache = {}
+        self.distribution_dir: str = ""
+        self.validated_mods: dict[str, Mod] = {}
+        self.hashed_mod_manifests: dict[Path, str] = {}
+        self.archived_mods: dict[str, Mod] = {}
+        self.archived_mods_cache: dict[str, Mod] = {}
         self.commod_version = OWN_VERSION
         self.os = platform.system()
         self.os_version = platform.release()
@@ -96,12 +116,23 @@ class InstallationContext:
 
         self.current_session = self.Session()
 
+    @property
+    def library_mods_info(self) -> dict[str, dict[str, str]] | None:
+        """Return dict of known display info (names) for mods in session."""
+        if not self.validated_mods:
+            return None
+        mod_info_list = ((mod.name, mod.language, mod.display_name) for mod in self.validated_mods.values())
+        mod_info_dict = defaultdict(dict)
+        for mod_info in mod_info_list:
+            mod_info_dict[mod_info[0]][mod_info[1]] = mod_info[2]
+        return mod_info_dict
+
     def new_session(self) -> None:
         self.current_session = self.Session()
 
     @staticmethod
     def validate_distribution_dir(distribution_dir: str) -> bool:
-        """Distribution dir is a storage location for mods."""
+        """Validate distribution dir - storage location for mods."""
         if not distribution_dir or not os.path.isdir(distribution_dir):
             return False
 
@@ -111,9 +142,8 @@ class InstallationContext:
     def get_config() -> dict | None:
         config_path = os.path.join(InstallationContext.get_local_path(), "commod.yaml")
         if os.path.exists(config_path):
-            config = read_yaml(config_path)
-            # TODO: what if yaml config syntax is broken? Handle exception before return
-            return config
+            # Invalid yaml config will be returned as None, no need to handle as special case
+            return read_yaml(config_path)
         return None
 
     def add_distribution_dir(self, distribution_dir: str) -> None:
@@ -129,7 +159,7 @@ class InstallationContext:
                 distribution_dir,
                 "Couldn't find all required files in given distribuion dir")
 
-    def load_system_info(self):
+    def load_system_info(self) -> None:
         self.under_windows = "Windows" in self.os
         self.monitor_res = self.get_monitor_resolution()
 
@@ -169,7 +199,7 @@ class InstallationContext:
         return monitor_res
 
     @staticmethod
-    def get_local_path():
+    def get_local_path() -> str:
         sys_exe = str(Path(sys.executable).resolve())
         \
         # check if we are running as py script, compiled exe, or in venv
@@ -190,10 +220,11 @@ class InstallationContext:
     async def load_mods_async(self) -> None:
         all_config_paths = []
         # TODO: deprecate all code related to legacy comrem file structure
-        # legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
-        # if os.path.exists(legacy_comrem):
-            # all_config_paths.append(legacy_comrem)
+        legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
+        if os.path.exists(legacy_comrem):
+            all_config_paths.append(legacy_comrem)
 
+        self.current_session.mod_loading_errors.clear()
         mod_loading_errors = self.current_session.mod_loading_errors
         mods_path = os.path.join(self.distribution_dir, "mods")
         if not os.path.isdir(mods_path):
@@ -206,60 +237,85 @@ class InstallationContext:
         if not all_config_paths and not archived_mods:
             raise NoModsFoundError
 
+        # TODO: maybe use ThreadPool to speedup
+        start = datetime.now()
         for mod_config_path in all_config_paths:
             with open(mod_config_path, "rb") as f:
                 digest = hashlib.file_digest(f, "md5").hexdigest()
 
+            # TODO: check AnyIO approach, as this is not faster than sync implementation
+            # https://anyio.readthedocs.io/en/stable/fileio.html
+            # md5 = hashlib.md5()
+            # async with aiofiles.open(mod_config_path, "rb") as f:
+            #     digest = hashlib.file_digest(f, "md5").hexdigest()
+            #     while chunk := await f.read(8192):
+            #         md5.update(chunk)
+            # digest = md5.hexdigest()
+
+            validated = False
+
             if mod_config_path in self.hashed_mod_manifests:
                 if digest == self.hashed_mod_manifests[mod_config_path]:
+                    validated = True
                     continue
-                self.validated_mod_configs.pop(mod_config_path, None)
+                self.validated_mods.pop(mod_config_path, None)
 
             self.logger.info(f"--- Loading {mod_config_path} ---")
-            self.hashed_mod_manifests[mod_config_path] = digest
             yaml_config = read_yaml(mod_config_path)
             if yaml_config is None:
                 self.logger.warning(f"Couldn't read mod manifest or it's empty: {mod_config_path}")
                 mod_loading_errors.append(f"\n{tr('empty_mod_manifest')}: "
                                           f"{Path(mod_config_path).parent.name} - "
                                           f"{Path(mod_config_path).name}")
-                if mod_config_path in self.validated_mod_configs:
-                    self.validated_mod_configs.pop(mod_config_path, None)
+                if mod_config_path in self.validated_mods:
+                    self.validated_mods.pop(mod_config_path, None)
                 continue
             try:
-                mod = Mod(**yaml_config, mod_files_root=Path(mod_config_path).parent)
-                # TODO: just load mods straight away, no need to store manifests now
-                self.validated_mod_configs[mod_config_path] = yaml_config
-                self.logger.debug(f"Loaded and validated mod config: {mod_config_path}")
-            except (ValueError, ValidationError) as ex:
-                if mod_config_path in self.validated_mod_configs:
-                    self.validated_mod_configs.pop(mod_config_path, None)
-
+                mod = Mod(**yaml_config, manifest_root=Path(mod_config_path).parent)
+                self.validated_mods[mod_config_path] = mod
+                validated = True
+                self.hashed_mod_manifests[mod_config_path] = digest
+                self.logger.debug(f"Validated mod manifest and loaded mod: '{mod.id_str}'")
+            except (ValueError, ValidationError, AssertionError) as ex:
                 self.logger.warning(f"Couldn't load mod install manifest: {mod_config_path}")
+                self.logger.error(f"Validation error: {ex}")
                 mod_loading_errors.append(f"\n{tr('not_validated_mod_manifest')}.\n"
                           f"{tr('folder').capitalize()}: "
                           f"/{Path(mod_config_path).parent.parent.name}"
-                          f"/{Path(mod_config_path).parent.name}"
-                          f"/{Path(mod_config_path).name}")
+                          f"/{Path(mod_config_path).parent.name} ->"
+                          f"{Path(mod_config_path).name}: \n\n"
+                          f"**{tr('error')}:**\n\n{ex}")
             except Exception as ex:
-                ...
+                self.logger.exception("General error:")
+                mod_loading_errors.append(f"\n{tr('error_occurred').capitalize()}.\n"
+                      f"{tr('folder').capitalize()}: "
+                      f"/{Path(mod_config_path).parent.parent.name}"
+                      f"/{Path(mod_config_path).parent.name} ->"
+                      f"{Path(mod_config_path).name}: \n\n"
+                      f"**{tr('error')}:**\n\n{ex}")
+            finally:
+                if not validated and (mod_config_path in self.validated_mods):
+                    self.validated_mods.pop(mod_config_path, None)
 
-        outdated_mods = set(self.validated_mod_configs.keys()) - set(all_config_paths)
+        end = datetime.now()
+        self.logger.debug(f"{(end - start).microseconds / 1000000} seconds took mods loading")
+
+        outdated_mods = set(self.validated_mods.keys()) - set(all_config_paths)
         if outdated_mods:
             for mod in outdated_mods:
                 self.logger.debug(f"Removed missing {mod} from rotation")
-                self.validated_mod_configs.pop(mod, None)
+                self.validated_mods.pop(mod, None)
                 self.hashed_mod_manifests.pop(mod, None)
 
         if archived_mods:
             for path, manifest in archived_mods.items():
                 try:
-                    mod_dummy = Mod(**manifest, mod_files_root=Path(path).parent)
+                    mod_dummy = Mod(**manifest, manifest_root=Path(path).parent)
                     self.archived_mods[path] = mod_dummy
                 except Exception as ex:
-                    self.logger.error("Error on archived mod preload", exc_info=ex)
+                    self.logger.exception("Error on archived mod preload")
                     # TODO: remove raise, need to test
-                    raise NotImplementedError
+                    raise NotImplementedError from ex
                     continue
 
         if mod_loading_errors:
@@ -338,14 +394,15 @@ class InstallationContext:
         # self.logger.debug("Finished get_archived_manifests")
         return mod_list, archive_dict
 
-    async def get_zip_manifest_async(self, archive_path: str | AsyncPath, ignore_cache: bool = False,
-                                     loading_text: Text | None = None) -> dict:
+    async def get_zip_manifest_async(
+            self, archive_path: str | AsyncPath, ignore_cache: bool = False,
+            loading_text: Text | None = None) -> tuple[Mod | None, Exception | None]:
         if isinstance(archive_path, str):
             archive_path = AsyncPath(archive_path)
         if not ignore_cache:
-            cached = self.archived_manifests_cache.get(archive_path)
+            cached = self.archived_mods_cache.get(archive_path)
             if cached is not None:
-                return cached
+                return cached, None
         try:
             with zipfile.ZipFile(archive_path, "r") as archive:
                 if loading_text is not None:
@@ -362,29 +419,34 @@ class InstallationContext:
                 if manifests:
                     manifest_b = archive.read(manifests[0])
                     if manifest_b:
+                        manifest_root_dir = Path(manifests[0].filename).parent
                         manifest = load_yaml(manifest_b)
-                        if validate_manifest_struct(
-                            # manifest, manifests[0].filename,
-                            # archive_file_list=file_list,
-                            # root_path=archive_path):
-                            manifest): # TODO: removed file validation, reimplement it
-                            self.archived_manifests_cache[archive_path] = manifest
-                            return manifest
-                        self.archived_manifests_cache[archive_path] = {}
-                        return {}
+                        if manifest is None:
+                            raise yaml.YAMLError("Invalid yaml found in archive")
+                        try:
+                            mod = Mod(
+                                **manifest, manifest_root=manifest_root_dir,
+                                archive_file_list=file_list)
+                        except (ValueError, ValidationError, AssertionError) as ex:
+                            self.archived_mods_cache[archive_path] = None
+                            return None, ex
+                        else:
+                            self.archived_mods_cache[archive_path] = mod
+                            return mod, None
         except Exception as ex:
-            self.logger.error("Error on ZIP manifest check", exc_info=ex)
-            self.archived_manifests_cache[archive_path] = {}
-            return {}
+            self.logger.exception("Error on ZIP manifest check")
+            self.archived_mods_cache[archive_path] = None
+            return None, ex
 
-    async def get_7z_manifest_async(self, archive_path: str | AsyncPath, ignore_cache: bool = False,
-                                    loading_text: Text | None = None):
+    async def get_7z_manifest_async(
+            self, archive_path: str | AsyncPath, ignore_cache: bool = False,
+            loading_text: Text | None = None) -> tuple[Mod | None, Exception | None]:
         if isinstance(archive_path, str):
             archive_path = AsyncPath(archive_path)
         if not ignore_cache:
-            cached = self.archived_manifests_cache.get(archive_path)
+            cached = self.archived_mods_cache.get(archive_path)
             if cached is not None:
-                return cached
+                return cached, None
         try:
             await asyncio.sleep(0.01)
             with py7zr.SevenZipFile(str(archive_path), "r") as archive:
@@ -401,22 +463,26 @@ class InstallationContext:
                 if manifests:
                     manifests_read_dict = archive.read(targets=[manifests[0].filename])
                     if manifests_read_dict.values():
-                        manifest_b = next(manifests_read_dict.values())
+                        manifest_b = list(manifests_read_dict.values())[0]  # noqa: RUF015
                     if manifest_b:
+                        manifest_root_dir = Path(manifests[0].filename).parent
                         manifest = load_yaml(manifest_b)
-                        if validate_manifest_struct(
-                            # manifest, manifests[0].filename,
-                            # archive_file_list=file_list,
-                            # root_path=archive_path):
-                            manifest): # TODO: removed file validation, reimplement it
-                            self.archived_manifests_cache[archive_path] = manifest
-                            return manifest
-                        self.archived_manifests_cache[archive_path] = {}
-                        return {}
+                        if manifest is None:
+                            raise yaml.YAMLError("Invalid yaml found in archive")
+                        try:
+                            mod = Mod(
+                                **manifest, manifest_root=manifest_root_dir,
+                                archive_file_list=file_list)
+                        except (ValueError, ValidationError, AssertionError) as ex:
+                            self.archived_mods_cache[archive_path] = None
+                            return None, ex
+                        else:
+                            self.archived_mods_cache[archive_path] = mod
+                            return mod, None
         except Exception as ex:
-            self.logger.error("Error on 7z manifest check", exc_info=ex)
-            self.archived_manifests_cache[archive_path] = {}
-            return {}
+            self.logger.exception("Error on 7z manifest check")
+            self.archived_mods_cache[archive_path] = None
+            return None, ex
 
     def setup_loggers(self, stream_only: bool = False) -> None:
         self.logger = logging.getLogger("dem")
@@ -475,10 +541,15 @@ class InstallationContext:
             self.content_in_processing = {}
             self.installed_content_description = []
             self.steam_game_paths = []
-            self.tracked_mods = set()
+            # self.tracked_mods = set()
             self.tracked_mods_hashes = {}
-            self.mods = {}
+            self.mods: dict[str, Mod] = {}
+            self.variants: dict[str, Mod] = {}
             self.mods_validation_info = {}
+
+        @property
+        def tracked_mods(self) -> set[str]:
+            return {mod.id_str for mod in self.mods.values()}
 
         def load_steam_game_paths(self) -> tuple[str, str]:
             """Try to find the game(s) in default Steam folder, return path and error message."""
@@ -551,7 +622,7 @@ class InstallationContext:
             except FileNotFoundError:
                 self.steam_parsing_error = "FileNotFound/RegistryNotFound"
                 return False
-            except Exception as ex:
+            except Exception as ex:  # noqa: BLE001
                 self.steam_parsing_error = f"General error when parsing Steam paths: {ex}"
                 return False
 
@@ -559,7 +630,7 @@ class InstallationContext:
             return True
 
 
-class GameInstallments(Enum):
+class GameInstallment(Enum):
     ALL = 0
     EXMACHINA = 1
     M113 = 2
@@ -585,9 +656,16 @@ class GameCopy:
         self.hi_dpi_aware = False
         self.fullscreen_opts_disabled = False
         self.game_root_path = ""
-        self.exe_version = "Unknown"
+        self.exe_version = "unknown"
         self.installment = None
         self.installment_id = 4
+        self.cached_warning = ""
+
+    @property
+    def exe_version_tr(self) -> str:
+        if self.exe_version == "unknown":
+            return tr(self.exe_version)
+        return self.exe_version.replace("Remaster", "Rem")
 
     @staticmethod
     def validate_game_dir(game_root_path: str) -> tuple[bool, str]:
@@ -595,12 +673,9 @@ class GameCopy:
         if not game_root_path or not os.path.isdir(game_root_path):
             return False, game_root_path
 
-        possible_exe_paths = [os.path.join(game_root_path, "hta.exe"),
-                              os.path.join(game_root_path, "game.exe"),
-                              os.path.join(game_root_path, "start.exe"),
-                              os.path.join(game_root_path, "ExMachina.exe")]
+        exe_path = GameCopy.get_exe_name(game_root_path)
 
-        if not any(os.path.exists(exepath) for exepath in possible_exe_paths):
+        if exe_path is None:
             return False, os.path.join(game_root_path, "hta.exe")
 
         paths_to_check = [os.path.join(game_root_path, "dxrender9.dll"),
@@ -625,24 +700,7 @@ class GameCopy:
 
     @staticmethod
     def validate_install_manifest(install_config: dict) -> bool:
-        compatch = install_config.get("community_patch")
-        if compatch is not None:
-            base = compatch.get("base")
-            version = compatch.get("version")
-            if base is None or version is None:
-                return False
-
-        comrem = install_config.get("community_remaster")
-        if comrem is not None:
-            base = comrem.get("base")
-            version = comrem.get("version")
-            if base is None or version is None:
-                return False
-
         for config_name in install_config:
-            if install_config[config_name] in ["community_patch", "community_remaster"]:
-                continue
-
             base = install_config[config_name].get("base")
             version = install_config[config_name].get("version")
             if base is None or version is None:
@@ -686,7 +744,7 @@ class GameCopy:
             self.exe_version = ""
             raise ExeIsRunningError
 
-        if self.exe_version == "Unknown":
+        if self.exe_version == "unknown":
             self.installment = None
             self.installment_id = 4
         elif "M113" in self.exe_version:
@@ -699,11 +757,10 @@ class GameCopy:
             self.installment = "exmachina"
             self.installment_id = 1
 
-        self.logger.debug("Checking compatch compatibility")
-        if not self.is_compatch_compatible_exe(self.exe_version):
-            raise ExeNotSupportedError(self.exe_version)
+        if not self.is_commod_compatible_exe(self.exe_version):
+            raise ExeNotSupportedError(self.exe_version_tr)
 
-        self.logger.debug("Is compatch compatible")
+        self.logger.debug("Is ComPatch compatible")
         self.game_root_path = target_dir
         self.data_path = os.path.join(self.game_root_path, "data")
         self.installed_manifest_path = os.path.join(self.data_path, "mod_manifest.yaml")
@@ -711,7 +768,7 @@ class GameCopy:
         patched_version = (self.exe_version.startswith("ComRemaster")
                            or self.exe_version.startswith("ComPatch"))
 
-        if self.exe_version != "Unknown" and self.game_root_path:
+        if self.exe_version != "unknown" and self.game_root_path:
             self.fullscreen_game = self.get_is_fullscreen()
             if self.fullscreen_game is None:
                 # TODO: is not actually InvalidGameDirectory but more like BrokenGameConfig exception
@@ -721,35 +778,36 @@ class GameCopy:
             self.fullscreen_opts_disabled = self.get_is_fullscreen_opts_disabled()
             self.logger.debug(f"Fullscreen optimisations disabled status: {self.fullscreen_opts_disabled}")
 
-        version_str = self.exe_version.replace("Remaster", "Rem")
-        self.display_name = f"[{version_str}] {shorten_path(self.game_root_path, 45)}"
+        self.display_name = f"[{self.exe_version_tr}] {shorten_path(self.game_root_path, 45)}"
 
-        self.logger.debug(f"Checking mod manifest: {self.installed_manifest_path}")
+        self.logger.debug(f"Checking mod_manifest for game copy: {self.installed_manifest_path}")
         if os.path.exists(self.installed_manifest_path):
-            self.logger.debug("Reading manifest")
             install_manifest = read_yaml(self.installed_manifest_path)
-            self.logger.debug("Validating manifest")
+            if install_manifest is None:
+                raise InvalidExistingManifestError(self.installed_manifest_path)
             valid_manifest = self.validate_install_manifest(install_manifest)
             if valid_manifest and patched_version:
+                self.logger.debug("mod_manifest is valid")
                 for manifest in install_manifest.values():
                     if manifest.get("language") is None:
                         manifest["language"] = "not_specified"
                     if manifest.get("installment") is None:
-                        manifest["installment"] = GameInstallments.EXMACHINA.value
+                        manifest["installment"] = GameInstallment.EXMACHINA.value
                 self.installed_content = install_manifest
                 self.patched_version = True
                 return
-            elif patched_version and not valid_manifest:
+
+            if patched_version and not valid_manifest:
                 raise InvalidExistingManifestError(self.installed_manifest_path)
-            else:
-                self.leftovers = True
-                raise HasManifestButUnpatchedError(self.exe_version, install_manifest)
+
+            self.leftovers = True
+            raise HasManifestButUnpatchedError(self.exe_version_tr, install_manifest)
 
         if patched_version:
             self.patched_version = True
             self.installed_content = {}
             self.leftovers = True
-            raise PatchedButDoesntHaveManifestError(self.exe_version)
+            raise PatchedButDoesntHaveManifestError(self.exe_version_tr)
 
         self.logger.debug("Finished process_game_install")
 
@@ -758,26 +816,22 @@ class GameCopy:
         if not self.installed_content:
             return False
 
-        if "community_remaster" in self.installed_content:
-            if len(self.installed_content) > 2:
-                return True
-        elif "community_patch" in self.installed_content:
-            if len(self.installed_content) > 1:
-                return True
+        if "community_remaster" in self.installed_content and len(self.installed_content) > 2:
+            return True
+        if "community_patch" in self.installed_content and len(self.installed_content) > 1:
+            return True
 
         return False
 
-    def load_installed_descriptions(self, additional_manifests: list | None = None) -> list[str]:
+    def load_installed_descriptions(self, known_mods: list[Mod] | None = None) -> list[str]:
         """Construct dict of pretty description strings for list of installed content.
 
-        Do so based on existing manifest inside the game and optional list of full mod manifests.
-        Stores in session to separate from static information about context
+        Does so based on existing short mod manifest of the game and optional list of full mod objects.
         """
-        available_external_manifests = []
-        reserved_keywords = {"base", "version", "display_name", "build", "language", "installment"}
+        known_mod_names = []
 
-        if additional_manifests:
-            available_external_manifests = [manifest["name"] for manifest in additional_manifests.values()]
+        if known_mods:
+            known_mod_names = {mod.name for mod in known_mods.values()}
 
         if not self.installed_content:
             return
@@ -786,30 +840,32 @@ class GameCopy:
             install_manifest = self.installed_content[content_piece]
             name = content_piece
 
-            if name == "community_patch":
-                if "community_remaster" in self.installed_content:
-                    continue
-                name = "Community Patch"
-            elif name == "community_remaster":
-                name = "Community Remaster"
-            elif install_manifest.get("display_name") is not None:
-                name = install_manifest["display_name"]
-            elif content_piece in available_external_manifests:
-                external_manifest = [manifest for manifest in additional_manifests.values()
-                                     if (manifest["name"] == content_piece and
-                                         str(manifest["version"]) == install_manifest["version"])]
-                if external_manifest:
-                    name = external_manifest[0]["display_name"]
+            content_version_str = repr(Version.parse_from_str(install_manifest["version"]))
 
-            optional_content_keys = install_manifest.keys() - reserved_keywords
+            if name == "community_patch" and "community_remaster" in self.installed_content:
+                continue
+
+            if install_manifest.get("display_name") is not None:
+                name = install_manifest["display_name"]
+            elif known_mod_names and content_piece in known_mod_names:
+                content_lang = install_manifest.get("language") or SupportedLanguages.RU.value
+                known_mod_entries = [
+                    mod for mod in known_mods.values()
+                    if (mod.name == content_piece
+                        and repr(mod.version) == content_version_str
+                        and mod.language == content_lang)]
+                if known_mod_entries:
+                    name = known_mod_entries[0].display_name
+
+            optional_content_keys = install_manifest.keys() - RESERVED_CONTENT_NAMES
             unskipped_content = {key: value for key, value in install_manifest.items() if value != "skip"}
-            installed_optional_content = unskipped_content.keys() - reserved_keywords
+            installed_optional_content = unskipped_content.keys() - RESERVED_CONTENT_NAMES
 
             build = ""
             if install_manifest.get("build") is not None:
                 build = f" [{install_manifest['build']}]"
 
-            description = f'{name} ({tr("version")} {install_manifest["version"]}){build}\n'
+            description = f'{name} ({tr("version")} {content_version_str}){build}\n'
 
             if installed_optional_content:
                 description += (f'{tr("optional_content").capitalize()}: '
@@ -819,14 +875,19 @@ class GameCopy:
 
             self.installed_descriptions[content_piece] = description.strip()
 
-    async def change_config_values(self, key_value_pairs: dict) -> None:
+    async def change_config_values(self, config_options: ConfigOptions) -> None:
         config = get_config(self.game_root_path)
+
+        key_value_pairs = config_options.model_dump()
+
         for key, value in key_value_pairs.items():
+            if value is None:
+                continue
             current_value = config.attrib.get(key)
             if current_value is not None:
                 config.attrib[key] = str(value)
-        await write_xml_to_file_async(config,
-                                 os.path.join(self.game_root_path, "data", "config.cfg"))
+        await write_xml_to_file_async(
+            config, os.path.join(self.game_root_path, "data", "config.cfg"))
 
     async def switch_windowed(self, enable: bool = True) -> None:
         config = get_config(self.game_root_path)
@@ -836,6 +897,13 @@ class GameCopy:
                 if current_value in TARGEM_POSITIVE:
                     return
                 config.attrib["r_fullScreen"] = "true"
+                # TODO: maybe also check for existance of "r_width", "r_height" in case of broken config
+                cur_width = int(config.attrib["r_width"])
+                cur_height = int(config.attrib["r_height"])
+                known_height = KNOWN_RESOLUTIONS.get(cur_width)
+                if (known_height is not None and cur_height != known_height):
+                    self.logger.debug("Fixed broken fullscreen res in config")
+                    config.attrib["r_height"] = str(known_height)
                 self.fullscreen_game = True
             else:
                 if current_value in TARGEM_NEGATIVE:
@@ -855,7 +923,7 @@ class GameCopy:
 
         return None
 
-    # TODO: split to two functions without bool flag
+    # TODO: maybe split to two functions without bool flag
     def switch_hi_dpi_aware(self, enable: bool = True) -> None:
         self.logger.debug("Setting hidpi awareness")
         compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
@@ -866,8 +934,8 @@ class GameCopy:
         except PermissionError:
             self.logger.debug("Unable to open registry - no access")
             return False
-        except OSError as ex:
-            self.logger.debug("OS error, key probably doesn't exist", exc_info=ex)
+        except OSError:
+            self.logger.debug("OS error, key probably doesn't exist", exc_info=True)
 
         if enable:
             try:
@@ -879,10 +947,11 @@ class GameCopy:
                                   self.target_exe, 0, winreg.REG_SZ,
                                   new_value)
                 self.hi_dpi_aware = True
-                return True
             except PermissionError:
                 self.logger.debug("Unable to set hi_dpi_aware/disable_fullscreen_optimisations - no access")
                 return False
+            else:
+                return True
         else:
             try:
                 if not self.fullscreen_opts_disabled:
@@ -904,7 +973,7 @@ class GameCopy:
                 return True
             return False
 
-    def get_is_hidpi_aware(self):
+    def get_is_hidpi_aware(self) -> bool:
         try:
             self.logger.debug("Checking hidpi awareness status")
             compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
@@ -919,8 +988,8 @@ class GameCopy:
             except FileNotFoundError:
                 value = None
                 self.logger.debug("Key not found in HKLM")
-            except OSError as ex:
-                self.logger.debug("General os error", exc_info=ex)
+            except OSError:
+                self.logger.debug("General os error", exc_info=True)
                 value = None
             except IndexError:
                 value = None
@@ -936,20 +1005,20 @@ class GameCopy:
             except FileNotFoundError:
                 value = None
                 self.logger.debug("Key not found in HKCU")
-            except OSError as ex:
+            except OSError:
                 value = None
-                self.logger.debug("General os error", exc_info=ex)
+                self.logger.debug("General os error", exc_info=True)
             except IndexError:
                 value = None
 
             if value is None:
                 return False
-        except Exception as ex:
-            self.logger.error("General error when trying to get hidpi status", exc_info=ex)
+        except Exception:
+            self.logger.exception("General error when trying to get hidpi status")
             return False
 
     # TODO: split to two functions without bool flag
-    def switch_fullscreen_opts(self, disable: bool = True):
+    def switch_fullscreen_opts(self, disable: bool = True) -> bool:
         compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
         hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
         try:
@@ -970,10 +1039,11 @@ class GameCopy:
                                   new_value)
 
                 self.fullscreen_opts_disabled = True
-                return True
             except PermissionError:
                 self.logger.debug("Unable to set hi_dpi_aware/disable_fullscreen_optimisations - no access")
                 return False
+            else:
+                return True
         else:
             try:
                 if not self.hi_dpi_aware:
@@ -1010,9 +1080,9 @@ class GameCopy:
             except FileNotFoundError:
                 value = None
                 self.logger.debug("Key not found in HKLM")
-            except OSError as ex:
+            except OSError:
                 value = None
-                self.logger.debug("General os error", exc_info=ex)
+                self.logger.debug("General os error", exc_info=True)
             except IndexError:
                 value = None
 
@@ -1027,31 +1097,34 @@ class GameCopy:
             except FileNotFoundError:
                 value = None
                 self.logger.debug("Key not found in HKCU")
-            except OSError as ex:
+            except OSError:
                 value = None
-                self.logger.debug("General os error", exc_info=ex)
+                self.logger.debug("General os error", exc_info=True)
             except IndexError:
                 value = None
 
             if value is None:
                 return False
-        except Exception as ex:
-            self.logger.error("General error when gettings fullscreen optimisations status", exc_info=ex)
+        except Exception:
+            self.logger.exception("General error when gettings fullscreen optimisations status")
             return False
 
     @staticmethod
-    def is_compatch_compatible_exe(version: str) -> bool:
+    def is_commod_compatible_exe(version: str) -> bool:
         return ("Clean" in version) or ("ComRemaster" in version) or ("ComPatch" in version)
 
     @staticmethod
     def get_exe_name(target_dir: str) -> str:
-        possible_exe_paths = [os.path.join(target_dir, "hta.exe"),
-                              os.path.join(target_dir, "game.exe"),
-                              os.path.join(target_dir, "start.exe"),
-                              os.path.join(target_dir, "ExMachina.exe")]
-        for exe_path in possible_exe_paths:
-            if os.path.exists(exe_path):
-                return os.path.normpath(exe_path)
+        possible_exe_paths = ["hta.exe",
+                              "game.exe",
+                              "start.exe",
+                              "ExMachina.exe",
+                              "Meridian113.exe",
+                              "emarcade.exe"]
+        for exe_name in possible_exe_paths:
+            full_path = os.path.join(target_dir, exe_name)
+            if os.path.exists(full_path):
+                return os.path.normpath(full_path)
         return None
 
     @staticmethod
@@ -1059,58 +1132,123 @@ class GameCopy:
         try:
             with open(target_exe, "rb+") as f:
                 f.seek(VERSION_BYTES_102_NOCD)
-                version_identifier = f.read(15)
+                main_version_identifier = f.read(15)
+
+                vanilla_version_id = main_version_identifier[8:12]
+                if vanilla_version_id == b"1.02":
+                    return "Clean 1.02"
+                if vanilla_version_id == b"1.04":
+                    return "KRBDZSKL 1.04"
+
+                compatch_version_id = main_version_identifier[:4]
+                match compatch_version_id:
+                    case b"1.10":
+                        return "ComPatch 1.10"
+                    case b"1.11":
+                        return "ComPatch 1.11"
+                    case b"1.12":
+                        return "ComPatch 1.12"
+                    case b"1.13":
+                        return "ComPatch 1.13"
+                    case b"1.14":
+                        return "ComPatch 1.14"
+                    case b"1.02":
+                        return "ComPatch Mini"
+
+                comrem_version_id = main_version_identifier[3:7]
+                match comrem_version_id:
+                    case b"1.10":
+                        return "ComRemaster 1.10"
+                    case b"1.11":
+                        return "ComRemaster 1.11"
+                    case b"1.12":
+                        return "ComRemaster 1.12"
+                    case b"1.13":
+                        return "ComRemaster 1.13"
+                    case b"1.14":
+                        return "ComRemaster 1.14"
+
                 f.seek(VERSION_BYTES_103_NOCD)
                 version_identifier_103_nocd = f.read(15)
+                if version_identifier_103_nocd[1:5] == b"1.03":
+                    return "DRM-free 1.03"
+
+                f.seek(VERSION_BYTES_M113_101)
+                version_identifier_m113 = f.read(4)
+                if version_identifier_m113 == b"1.01":
+                    return "Meridian 113/RoC 1.01 (unsupported)"
+                
+                f.seek(VERSION_BYTES_ARCD_100)
+                version_identifier_arcade = f.read(3)
+                if version_identifier_arcade == b"1.0":
+                    return "Arcade 1.0 (unsupported)"
+
                 f.seek(VERSION_BYTES_100_STAR)
                 version_identifier_100_star = f.read(15)
+                if version_identifier_100_star[1:5] == b"1.0 ":
+                    return "1.0 Starforce"
+
                 f.seek(VERSION_BYTES_102_STAR)
                 version_identifier_102_star = f.read(15)
+                if version_identifier_102_star[:9] == b"O0\x87\xfa%\xbc\x9f\x86Q":
+                    return "1.02 Starforce"
+
                 f.seek(VERSION_BYTES_103_STAR)
                 version_identifier_103_star = f.read(15)
+                if version_identifier_103_star[:9] == b"\xbf\xcf\x966\xf1\x97\xf2\xc5\x11":
+                    return "1.03 Starforce"
+
                 f.seek(VERSION_BYTES_DEM_LNCH)
                 version_identifier_dem_lnch = f.read(15)
+                if version_identifier_dem_lnch[:9] == b"\x00\x8dU\x98R\xe8)\x07\x00":
+                    return "Old DEM launcher"
 
-            # TODO: replace this horrible if-else
-            if version_identifier[8:12] == b"1.02":
-                return "Clean 1.02"
-            elif version_identifier_103_nocd[1:5] == b"1.03":
-                return "DRM Free 1.03"
-            elif version_identifier[:4] == b"1.10":
-                return "ComPatch 1.10"
-            elif version_identifier[:4] == b"1.11":
-                return "ComPatch 1.11"
-            elif version_identifier[:4] == b"1.12":
-                return "ComPatch 1.12"
-            elif version_identifier[:4] == b"1.13":
-                return "ComPatch 1.13"
-            elif version_identifier[:4] == b"1.14":
-                return "ComPatch 1.14"
-            elif version_identifier[:4] == b"1.02":
-                return "ComPatch Mini"
-            elif version_identifier[3:7] == b"1.10":
-                return "ComRemaster 1.10"
-            elif version_identifier[3:7] == b"1.11":
-                return "ComRemaster 1.11"
-            elif version_identifier[3:7] == b"1.12":
-                return "ComRemaster 1.12"
-            elif version_identifier[3:7] == b"1.13":
-                return "ComRemaster 1.13"
-            elif version_identifier[3:7] == b"1.14":
-                return "ComRemaster 1.14"
-            elif version_identifier[8:12] == b"1.04":
-                return "KRBDZSKL 1.04"
-            elif version_identifier_100_star[1:5] == b"1.0 ":
-                return "1.0 Starforce"
-            elif version_identifier_102_star[:9] == b"O0\x87\xfa%\xbc\x9f\x86Q":
-                return "1.02 Starforce"
-            elif version_identifier_103_star[:9] == b"\xbf\xcf\x966\xf1\x97\xf2\xc5\x11":
-                return "1.03 Starforce"
-            elif version_identifier_dem_lnch[:9] == b"\x00\x8dU\x98R\xe8)\x07\x00":
-                return "Old DEM launcher"
-            else:
-                return "Unknown"
         except PermissionError:
             return None
+        else:
+            return "unknown"
 
+    def check_compatible_game(self, game_path: str) -> tuple[bool, str, bool]:
+        can_be_added = True
+        warning = ""
+
+        game_is_running = False
+        try:
+            self.process_game_install(game_path)
+        except ExeIsRunningError:
+            can_be_added = False
+            warning = f"{tr('game_is_running_cant_select')}"
+            game_is_running = True
+        except PatchedButDoesntHaveManifestError as ex:
+            warning += (f"{tr('install_leftovers')}\n\n"
+                        f"**{tr('error')}:**\n\n"
+                        f"{tr('dirty_copy_warning')} (PatchedButDoesntHaveManifestError)\n"
+                        f"**{tr('exe_version')}:** {ex.exe_version}\n\n")
+        except HasManifestButUnpatchedError as ex:
+            warning = (f"{tr('install_leftovers')}\n\n"
+                       f"**{tr('error')}:**\n\n"
+                       f"{tr('dirty_copy_warning')} (HasManifestButUnpatchedError)\n\n"
+                       f"**{tr('exe_version')}:** {ex.exe_version}\n\n"
+                       f"**{tr('description')}:**\n{pprint.pformat(ex.manifest_content)}\n\n")
+        except ExeNotSupportedError as ex:
+            can_be_added = False
+            warning = (f'{tr("broken_game")}\n\n'
+                       f'**{tr("exe_version")}:** {ex.exe_version}\n\n'
+                       f'**{tr("error")}:**\n\n{tr("exe_not_supported")}\n\n')
+        except InvalidGameDirectoryError as ex:
+            can_be_added = False
+            warning = (f'{tr("broken_game")}\n\n**{tr("error")}**:\n\n'
+                       f'{tr("target_dir_missing_files")}\n\n{ex}')
+        except InvalidExistingManifestError as ex:
+            can_be_added = False
+            warning = (f'{tr("broken_game")}\n\n**{tr("error")}**:\n\n'
+                       f'{tr("invalid_existing_manifest")}\n\n{ex}')
+        except Exception as ex:
+            can_be_added = False
+            warning = (f'{tr("broken_game")}\n\n{tr("path_to_game")}: {game_path}\n\n'
+                       f'**{tr("error")}**:\n{ex} ({ex!r})')
+            self.logger.exception("Error when processing game install")
+        self.cached_warning = warning
+
+        return can_be_added, warning, game_is_running
 

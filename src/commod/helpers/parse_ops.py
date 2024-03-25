@@ -43,7 +43,7 @@ def parse_bool_from_dict(dictionary: dict[str, Any], key: str, default: bool) ->
 
 def remove_substrings(string: str, substrings: Iterable[str]) -> str:
     for substring in substrings:
-        string.replace(substring, "")
+        string = string.replace(substring, "")
     return string
 
 

@@ -1,7 +1,11 @@
+# ruff: noqa: SIM108
+
 import logging
 import os
 from pathlib import Path
 
+import commod.game.mod_auxiliary
+from commod.game import data
 from commod.helpers import file_ops, parse_ops
 from commod.helpers.get_system_fonts import get_fonts
 
@@ -13,7 +17,7 @@ def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> No
     ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
     ui_schema = parse_ops.xml_to_objfy(ui_schema_path)
 
-    font_alias = "Arial" if not custom_font else custom_font
+    font_alias = custom_font if custom_font else "Arial"
 
     listed_system_fonts = []
     fonts_path = Path(Path.home().drive + "/", "Windows", "fonts")
@@ -53,7 +57,7 @@ def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> No
     return True
 
 # TODO: better to have two functions without bool flag
-def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, enable: bool = True) -> None:
+def toggle_16_9_UI_xmls(root_dir: str,screen_width: int, screen_height: int, enable: bool = True) -> None:  # noqa: N802
     config = file_ops.get_config(root_dir)
     if config.attrib.get("pathToUiWindows") is not None:
         if enable:
@@ -105,15 +109,15 @@ def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, en
     height = config.attrib.get("r_height")
     if width is not None and height is not None:
         if enable:
-            good_width = screen_width in list(data.possible_resolutions.keys())
-            good_heigth = data.possible_resolutions.get(screen_width) == screen_height
+            good_width = screen_width in list(data.KNOWN_RESOLUTIONS.keys())
+            good_heigth = data.KNOWN_RESOLUTIONS.get(screen_width) == screen_height
             if good_width and good_heigth:
                 new_width = str(screen_width)
                 new_height = str(screen_height)
             else:
                 new_width = "1280"
                 new_height = "720"
-        else:
+        else:  # noqa: PLR5501
             if width == "1280" and height == "720":
                 new_width = "1024"
                 new_height = "768"
@@ -128,7 +132,7 @@ def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, en
 
 
 def toggle_16_9_glob_prop(root_dir: str, enable: bool = True) -> None:
-    glob_props_full_path = os.path.join(root_dir, file_ops.get_glob_props_path(root_dir))
+    glob_props_full_path = os.path.join(root_dir, commod.game.mod_auxiliary.get_glob_props_path(root_dir))
     glob_props = parse_ops.xml_to_objfy(glob_props_full_path)
     ground_repository = parse_ops.get_child_from_xml_node(glob_props, "GroundRepository")
     smart_cursor = parse_ops.get_child_from_xml_node(glob_props, "SmartCursor")
