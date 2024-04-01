@@ -12,7 +12,6 @@ from typing import Annotated, Any
 
 from pydantic import (
     BaseModel,
-    DirectoryPath,
     Field,
     FilePath,
     StringConstraints,
@@ -42,16 +41,33 @@ from commod.localisation.service import get_known_mod_display_name, tr
 class PatcherOptions(BaseModel):
     gravity: Annotated[float, Field(ge=-100, le=-1)] | None = None
     skins_in_shop: Annotated[int, Field(ge=8, le=32)] | None = None
+    sell_price_coeff: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     blast_damage_friendly_fire: bool | None = None
     game_font: str | None = None
+    slow_brake: bool | None = None
+    hq_reflections: bool | None = None
+    draw_distance_limit: bool | None = None
+    vanilla_fov: bool | None = None
 
 
 class ConfigOptions(BaseModel):
     # Additional field names must follow actual game config names exactly
     firstLevel: str | None = None
+    mainMenuLevelName: str | None = None
     DoNotLoadMainmenuLevel: str | None = None
-    weather_AtmoRadius: str | None = None
+
+    g_impostorThreshold: int | None = None
+
+    ai_clash_coeff: float | None = None
+    ai_enemies_ramming_damage_coeff: int | None = None
+    ai_min_hit_velocity: int | None = None
+
+    weather_AtmoRadius: float | None = None
     weather_ConfigFile: str | None = None
+
+    mus_Volume:     Annotated[int, Field(ge=0, le=50)] | None = None
+    snd_2dVolume:   Annotated[int, Field(ge=0, le=50)] | None = None
+    snd_3dVolume:   Annotated[int, Field(ge=0, le=50)] | None = None
 
 
 class Version(BaseModel):
@@ -411,7 +427,7 @@ class Prerequisite(ModCompatConstrain):
             if name_validated:
                 for version_constrain in self.versions:
 
-                    installed_version = existing_content[required_mod_name]["version"]
+                    installed_version = str(existing_content[required_mod_name]["version"])
                     parsed_existing_ver = Version.parse_from_str(installed_version)
                     parsed_required_ver = version_constrain.version
 
@@ -644,7 +660,7 @@ class OptionalContent(BaseModel):
 
     def model_post_init(self, _unused_context: Any) -> None:  # noqa: ANN401
         if not self.data_dirs:
-            self.data_dirs = [""]
+            self.data_dirs = [Path(self.name)]
 
 class Screenshot(BaseModel):
     # TODO: add img extension checks previously existed in legacy Mod?
@@ -709,16 +725,58 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
             if exe_options_config.game_font is not None:
                 font_alias = exe_options_config.game_font
 
-        # mapping of offests to value/values needed for binary patch
-        configured_offesets: dict[int, Any] = {}
+            if exe_options_config.draw_distance_limit is not None:
+                limit_draw_dist = exe_options_config.draw_distance_limit
 
-        for offset_key, patch_value in configurable_values.items():
-            configured_offesets[data.configurable_offsets.get(offset_key)] = patch_value
+                if limit_draw_dist:
+                    patch_offsets(f, data.offsets_draw_dist_vanilla, raw_strings=True)
+                    patch_offsets(f, data.offset_draw_dist_numerics_vanilla)
+                else:
+                    patch_offsets(f, data.offsets_draw_dist, raw_strings=True)
+                    patch_offsets(f, data.offset_draw_dist_numerics)
+
+            if exe_options_config.hq_reflections is not None:
+                hq_reflections = exe_options_config.hq_reflections
+
+                if hq_reflections:
+                    patch_offsets(f, data.offset_hq_reflections)
+                else:
+                    patch_offsets(f, data.offset_hq_reflections_vanilla)
+
+            if exe_options_config.vanilla_fov is not None:
+                vanilla_fov = exe_options_config.vanilla_fov
+
+                if vanilla_fov:
+                    patch_offsets(f, data.projection_matrix_vanilla, raw_strings=True)
+                else:
+                    patch_offsets(f, data.projection_matrix_fix, raw_strings=True)
+
+            if exe_options_config.slow_brake is not None:
+                slow_brake = exe_options_config.slow_brake
+
+                if slow_brake:
+                    patch_offsets(f, data.offsets_slow_brake)
+                else:
+                    patch_offsets(f, data.offsets_slow_brake_vanilla)
+
+            if exe_options_config.sell_price_coeff is not None:
+                new_coeff = exe_options_config.sell_price_coeff
+                # changing value
+                configurable_values["sell_price_coeff_new"] = new_coeff
+                # changing pointer
+                patch_offsets(f, data.sell_price_offsets)
+
+
+        # mapping of offests to value/values needed for binary patch
+        configured_offsets: dict[int, Any] = {}
+
+        for offset_key, value in configurable_values.items():
+            configured_offsets[data.configurable_offsets.get(offset_key)] = value
 
         if font_alias:
             hd_ui.scale_fonts(Path(target_exe).parent, data.OS_SCALE_FACTOR, font_alias)
 
-        patch_offsets(f, configured_offesets)
+        patch_offsets(f, configured_offsets)
 
 
 def correct_damage_coeffs(root_dir: str, gravity: float) -> None:

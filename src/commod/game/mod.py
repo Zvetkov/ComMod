@@ -2,7 +2,6 @@
 
 import logging
 import operator
-import os
 from collections.abc import Awaitable
 from datetime import datetime
 from functools import cached_property
@@ -28,7 +27,7 @@ from commod.game.data import (
     COMPATCH_GITHUB,
     DEM_DISCORD,
     OWN_VERSION,
-    WIKI_COMPATCH,
+    WIKI_COMREM,
     SupportedGames,
 )
 from commod.game.mod_auxiliary import (
@@ -43,6 +42,7 @@ from commod.game.mod_auxiliary import (
     Tags,
     Version,
 )
+from commod.helpers.errors import ModFileInstallationError
 from commod.helpers.file_ops import (
     SUPPORTED_IMG_TYPES,
     copy_from_to_async_fast,
@@ -68,7 +68,8 @@ class Mod(BaseModel):
 
     # primary with defaults
     installment: SupportedGames = SupportedGames.EXMACHINA
-    language: Annotated[str, StringConstraints(max_length=3, to_lower=True)] = SupportedLanguages.RU.value
+    language: Annotated[str, StringConstraints(min_length=2, max_length=3, to_lower=True)] = \
+        SupportedLanguages.RU.value
     patcher_version_requirement: str | list[str] | list[ManagerVersionRequirement] = \
         Field(default=[">=1.10"], repr=False)
     optional_content: list[OptionalContent] = Field(default=[], repr=False)
@@ -268,7 +269,7 @@ class Mod(BaseModel):
                 error_msg += f"\n\n{tr('check_for_a_new_version')}\n\n"
                 error_msg += tr("demteam_links",
                                 discord_url=DEM_DISCORD,
-                                deuswiki_url=WIKI_COMPATCH,
+                                deuswiki_url=WIKI_COMREM,
                                 github_url=COMPATCH_GITHUB) + "\n"
             return error_msg
         return ""
@@ -308,6 +309,9 @@ class Mod(BaseModel):
         if mod_tr.version != self.version:
             raise ValueError("Version mismatch, version for mod and translation should match: "
                              f"{mod_tr.version=} != {self.version=}")
+        if mod_tr.build != self.build:
+            raise ValueError("Build mismatch, build for mod and translation should match: "
+                             f"{mod_tr.build=} != {self.build=}")
         if mod_tr.language == self.language:
             raise ValueError("Translation language is the same as the language of base mod: "
                              f"{mod_tr.language=} == {self.language=}")
@@ -327,6 +331,12 @@ class Mod(BaseModel):
             raise ValueError("Mod variants can't have child variants")
         if self.is_translation:
             raise ValueError("Translations can't have child variants")
+        if mod_vr.version != self.version:
+            raise ValueError("Version mismatch, version for mod and variant should match: "
+                             f"{mod_vr.version=} != {self.version=}")
+        if mod_vr.build != self.build:
+            raise ValueError("Build mismatch, build for mod and variant should match: "
+                             f"{mod_vr.build=} != {self.build=}")
         if mod_vr.name == self.name or mod_vr.display_name == self.display_name:
             raise ValueError(
                 "Mod variants can't have same name or display name as base mods: "
@@ -472,10 +482,10 @@ class Mod(BaseModel):
             if archive_files:
                 if str(screen._screen_path).replace("\\", "/") not in archive_files:
                     # screen doesn't exist in archive, probably can be ignored
-                    ...
+                    logger.warning(f"Screen doesn't exist but specified in manifest: {screen._screen_path}")
             elif not screen.screen_path.exists():
                 # screen doesn't exist, probably can be ignored
-                ...
+                logger.warning(f"Screen doesn't exist but specified in manifest: {screen._screen_path}")
 
         for data_path in self.data_dirs:
             resolved_data_path = self.mod_files_root / data_path
@@ -531,14 +541,30 @@ class Mod(BaseModel):
         if self.is_translation and self.variants:
             raise AssertionError("Mod translations can't specify variants, do the oposite")
 
+        if self.archive_file_list:
+            archive_files = [file.filename.rstrip("/") for file in self.archive_file_list]
+        else:
+            archive_files = None
+
         for variant_alias in self.variants:
+            manifest_name = f"manifest_{variant_alias}_{self.language}.yaml"
             variant_manifest_path = Path(self.manifest_root, f"manifest_{variant_alias}_{self.language}.yaml")
+
+            if archive_files:
+                if str(variant_manifest_path).replace("\\", "/") not in archive_files:
+                    raise AssertionError(
+                        f"Manifest for variant not present in the archive: {manifest_name}")
+                return self
+
             if not variant_manifest_path.exists():
                 raise ValueError(f"Variant '{variant_alias}' specified but manifest for it is missing! "
                                  f"(Mod: {self.name})")
             yaml_config = read_yaml(variant_manifest_path)
             if yaml_config is None:
                 raise ValueError("Mod variant manifest is not a valid yaml file")
+
+            yaml_config["build"] = self.build
+            yaml_config["version"] = str(self.version)
             mod_vr = Mod(**yaml_config, is_variant=True, variant_alias=variant_alias,
                          manifest_root=self.manifest_root)
             self.add_mod_variant(mod_vr)
@@ -578,12 +604,24 @@ class Mod(BaseModel):
         if self.is_translation and self.translations:
             raise AssertionError("Translations can't have child translations")
 
+        if self.archive_file_list:
+            archive_files = [file.filename.rstrip("/") for file in self.archive_file_list]
+        else:
+            archive_files = None
+
         for translation_alias in self.translations:
             if self.is_variant:
                 manifest_name = f"manifest_{self.variant_alias}_{translation_alias}.yaml"
             else:
                 manifest_name = f"manifest_{translation_alias}.yaml"
             translation_manifest_path = Path(self.manifest_root, manifest_name)
+
+            if archive_files:
+                if str(translation_manifest_path).replace("\\", "/") not in archive_files:
+                    raise AssertionError(
+                        f"Manifest for translation not present in the archive: {manifest_name}")
+                return self
+
             if not translation_manifest_path.exists():
                 raise AssertionError(
                     f"Translation '{translation_alias}' specified but manifest for it is missing! "
@@ -591,6 +629,9 @@ class Mod(BaseModel):
             yaml_config = read_yaml(translation_manifest_path)
             if yaml_config is None:
                 raise AssertionError("Mod translation manifest is not a valid yaml file")
+
+            yaml_config["build"] = self.build
+            yaml_config["version"] = str(self.version)
             mod_tr = Mod(**yaml_config, is_translation=True, is_variant=self.is_variant,
                          variant_alias=self.variant_alias, manifest_root=self.manifest_root)
             self.add_mod_translation(mod_tr)
@@ -683,9 +724,8 @@ class Mod(BaseModel):
                     for data_dir in wip_setting.data_dirs:
                         simple_option_path = Path(
                             data_dir,
-                            wip_setting.name,
                             "data")
-                        mod_files.extend(simple_option_path)
+                        mod_files.append(simple_option_path)
                 elif installation_decision == "skip":
                     logger.debug(f"Skipping option {install_setting}")
                     continue
@@ -694,11 +734,9 @@ class Mod(BaseModel):
                     for data_dir in wip_setting.data_dirs:
                         complex_option_path = Path(
                             data_dir,
-                            wip_setting.name,
                             custom_install_method,
                             "data")
-
-                    mod_files.extend(complex_option_path)
+                        mod_files.append(complex_option_path)
                 if installation_decision != "skip":
                     await callback_status(tr("copying_options_please_wait"))
 
@@ -708,9 +746,9 @@ class Mod(BaseModel):
                 logger.debug(f"{(end - start).microseconds / 1000000} seconds took fast copy")
 
                 mod_files.clear()
-        except Exception:
+        except Exception as ex:
             logger.exception("Exception occured when installing mod!")
-            return False
+            raise ModFileInstallationError from ex
         else:
             return True
 
@@ -777,9 +815,9 @@ class Mod(BaseModel):
                                   if existing_content.get(srv_name) is not None]
             if variants_installed and self.name == "community_remaster":
                 comrem_over_compatch = True
-                previous_install = variants_installed
+                previous_install = variants_installed[0]
 
-        if previous_install is None and self.name == "community_patch" and variants_installed:
+        if self.name == "community_patch" and variants_installed: # previous_install is None and 
             return True, False, tr("cant_install_patch_over_remaster"), variants_installed[0]
 
         if previous_install is None:
@@ -792,13 +830,20 @@ class Mod(BaseModel):
         new_options = {opt.name for opt in self.optional_content}
 
         self_and_prereqs = {self.name}
+
         for prereq in self.prerequisites:
             self_and_prereqs = self_and_prereqs | set(prereq.name)
 
         if previous_install.get("language") != self.language:
             return True, False, tr("cant_reinstall_different_lang"), previous_install
 
+        if self.name == "community_remaster":
+            # compatch is the same mod as comrem, just with less options, so we allow install on top
+            self_and_prereqs.add("community_patch")
+            # TODO: make this available for other mods
+
         existing_other_mods = set(existing_content.keys()) - self_and_prereqs
+
         if existing_other_mods:
             # is reinstall, can't be installed as other mods not from prerequisites were installed
             existing_mods_display_names = []

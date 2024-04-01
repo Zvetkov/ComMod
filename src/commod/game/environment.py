@@ -88,6 +88,7 @@ class ModDescription:
     display_name: str
     installment: str
 
+LOG_FILES_TO_KEEP = 30
 
 class InstallationContext:
     """
@@ -107,6 +108,8 @@ class InstallationContext:
         self.commod_version = OWN_VERSION
         self.os = platform.system()
         self.os_version = platform.release()
+
+        self.log_path = None
 
         if distribution_dir:
             try:
@@ -163,7 +166,7 @@ class InstallationContext:
         self.under_windows = "Windows" in self.os
         self.monitor_res = self.get_monitor_resolution()
 
-        self.logger.info(f"Running on {self.os} {self.os_version}")
+        self.logger.info(f"Running on {self.os} {self.os_version} OS family")
 
     def get_monitor_resolution(self) -> tuple[int, int]:
         if "Windows" in platform.system():
@@ -192,10 +195,10 @@ class InstallationContext:
             res_x, res_y = resolution.split("x")
 
         monitor_res = int(res_x), int(res_y)
-        self.logger.info(f"reported res X:Y: {res_x}:{res_y}")
+        self.logger.info(f"Reported res X:Y: {res_x}:{res_y}")
 
         if self.under_windows:
-            self.logger.info(f"os scale factor: {OS_SCALE_FACTOR}")
+            self.logger.info(f"OS scale factor: {OS_SCALE_FACTOR}")
         return monitor_res
 
     @staticmethod
@@ -409,8 +412,8 @@ class InstallationContext:
                     uncompressed = sum([file.file_size for file in archive.filelist])
                     compressed = sum([file.compress_size for file in archive.filelist])
                     loading_text.value = (f"[ZIP] "
-                                          f"{compressed:.1f} MB -> "
-                                          f"{uncompressed:.1f} MB")
+                                          f"{compressed/1024/1024:.1f} MB -> "
+                                          f"{uncompressed/1024/1024:.1f} MB")
                     await loading_text.update_async()
                     await asyncio.sleep(0.01)
                 file_list = archive.filelist
@@ -433,6 +436,7 @@ class InstallationContext:
                         else:
                             self.archived_mods_cache[archive_path] = mod
                             return mod, None
+                return None, ValueError("Manifest not found in archive or broken")
         except Exception as ex:
             self.logger.exception("Error on ZIP manifest check")
             self.archived_mods_cache[archive_path] = None
@@ -479,6 +483,7 @@ class InstallationContext:
                         else:
                             self.archived_mods_cache[archive_path] = mod
                             return mod, None
+                return None, ValueError("Manifest not found in archive or broken")
         except Exception as ex:
             self.logger.exception("Error on 7z manifest check")
             self.archived_mods_cache[archive_path] = None
@@ -503,9 +508,7 @@ class InstallationContext:
                 stream_handler.setFormatter(stream_formatter)
                 self.logger.addHandler(stream_handler)
 
-                file_handler_level = logging.DEBUG
-            else:
-                file_handler_level = logging.INFO
+            file_handler_level = logging.DEBUG
 
             if not stream_only:
                 file_handler = logging.FileHandler(
@@ -516,13 +519,25 @@ class InstallationContext:
                 file_handler.setFormatter(formatter)
                 self.logger.addHandler(file_handler)
 
-            self.logger.info("Loggers initialised")
+            self.logger.info(f"ComMod {OWN_VERSION} is running, loggers initialised")
 
     def setup_logging_folder(self) -> None:
         if self.distribution_dir:
             log_path = os.path.join(self.distribution_dir, "logs_commod")
-            if os.path.exists(log_path) and not os.path.isdir(log_path):
-                os.remove(log_path)
+            if os.path.exists(log_path):
+                if not os.path.isdir(log_path):
+                    os.remove(log_path)
+                else:
+                    log_files = list(Path(log_path).glob("debug_*.log"))
+                    if len(log_files) >= LOG_FILES_TO_KEEP:
+                        limit_logs_remove_at_once = 10
+                        remove_num = len(log_files) - LOG_FILES_TO_KEEP
+                        if remove_num > limit_logs_remove_at_once:
+                            remove_num = limit_logs_remove_at_once
+                        for _ in range(remove_num + 1):
+                            oldest_file = min(log_files, key=lambda f: f.stat().st_ctime)
+                            oldest_file.unlink()
+                            log_files.remove(oldest_file)
 
             if not os.path.exists(log_path):
                 os.mkdir(log_path)
@@ -665,6 +680,8 @@ class GameCopy:
     def exe_version_tr(self) -> str:
         if self.exe_version == "unknown":
             return tr(self.exe_version)
+        if not self.exe_version:
+            return " ... "
         return self.exe_version.replace("Remaster", "Rem")
 
     @staticmethod
@@ -708,27 +725,42 @@ class GameCopy:
         return True
 
     def check_is_running(self) -> bool:
+        if not Path(self.target_exe).exists():
+            raise ExeNotFoundError
+
         if self.target_exe:
             return self.get_exe_version(self.target_exe) is None
 
         return False
 
+    def refresh_game_launch_params(self, exclude_registry_params: bool = False) -> None:
+        if self.exe_version != "unknown" and self.game_root_path:
+            self.fullscreen_game = self.get_is_fullscreen()
+            if self.fullscreen_game is None:
+                # TODO: is not actually InvalidGameDirectory but more like BrokenGameConfig exception
+                raise InvalidGameDirectoryError(os.path.join(self.game_root_path, "data", "config.cfg"))
+            if not exclude_registry_params:
+                self.hi_dpi_aware = self.get_is_hidpi_aware()
+                self.logger.debug(f"HiDPI awareness status: {self.hi_dpi_aware}")
+                self.fullscreen_opts_disabled = self.get_is_fullscreen_opts_disabled()
+                self.logger.debug(f"Fullscreen optimisations disabled status: {self.fullscreen_opts_disabled}")
+
     def process_game_install(self, target_dir: str) -> None:
         """Parse game install to know the version and current state of it."""
-        self.logger.debug(f"Checking that {target_dir} is dir")
+        self.logger.debug(f"Checking that '{target_dir}' is dir")
         if not os.path.isdir(target_dir):
             raise WrongGameDirectoryPathError
 
-        self.logger.debug(f"Starting dir validation {target_dir} is dir")
+        self.logger.debug(f"Starting game files validation for '{target_dir}'")
         valid_base_dir, missing_path = self.validate_game_dir(target_dir)
-        self.logger.debug(f"Validation for base dir status: {valid_base_dir}")
+        self.logger.debug(f"Game dir 'is valid' status: {valid_base_dir}")
 
         if missing_path:
             self.logger.debug(f"Missing path: '{missing_path}'")
         if not valid_base_dir:
             raise InvalidGameDirectoryError(missing_path)
 
-        self.logger.debug("Trying to get exe name from target dir")
+        self.logger.debug("Getting exe name from target dir")
         exe_path = self.get_exe_name(target_dir)
         self.logger.debug(f"Exe path: '{exe_path}'")
 
@@ -738,11 +770,14 @@ class GameCopy:
             raise ExeNotFoundError
 
         self.logger.debug("Getting exe version")
-        self.exe_version = self.get_exe_version(self.target_exe)
-        self.logger.debug(f"Exe version: {self.exe_version}")
-        if self.exe_version is None:
-            self.exe_version = ""
+        exe_version = self.get_exe_version(self.target_exe)
+        if exe_version is None:
+            if self.exe_version == "unknown":
+                self.exe_version = ""
             raise ExeIsRunningError
+
+        self.exe_version = exe_version
+        self.logger.debug(f"Exe version: {self.exe_version}")
 
         if self.exe_version == "unknown":
             self.installment = None
@@ -768,17 +803,9 @@ class GameCopy:
         patched_version = (self.exe_version.startswith("ComRemaster")
                            or self.exe_version.startswith("ComPatch"))
 
-        if self.exe_version != "unknown" and self.game_root_path:
-            self.fullscreen_game = self.get_is_fullscreen()
-            if self.fullscreen_game is None:
-                # TODO: is not actually InvalidGameDirectory but more like BrokenGameConfig exception
-                raise InvalidGameDirectoryError(os.path.join(self.game_root_path, "data", "config.cfg"))
-            self.hi_dpi_aware = self.get_is_hidpi_aware()
-            self.logger.debug(f"HiDPI awareness status: {self.hi_dpi_aware}")
-            self.fullscreen_opts_disabled = self.get_is_fullscreen_opts_disabled()
-            self.logger.debug(f"Fullscreen optimisations disabled status: {self.fullscreen_opts_disabled}")
+        self.refresh_game_launch_params()
 
-        self.display_name = f"[{self.exe_version_tr}] {shorten_path(self.game_root_path, 45)}"
+        # self.display_name = f"[{self.exe_version_tr}] {shorten_path(self.game_root_path, 45)}"
 
         self.logger.debug(f"Checking mod_manifest for game copy: {self.installed_manifest_path}")
         if os.path.exists(self.installed_manifest_path):
@@ -840,7 +867,7 @@ class GameCopy:
             install_manifest = self.installed_content[content_piece]
             name = content_piece
 
-            content_version_str = repr(Version.parse_from_str(install_manifest["version"]))
+            content_version_str = repr(Version.parse_from_str(str(install_manifest["version"])))
 
             if name == "community_patch" and "community_remaster" in self.installed_content:
                 continue
@@ -889,7 +916,8 @@ class GameCopy:
         await write_xml_to_file_async(
             config, os.path.join(self.game_root_path, "data", "config.cfg"))
 
-    async def switch_windowed(self, enable: bool = True) -> None:
+    async def switch_windowed(self, monitor_res: tuple[int, int],
+                              enable: bool = True) -> None:
         config = get_config(self.game_root_path)
         current_value = config.attrib.get("r_fullScreen")
         if current_value is not None:
@@ -904,7 +932,19 @@ class GameCopy:
                 if (known_height is not None and cur_height != known_height):
                     self.logger.debug("Fixed broken fullscreen res in config")
                     config.attrib["r_height"] = str(known_height)
-                self.fullscreen_game = True
+                    self.fullscreen_game = True
+                elif known_height is None:
+                    new_res = [(w, h) for w, h in KNOWN_RESOLUTIONS.items() if h == monitor_res[1]]
+                    if new_res:
+                        config.attrib["r_width"] = str(new_res[0][0])
+                        config.attrib["r_height"] = str(new_res[0][1])          
+                        self.fullscreen_game = True
+                    else:
+                        self.logger.debug(
+                            "Was unable to find appropriate fullscreen game res: "
+                            f"current window res: ({config.attrib['r_height']}, {config.attrib['r_width']}), "
+                            f"monitor res: ({monitor_res})")
+                        return
             else:
                 if current_value in TARGEM_NEGATIVE:
                     return
@@ -1208,7 +1248,7 @@ class GameCopy:
         else:
             return "unknown"
 
-    def check_compatible_game(self, game_path: str) -> tuple[bool, str, bool]:
+    def check_compatible_game(self, game_path: str) -> tuple[bool, bool]:
         can_be_added = True
         warning = ""
 
@@ -1250,5 +1290,5 @@ class GameCopy:
             self.logger.exception("Error when processing game install")
         self.cached_warning = warning
 
-        return can_be_added, warning, game_is_running
+        return can_be_added, game_is_running
 

@@ -21,7 +21,7 @@ from py7zr import py7zr
 from commod.game.data import (
     COMPATCH_GITHUB,
     DEM_DISCORD,
-    WIKI_COMPATCH,
+    WIKI_COMREM,
     SupportedGames,
 )
 from commod.helpers import validation
@@ -1317,7 +1317,7 @@ class Mod:
                 error_msg += f"\n\n{tr('check_for_a_new_version')}\n\n"
                 error_msg += tr("demteam_links",
                                 discord_url=fconsole(DEM_DISCORD, bcolors.HEADER),
-                                deuswiki_url=fconsole(WIKI_COMPATCH, bcolors.HEADER),
+                                deuswiki_url=fconsole(WIKI_COMREM, bcolors.HEADER),
                                 github_url=fconsole(COMPATCH_GITHUB, bcolors.HEADER)) + "\n"
 
         return compatible, error_msg.strip()

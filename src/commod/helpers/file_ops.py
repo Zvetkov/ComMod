@@ -1,3 +1,5 @@
+# ruff: noqa: E721
+
 import asyncio
 import logging
 import math
@@ -321,28 +323,27 @@ def patch_offsets(f: typing.BinaryIO,
                   offsets_dict: dict, enlarge_coeff: float = 1.0,
                   raw_strings: bool = False) -> None:
     for offset in offsets_dict:
+        new_value = offsets_dict[offset]
         f.seek(offset)
-        if isinstance(offsets_dict[offset], int):
+
+        # type equality used instead of isinstance because isinstance(True, int) is True, it's an error here
+        if type(new_value) == int:
             if not math.isclose(enlarge_coeff, 1.0):
-                new_value = round(offsets_dict[offset] * enlarge_coeff)
-            else:
-                new_value = offsets_dict[offset]
+                new_value = round(new_value * enlarge_coeff)
             f.write(struct.pack("i", new_value))
-        elif isinstance(offsets_dict[offset], str):
+        elif type(new_value) == str:
             if raw_strings:  # write as is, binary insert strings
-                f.write(bytes.fromhex(offsets_dict[offset]))
+                f.write(bytes.fromhex(new_value))
             else:  # hex address to convert to pointer
-                f.write(struct.pack("<L", int(offsets_dict[offset], base=16)))
-        elif isinstance(offsets_dict[offset], float):
+                f.write(struct.pack("<L", int(new_value, base=16)))
+        elif type(new_value) == float:
             if not math.isclose(enlarge_coeff, 1.0):
-                new_value = round(offsets_dict[offset] * enlarge_coeff)
-            else:
-                new_value = offsets_dict[offset]
+                new_value = round(new_value * enlarge_coeff)
             f.write(struct.pack("f", new_value))
-        elif isinstance(offsets_dict[offset], bool):
-            f.write(struct.pack("b", offsets_dict[offset]))
-        elif isinstance(offsets_dict[offset], tuple):
-            f.write(struct.pack("b", offsets_dict[offset][0]))
+        elif type(new_value) == bool:
+            f.write(struct.pack("b", new_value))
+        elif type(new_value) == tuple:
+            f.write(struct.pack("b", new_value[0]))
         else:
             raise TypeError("Unsuported type given")
 

@@ -4,24 +4,24 @@ from enum import StrEnum
 from os import system
 
 
-OWN_VERSION = "2.1-rc2"
+OWN_VERSION = "2.1"
 
-DATE = "(Mar 21 2024)"
+DATE = "(Apr 01 2024)"
 # version of binary fixes
 # corresponds with the latest major.minor ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"
 
 # main version of exe is dependent on binary fixes, not on ComMod
 # but version string will include ComPatch/Rem build id at the end of the string
-COMPATCH_VER = f"ExMachina - Community Patch build v{VERSION} {DATE}"
+COMPATCH_VER = f"ExMachina - Community Patch fixes v{VERSION} {DATE}"
 COMPATCH_MIN = f"ExMachina - Minimal ComPatch build 1.02 {DATE}"
-COMREM_VER = f"ExMachina - Community Remaster build v{VERSION} {DATE}"
+COMREM_VER = f"ExMachina - Community Remaster fixes v{VERSION} {DATE}"
 
 
 DEM_DISCORD = "https://discord.gg/jZHxYdF"
 DEM_DISCORD_MODS_DOWNLOAD_SCREEN = "https://discord.gg/deus-ex-machina-522817939616038912"
 COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
-WIKI_COMPATCH = "https://deuswiki.com/w/Community_Patch"
+WIKI_COMREM = "https://deuswiki.com/w/Community_Remaster"
 
 
 VERSION_BYTES_100_STAR = 0x005A69C2
@@ -69,7 +69,7 @@ TARGEM_NEGATIVE = ("no", "nope", "none", "false")
 
 # cheat sheet table of used available empty spaces in binary
 # 0x5E2BCB
-# 0x5E300C
+# 0x5E300C # sell price coeff
 # 0x5E306C # 0.08 move fog start closer to camera
 # 0x5E3204 # 28.0 for max drawDistance before min offset (+ 4.0 = 32.0)
 # 0x5E3C61 # min damage resistance coeff
@@ -145,14 +145,13 @@ additional_mm_inserts = {
     0x2368C0: "C3CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
     }
 
-# to do:
-# petrovich keep throttle
-# 1DAC06: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (auto throttle 1.0 -> 0.01)
-# 0x1DAC06: "E8599E00",
-# 1DAC81: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (handbrake 1.0 -> 0.01)
-# 0x1DAC81: "E8599E00",
-# 0017DB: default (00 00 80 BF) -> (0A D7 23 BC)  -  (break -1.0 - -0.1)
-# 0x0017DB: "CDCCCCBD",
+projection_matrix_fix = {
+    0x1D770: "D94020D8701CD94020D80D68599E00D80DE8599E00D9F2DDD8D83D7C599E00D9C057B91000000089D7F30F1005545A9E0031C0F3AB5F0F28D0F30F5CD1F30F5EC2F30F114228F30F59C10F57C9F30F5CC8F30F10057C599E00F30F114A38F30F11422CD91AD8F1D95A14DDD8C3"
+}
+
+projection_matrix_vanilla = {
+    0x1D770: "D9402057D80D68599E00B9100000008BFAF30F1005545A9E00D80DE8599E00D9401C0F28D0D8702033C0F3ABF30F5CD1F30F5EC2F30F114228F30F59C10F57C9F30F5CC8F30F10057C599E00F30F114A38F30F11422C5FD8C9D80D68599E00D9F2DDD8D83D7C599E00D91AD80D"
+}
 
 binary_inserts = {
     # void __cdecl _E17()
@@ -214,6 +213,17 @@ offsets_draw_dist = {
     # 0x5AB268: "00000000"  # remove negative offset from z-guard
 }
 
+offsets_draw_dist_vanilla = {
+    # short draw distance
+    0x1BF494: "83F80C7E05B80C000000",  # m3d::Landscape::Load
+    0x23A682: "83F80C7E05B80C000000",  # m3d::SceneGraph::UpdateVis
+    0x3A54B5: "83F80C7E05B80C000000",  # m3d::Landscape::GetFogStartAndEnd
+    0x3AB185: "83FB0C7E09BB0C000000",  # m3d::Landscape::Render
+    0x3B61F3: "83FE0C7E05BE0C000000",  # m3d::RoadManager::UpdateVis
+    0x3EC1DD: "83F80C7E05B80C000000",  # ai::InfoCone::GetInfoObjId
+    0x4FBEC2: "83F80C7E05B80C000000",  # m3d::WeatherThunderstorm::Render
+}
+
 offset_draw_dist_numerics = {
     0x5E3204: 19.0,  # max drawDistance with lsViewDivider = 1.0 before min offset (+ 4.0 = 23.0)
     # 0x5E306C: 0.08,
@@ -227,6 +237,38 @@ offset_draw_dist_numerics = {
     0x4FBEAE: "0x009E3204",  # m3d::WeatherThunderstorm::Render
 }
 
+offset_draw_dist_numerics_vanilla = {
+    0x5E3204: 0.0,  # max drawDistance with lsViewDivider = 1.0 before min offset (+ 4.0 = 23.0)
+    0x1BF478: "0x00990944",  # m3d::Landscape::Load
+    0x23A666: "0x009E5978",  # m3d::SceneGraph::UpdateVis
+    0x3A5499: "0x009AB264",  # m3d::Landscape::GetFogStartAndEnd
+    0x3AB165: "0x009AB264",  # m3d::Landscape::Render
+    0x3B61D6: "0x009E5978",  # m3d::RoadManager::UpdateVis
+    0x3EC1C9: "0x009E5ADC",  # ai::InfoCone::GetInfoObjId
+    0x4FBEAE: "0x009E5ADC",  # m3d::WeatherThunderstorm::Render
+}
+
+
+# to do:
+# petrovich keep throttle
+# 1DAC06: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (auto throttle 1.0 -> 0.01)
+# 0x1DAC06: "E8599E00",
+# 1DAC81: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (handbrake 1.0 -> 0.01)
+# 0x1DAC81: "E8599E00",
+# 0017DB: default (00 00 80 BF) -> (CD CC CC BD)  -  (break -1.0 - -0.1)
+# 0x0017DB: "BDCCCCCD",
+
+offsets_slow_brake_vanilla = {
+    0x1DAC06: "0x009E597C",
+    0x1DAC81: "0x009E597C",
+    0x0017DB: "0x000080BF"
+}
+
+offsets_slow_brake = {
+    0x1DAC06: "0x009E59E8",
+    0x1DAC81: "0x009E59E8",
+    0x0017DB: "0xBDCCCCCD"
+}
 
 offsets_exe_fixes = {
     # aspect ratio hack for Frustum Culling
@@ -242,6 +284,14 @@ offsets_exe_fixes = {
     0x2D7295: "0x009E3C61",
     0x5E3C61: -101.0,  # -25.0 -> -101.0
     }
+
+offset_hq_reflections = {
+    0x1C14C9: "0x00000400"
+}
+
+offset_hq_reflections_vanilla = {
+    0x1C14C9: "0x00000200"
+}
 
 
 offsets_dll = {
@@ -447,15 +497,20 @@ configurable_offsets = {
     "skins_in_shop_0": 0x181DCA,
     "skins_in_shop_1": 0x181C95,
     "skins_in_shop_2": 0x181E75,
-    "blast_damage_friendly_fire": 0x3DFADC
+    "blast_damage_friendly_fire": 0x3DFADC,
+    "sell_price_coeff_new": 0x5E300C
     }
 
-hidden_values = {
-    "low_fuel_threshold": [0.25, 0x124CCD, "pointer", "used_elsewhere"],
-    "low_fuel_blinking_period": [300, 0x124CF3, "direct", "single_use"],
+sell_price_offsets = {
+    0x2B8995: "0x009E300C"
+}
+
+# hidden_values = {
+    # "low_fuel_threshold": [0.25, 0x124CCD, "pointer", "used_elsewhere"],
+    # "low_fuel_blinking_period": [300, 0x124CF3, "direct", "single_use"],
     #  "min_resistance_for_damage": [-25.1, 0x2D7295, "pointer", "single_use"],
     #  "max_resistance_for_damage": [25.0, 0x2D72A5, "pointer", "used_elsewhere"],
-    "blast_damage_friendly_fire": [0x01, 0x3DFADC, "direct", "single_use"]}  # bool
+    # "blast_damage_friendly_fire": [0x01, 0x3DFADC, "direct", "single_use"]}  # bool
 
 em_102_icon_offset = 0x60A3A8
 em_102_icon_size = 5694

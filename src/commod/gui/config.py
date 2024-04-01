@@ -112,7 +112,7 @@ class Config:
             if isinstance(current_distro, str) and os.path.isdir(current_distro):
                 self.current_distro = current_distro
 
-            self.known_distros = {config["current_distro"]}
+            self.known_distros = {self.current_distro}
 
             modder_mode = config.get("modder_mode")
             if isinstance(modder_mode, bool):
@@ -146,6 +146,17 @@ class Config:
             theme = config.get("theme")
             if theme in ("system", "light", "dark"):
                 self.init_theme = ft.ThemeMode(theme)
+
+    def add_game_to_config(self, game_path: str, name: str = "Ex Machina") -> None:
+        if os.path.isdir(game_path):
+            self.game_names[game_path] = name
+            self.known_games.add(game_path.lower())
+            self.current_game = game_path
+
+    def add_distro_to_config(self, distro_path: str) -> None:
+        if os.path.isdir(distro_path):
+            self.known_distros.add(distro_path)
+            self.current_distro = distro_path
 
     def save_config(self, abs_dir_path: str | None = None) -> None:
         if abs_dir_path is not None and os.path.isdir(abs_dir_path):

@@ -21,6 +21,7 @@ class KnownLangFlags(Enum):
     tr = "assets\\flags\\openmoji_tr.svg"
     pl = "assets\\flags\\openmoji_pl.svg"
     kz = "assets\\flags\\openmoji_kz.svg"
+    by = "assets\\flags\\openmoji_by.svg"
     other = "assets\\flags\\openmoji_orange.svg"
 
     @classmethod

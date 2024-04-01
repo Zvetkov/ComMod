@@ -77,3 +77,6 @@ class InvalidExistingManifestError(Exception):
 
     def __str__(self) -> str:
         return f"Manifest is invalid: '{self.manifest_path}'"
+
+class ModFileInstallationError(Exception):
+    pass
