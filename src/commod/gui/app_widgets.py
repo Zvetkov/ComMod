@@ -1583,8 +1583,6 @@ class ModInfo(UserControl):
     def __init__(self, app: App, mod: Mod, mod_item: "ModItem", **kwargs):
         super().__init__(self, **kwargs)
         self.app = app
-        self.main_mod = mod
-        self.mod = mod
         self.mod_item = mod_item
         self.tabs = ft.Ref[ft.Tabs]()
         self.tab_index = 0
@@ -1615,6 +1613,18 @@ class ModInfo(UserControl):
         self.other_info_text = ft.Ref[ft.Markdown]()
 
         self.tab_info = []
+
+    @property
+    def mod(self) -> Mod:
+        return self.mod_item.mod
+
+    @property
+    def main_mod(self) -> Mod:
+        return self.mod_item.main_mod
+
+    @property
+    def mod_family(self) -> "ModFamily":
+        return self.mod_item.mod_family
 
     async def toggle(self) -> None:
         self.expanded = not self.expanded
@@ -1671,8 +1681,8 @@ class ModInfo(UserControl):
         # if self.main_mod.variants_loaded:
         #     for variant_name, mod in self.main_mod.variants_loaded.items():
         #         ...
-        if self.mod.translations_loaded:
-            for lang, mod in self.main_mod.translations_loaded.items():
+        if self.mod_family.translations:
+            for lang, mod in self.mod_family.translations.items():
                 if mod.known_language:
                     flag = get_internal_file_path(KnownLangFlags[lang].value)
                 else:
@@ -1747,7 +1757,7 @@ class ModInfo(UserControl):
         await self.app.local_mods.delete_mod(self.main_mod)
 
     async def update_info(self) -> None:
-        self.mod = self.mod_item.mod
+        # self.mod = self.mod_item.mod
         await self.set_mod_info_column()
         await self.update_tabs()
         await self.set_mod_screens_row()
@@ -2468,8 +2478,8 @@ class ModFamily(UserControl):
                                  size=18 if len(self.mod.display_name) < long_name_len else 16,
                                  overflow=ft.TextOverflow.ELLIPSIS),
                             Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
-                                 color=ft.colors.ON_BACKGROUND, size=20)])
-                        ], spacing=0, run_spacing=0),
+                                 color=ft.colors.ON_BACKGROUND, size=20)], spacing=2)
+                        ]),
                         padding=ft.padding.only(left=5, right=5, top=2, bottom=2)),
                     items=variants),
                     border_radius=5,
@@ -2515,9 +2525,9 @@ class ModFamily(UserControl):
                                  color=name_color,
                                  overflow=ft.TextOverflow.ELLIPSIS),
                             Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
-                                 color=ft.colors.ON_BACKGROUND)
-                        ], spacing=5),
-                        padding=ft.padding.only(left=8, right=6, top=2, bottom=2)),
+                                 color=ft.colors.ON_BACKGROUND, size=20)
+                        ], spacing=2),
+                        padding=ft.padding.only(left=7, right=5, top=2, bottom=2)),
                     items=versions),
                     border_radius=5,
                     bgcolor=ft.colors.BACKGROUND)
@@ -2545,8 +2555,15 @@ class ModFamily(UserControl):
         self.key = self._current_main_mod.id_str
         await self.mod_switcher.current.update_async()
 
-    async def switch_mod_variant(self, e: ft.ControlEvent) -> None:
-        mod: Mod = e.control.data
+    async def switch_mod_variant(self, e: ft.ControlEvent | None = None,
+                                 mod_variant: Mod | None = None) -> None:
+        if e:
+            mod: Mod = e.control.data
+        elif mod_variant:
+            mod = mod_variant
+        else:
+            return
+
         self._mod_items[mod.id_str].mod = mod
 
         if mod.is_variant:
@@ -2558,9 +2575,11 @@ class ModFamily(UserControl):
         else:
             self._current_main_mod = mod
             self._current_mod = mod
-        self.mod_switcher.current.content = self._mod_items[mod.id_str]
         self.key = self._current_main_mod.id_str
-        await self.mod_switcher.current.update_async()
+
+        if e:
+            self.mod_switcher.current.content = self._mod_items[mod.id_str]
+            await self.mod_switcher.current.update_async()
 
     def get_current_item(self) -> "ModItem":
         return self._mod_items[self.mod.id_str]
@@ -2638,9 +2657,9 @@ class ModItem(UserControl):
         if lang_to_switch == self.mod.language:
             return
 
-        self.mod = self.main_mod.translations_loaded[lang_to_switch]
+        self.mod = self.mod_family.translations[lang_to_switch]
 
-        self.mod_variant_info.current.content = self.mod_family.get_variants_selector(self.main_mod)
+        self.mod_variant_info.current.content = self.mod_family.get_variants_selector(self.mod)
         await self.mod_variant_info.current.update_async()
         # self.mod_name_text.current.value = self.mod.display_name
         # await self.mod_name_text.current.update_async()
@@ -2721,7 +2740,7 @@ class ModItem(UserControl):
         await self.mod_variant_info.current.update_async()
 
         if (self.app.config.lang != self.mod.language
-           and self.app.config.lang in self.main_mod.translations_loaded):
+           and self.app.config.lang in self.mod_family.translations):
             await self.change_lang(lang=self.app.config.lang)
 
     def build(self) -> ft.Card:
@@ -2771,7 +2790,7 @@ class ModItem(UserControl):
                                     Icon(ft.icons.INFO_OUTLINE_ROUNDED,
                                          size=14,
                                          tooltip=tr("cant_reinstall")),
-                                    opacity=0.8,
+                                    opacity=0.9,
                                     visible=not has_validation_errors and cant_reinstall,
                                     margin=ft.margin.only(top=3))
                                  ], vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -3632,10 +3651,18 @@ class ModInstallWizard(UserControl):
         #     disable_compatch_install = True
         #     disable_compatch_install_tooltip = tr("patch_only_supports_russian")
 
+        max_name_len = max([len(mod_variant.display_name)
+                        for mod_variant in self.main_mod.variants_loaded.values()])
+        long_name_len = 21
+        if max_name_len < long_name_len:
+            btn_width = 160
+            btn_height = 60
+        else:
+            btn_width = 180
+            btn_height = 80
+
         for srv_name, mod_variant in self.main_mod.variants_loaded.items():
             is_current = srv_name == variant_name
-            name_len = len(mod_variant.display_name)
-            long_name_len = 30
 
             if (mod_variant.is_reinstall and not mod_variant.can_install):
                 disable_variant_install = True
@@ -3660,7 +3687,7 @@ class ModInstallWizard(UserControl):
                             Icon(ft.icons.CHECK, visible=is_current),
                             Text(mod_variant.display_name, no_wrap=False, expand=1,
                                  text_align=ft.TextAlign.CENTER)
-                             ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
+                             ], alignment=ft.MainAxisAlignment.CENTER, spacing=0),
                         margin=ft.margin.symmetric(horizontal=5)),
                     data=srv_name,
                     disabled=disable_variant_install,
@@ -3669,8 +3696,8 @@ class ModInstallWizard(UserControl):
                     bgcolor=ft.colors.PRIMARY_CONTAINER if srv_name == variant_name
                         else ft.colors.SECONDARY_CONTAINER,
                     on_click=self.show_variant_welcome,
-                    width=160 if name_len < long_name_len else 180,
-                    height=60 if name_len < long_name_len else 80,
+                    width=btn_width,
+                    height=btn_height,
                     scale=1.0 if srv_name == variant_name else 0.95)
 
         if variant_used.optional_content:
@@ -3732,7 +3759,7 @@ class ModInstallWizard(UserControl):
                          visible=bool(self.main_mod.variants)),
                     ft.Row(list(self.variant_buttons.values()), #, patch_button],
                            visible=bool(self.main_mod.variants), # cleaner than to check for len of loaded
-                           alignment=ft.MainAxisAlignment.CENTER),
+                           alignment=ft.MainAxisAlignment.CENTER, wrap=True),
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER), padding=ft.padding.only(bottom=5),
                              col={"xs": 12, "xl": 11, "xxl": 10})
                 ], alignment=ft.MainAxisAlignment.CENTER),
@@ -4221,6 +4248,15 @@ class LocalModsScreen(UserControl):
         mods_to_show.sort(key=lambda item: item.mod.id_str.lower())
 
         for mod_family in mods_to_show:
+            installed_variants = [mod for mod in mod_family.variants.values()
+                                  if mod.name in self.app.game.installed_content]
+            if installed_variants and mod_family.mod.name not in installed_variants:
+                await mod_family.switch_mod_variant(mod_variant=installed_variants[0])
+            else:
+                can_be_installed_variants = [mod for mod in mod_family.variants.values() if mod.can_install]
+                if can_be_installed_variants and mod_family.mod not in can_be_installed_variants:
+                    await mod_family.switch_mod_variant(mod_variant=can_be_installed_variants[0])
+
             self.mods_list_view.current.controls.append(mod_family)
 
         outdated_mods = self.tracked_loaded_mods - session_mods

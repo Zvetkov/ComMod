@@ -6,7 +6,7 @@ from os import system
 
 OWN_VERSION = "2.1"
 
-DATE = "(Apr 01 2024)"
+DATE = "(Apr 04 2024)"
 # version of binary fixes
 # corresponds with the latest major.minor ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"

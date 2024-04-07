@@ -592,11 +592,11 @@ class Mod(BaseModel):
             self.variants.append("patch")
             self.add_mod_variant(compatch_fallback)
 
-        for variant in self.variants_loaded.values():
-            variant._sister_variants = {
-                sis_var.name: sis_var
-                for sis_var in self.variants_loaded.values()
-                if sis_var.name != variant.name}
+        # for variant in self.variants_loaded.values():
+        #     variant._sister_variants = {
+        #         sis_var.name: sis_var
+        #         for sis_var in self.variants_loaded.values()
+        #         if sis_var.name != variant.name}
         return self
 
     @model_validator(mode="after")
@@ -635,6 +635,22 @@ class Mod(BaseModel):
             mod_tr = Mod(**yaml_config, is_translation=True, is_variant=self.is_variant,
                          variant_alias=self.variant_alias, manifest_root=self.manifest_root)
             self.add_mod_translation(mod_tr)
+
+        return self
+
+    @model_validator(mode="after")
+    def load_sister_variants(self) -> "Mod":
+        if self.variants_loaded:
+            all_known = []
+            for var in self.variants_loaded.values():
+                all_known.extend(var.translations_loaded.values())
+
+            for mod in all_known:
+                if not mod.sister_variants:
+                    mod._sister_variants = {sis_mod.name: sis_mod for sis_mod in all_known
+                                            if mod.version == sis_mod.version
+                                            and mod.name != sis_mod.name
+                                            and mod.language == sis_mod.language}
 
         return self
 
@@ -817,7 +833,7 @@ class Mod(BaseModel):
                 comrem_over_compatch = True
                 previous_install = variants_installed[0]
 
-        if self.name == "community_patch" and variants_installed: # previous_install is None and 
+        if self.name == "community_patch" and variants_installed: # previous_install is None and
             return True, False, tr("cant_install_patch_over_remaster"), variants_installed[0]
 
         if previous_install is None:
