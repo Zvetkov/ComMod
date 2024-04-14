@@ -16,15 +16,18 @@
 "mod_for_game": "mod for game"
 "local_mods": "local mods"
 "mods_library": "mods library"
-"issue_with_archive": "Issue with the archive: mod is not prepared in the supported way or archive is corrupted."
+"issue_with_archive": "Issue with the archive: mod is not prepared in the supported way, archive is corrupted or doesn't contain all the necessary files."
 "no_local_mods_found": "Available for installation mod not found"
 "mod_already_in_library": "this mod is already in the library"
 "download": "download"
 "open": "open"
 "delete_mod_short": "delete files"
 "couldnt_delete_mod_permission_err": "Couldn't fully delete the mod, permission error, probably some file is in use!"
-"delete_mod_from_library": "delete mod from the library (deletes files from the disk)"
-"this_will_delete_mod": "mod will be removed from the library and it's files deleted from the disk"
+"delete_mod_from_library": "delete mod from the library"
+"this_will_delete_mod": "Mod will be removed from the library and it's files deleted from the disk.
+
+
+  IMPORTANT: this action will not remove the mod from your copy of the game, only from the library. Removing mods from the game is not supported!"
 "ask_confirm_deletion": "confirm deletion?"
 "deleted_mod_from_lib": "mod has been deleted from the library"
 "deleting_mod_from_lib": "mod is being deleted from the library"
@@ -34,7 +37,8 @@
 "one_of_many": "of"
 "mod_name": "mod name"
 "mod_version_and_build": "version and build of the mod"
-"about_mod": "about mod"
+"mod_variant_name":  "mod variant name"
+"about_mod": "more info"
 "hide_menu": "hide menu"
 "was_reinstall": "mod was reinstalled"
 "main_info": "main information"
@@ -45,10 +49,10 @@
 "error_occurred": "error occurred"
 "mod_install_language": "mod installation language"
 "copying_file": "copying file"
-"download_mods_screen_placeholder": "Mods installation inside ComMod will be available in an upcoming version"
-"download_at_dem_gallery": "You can download compatible mods on our Discrod server in mod gallery"
+"download_mods_screen_placeholder": "Downloading of compatible mods will be available in a future version of ComMod"
+"download_at_dem_gallery": "You can download compatible mods on our Discord server in mod gallery channel (#витрина-модов)"
 "go_to_dem_server": "Go to DEM server"
-"launch_game_placeholder": "You can add a game in the section"
+"launch_game_placeholder": "You can add or select a game in the section"
 "local_mods_placeholder": "You can add storage folder in the section"
 "close_window": "close the windows"
 "app_lang": "application language"
@@ -67,7 +71,8 @@
 "cant_reinstall_over_other_mods": "Simple reinstallation is not possible if other mods are already installed on this copy"
 "cant_reinstall_over_newer_version": "Reinstallation over a newer version of the same mod is not possible."
 "cant_reinstall_over_newer_build": "Reinstallation over a newer build of the same mod is not possible."
-"cant_reinstall_over_other_version": "Reinstallation over an other version of the same mod is not possible."
+"cant_reinstall_over_other_version": "Reinstallation over another version of the same mod is not possible."
+"cant_reinstall_other_variant_on_top": "Reinstallation over another variant of the mod family is not possible."
 "to_increase_compat_options_are_limited": "To increase compatibility, options choice will be limited."
 "install_from_scratch_if_issues": "In case issues occur, reinstall mods from scratch on a clean game copy."
 "install_from_scratch": "Install mods from scratch on a clean game copy if necessary."
@@ -87,12 +92,13 @@
 "release": "release"
 "not_specified": "not specified"
 "eng": "English"
-"us": "English"
 "ru": "Russian"
 "ua": "Ukrainian"
 "de": "German"
 "tr": "Turkish"
 "pl": "Polish"
+"kz": "Kazakh"
+"by": "Belarusian"
 "binary_fixes": "binary fixes"
 "spawn_freezes_fix": "Removed freeze on vehicle spawn"
 "recommended_install_chosen": "recommended options chosen"
@@ -110,6 +116,7 @@
 "install_base_mod_ask": "Install mods without options?"
 "install_mod_with_options_ask": "Install mod with the chosen options?"
 "exe_version": "Game exe version"
+"unknown": "Unknown"
 "extract": "extract"
 "extract_mod": "extract archive with the mod"
 "mod_in_archive": "Need to extract archive before the installation"
@@ -135,6 +142,7 @@
 "use_this_game": "Use this game"
 "theme_mode": "Theme: system, dark, light"
 "commod_needs_game": "To unlock full functionality you need to show path to an unpacked copy of HTA version 1.02."
+"commod_needs_selected_game": "To unlock full functionality you need to choose a supported version of HTA."
 "commod_needs_distro": "To unlock full functionality you need to choose a directory where ComMod will be storing its files: game mods and other related files."
 "steam_game_found": "Found a game installed on Steam, do you want to use it?"
 "steam_add_hint": "Choose path and press the button to add the game to the list"
@@ -151,8 +159,10 @@
 "is_loading": "loading"
 "reading_archive": "reading and verifying the archive"
 "unpacking": "extracting the archive"
+"where_is_archive": "Where is the mod's archive?"
 "game_is_running": "Game is running"
 "game_is_already_running": "Game is already running"
+"other_game_is_already_running": "Other game copy is already running"
 "game_is_running_cant_select": "Game is running, first close the game then try to select it again"
 "choose_from_steam": "Choose from versions installed on Steam"
 "choose_found": "Choose found version"
@@ -168,6 +178,7 @@
 "choose_distro_path": "Show path to mods storage folder"
 "new_name": "New name"
 "edit_name": "Edit name"
+"update_name": "Update name"
 "confirm_choice": "Confirm choice"
 "not_yet_added_games_of_type": "You haven't added this type of game yet\n(support fom RoC and Arcade will be added in the upcoming version)"
 "not_a_valid_path": "Path doesn't exist"
@@ -209,10 +220,10 @@ cant_find_distribution_files: 'Can''t find game files.
 cant_find_game_data: 'Can''t find game files.
 
   Copy all files and folders of patch to the folder where game is located, on the same level as a game executable'
-cant_install_patch_over_remaster: Community Patch doesn't support installation over Community Remaster, options is disabled
+cant_install_patch_over_remaster: Community Patch doesn't support installation over Community Remaster, option is disabled
 check_for_a_new_version: Check if newer versions are available for mods and if all the required dependencies are fulfilled.
 compatch_mod_incompatible_with_comrem: Mod created specifically for Community Patch can't be install over Community Remaster
-content_requirement_not_met: 'Not all required content of base mods were installed!
+content_requirement_not_met: 'Not all the required content of the base mods was installed!
 
   You need to install additional content for the base mods before installing this one'
 copy_done: Finished copying
@@ -240,26 +251,17 @@ demteam_links: 'Discord of Community Patch / Remaster team: {discord_url}
   Latest releases on GitHub: {github_url}'
 description: 'Description:'
 dll_not_found: dxrender9.dll is not found, will not be able to apply patch
-empty_mod_manifest: Couldn't start installation for mod, files might be corrupted - install manifest is empty or broken
+empty_mod_manifest: Couldn't validate mod, files may be corrupted - install manifest is empty or broken (doesn't follow yaml format) 
 enter_accepted_prompt: Press ENTER or first input one of the options
 error_logging_setup: Error occured when trying to setup logging
 exe_is_running: Game exe access denied, game is probably already running
 exe_is_running_fix: If game is running - first close the game, then start the mod manager.
-exe_not_found: 'Game`s executable is not found, will not be able to apply patch.
+exe_not_supported: 'Found game version unsupported by mod manager.
 
-  Put mod manager and folders ''patch'', ''remaster'', ''libs'' inside the root folder of the game.
+  Supported versions: unpacked DRM-free game version 1.02 or ComRemaster/Patch.
 
-  Only unpacked version 1.02 is supported.
-
-  Game can be purchased on Steam: https://store.steampowered.com/app/285500'
-exe_not_supported: 'Unsupported game version is found, will not be able to apply patch.
-
-  Only unpacked version 1.02 is supported.
-
-  Game can be purchased on Steam: https://store.steampowered.com/app/285500
-
-  To install put mod manager and folders ''patch'', ''remaster'', ''libs'' inside the root folder of the game.'
-failed_and_cleaned: Patching failed, contact developer with information about the issue.
+  Steam copy switched to Russian language is supported.'
+failed_mod_install: "Installation failed, contact developers of ComMod and mod author, describe issue and copy paste info above to appropriate Discord channel"
 first_choose_base_option: First choose base installation version.
 folder: folder
 fonts_corrected: '* Fonts are corrected according to system`s scaling'
@@ -306,7 +308,7 @@ invalid_existing_manifest: 'Installation manifest of mods or ComPatch for the ta
   Delete game and reinstall it from scratch before the new attempt to install ComPatch.'
 just_enter: To install everything - just press 'Enter'
 made_dpi_aware: + Exe made DPI Aware for better scaling in windowed mode
-manifest_exists_game_unpatched: 'Targeted game directory previously was a target on unsuccessful ComPatch installation.
+dirty_copy_warning: 'Targeted game directory previously was a target on unsuccessful ComPatch installation or incomplete files restoration to clean game status.
 
   Delete game and reinstall it from scratch before the new attempt to install ComPatch.'
 missing_distribution: 'Community Patch / Remaster files were not found near the installer.
@@ -315,7 +317,7 @@ missing_distribution: 'Community Patch / Remaster files were not found near the 
 mm_inserts_patched: '* Memory manager replacement, 4GB patch'
 mod_manager_title: Mod Manager {OWN_VERSION} - installation of mods for ComPatch/ComRem
 mod_url: 'Home page:'
-not_validated_mod_manifest: Couldn't start installation for mod, files might be corrupted or mod install manifest is of incorrect format
+not_validated_mod_manifest: Couldn't validate a mod, files may be corrupted or mod install manifest is of incorrect format
 nothing_to_install: Nothing to install, work finished.
 numeric_fixes_patched: '* Vehicle physics and handling improvements'
 draw_distance_patched: '* Maximum draw distance increased ~2 times'

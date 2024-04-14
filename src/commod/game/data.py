@@ -1,29 +1,38 @@
 # flake8: noqa
 from ctypes import windll
+from enum import StrEnum
 from os import system
 
-OWN_VERSION = "2.0.11"
 
-DATE = "(Sept 24 2023)"
+OWN_VERSION = "2.1.1"
+
+DATE = "(Apr 11 2024)"
 # version of binary fixes
-# corresponds with the latest ComPatch/Rem release at the time of ComMod compilation
+# corresponds with the latest major.minor ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"
 
 # main version of exe is dependent on binary fixes, not on ComMod
 # but version string will include ComPatch/Rem build id at the end of the string
-COMPATCH_VER = f"ExMachina - Community Patch build v{VERSION} {DATE}"
+COMPATCH_VER = f"ExMachina - Community Patch fixes v{VERSION} {DATE}"
 COMPATCH_MIN = f"ExMachina - Minimal ComPatch build 1.02 {DATE}"
-COMREM_VER = f"ExMachina - Community Remaster build v{VERSION} {DATE}"
+COMREM_VER = f"ExMachina - Community Remaster fixes v{VERSION} {DATE}"
+
+
+DEM_DISCORD = "https://discord.gg/jZHxYdF"
+DEM_DISCORD_MODS_DOWNLOAD_SCREEN = "https://discord.gg/deus-ex-machina-522817939616038912"
+COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
+WIKI_COMREM = "https://deuswiki.com/w/Community_Remaster"
+
 
 VERSION_BYTES_100_STAR = 0x005A69C2
-
 VERSION_BYTES_102_NOCD = 0x005906A3
 VERSION_BYTES_102_STAR = 0x000102CD
-
 VERSION_BYTES_103_NOCD = 0x005917D2
 VERSION_BYTES_103_STAR = 0x000103CD
-
 VERSION_BYTES_DEM_LNCH = 0x0000DEAD
+
+VERSION_BYTES_M113_101 = 0x007BED2B
+VERSION_BYTES_ARCD_100 = 0x0072F9FC
 
 ENCODING = 'windows-1251'
 
@@ -37,6 +46,9 @@ DEFAULT_COMREM_GRAVITY = -19.62
 OS_SCALE_FACTOR = windll.shcore.GetScaleFactorForDevice(0) / 100
 
 ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
+
+TARGEM_POSITIVE = ("yes", "yeah", "yep", "true")
+TARGEM_NEGATIVE = ("no", "nope", "none", "false")
 
 # were precalculated and hardcoded as we don't support changing the fov dynamically
 # ASPECT_RATIO = TARGET_RES_X / TARGET_RES_Y
@@ -57,7 +69,7 @@ ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
 
 # cheat sheet table of used available empty spaces in binary
 # 0x5E2BCB
-# 0x5E300C
+# 0x5E300C # sell price coeff
 # 0x5E306C # 0.08 move fog start closer to camera
 # 0x5E3204 # 28.0 for max drawDistance before min offset (+ 4.0 = 32.0)
 # 0x5E3C61 # min damage resistance coeff
@@ -90,7 +102,7 @@ PREFERED_RESOLUTIONS = {1920: [960, 1280, 1366, 1600, 1920],
 
 DEFAULT_RESOLUTIONS = PREFERED_RESOLUTIONS[1920]
 
-possible_resolutions = {426: 240,
+KNOWN_RESOLUTIONS = {426: 240,
                         640: 360,
                         854: 480,
                         960: 540,
@@ -133,16 +145,24 @@ additional_mm_inserts = {
     0x2368C0: "C3CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
     }
 
-# to do:
-# petrovich keep throttle
-# 1DAC06: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (auto throttle 1.0 -> 0.01)
-# 0x1DAC06: "E8599E00",
-# 1DAC81: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (handbrake 1.0 -> 0.01)
-# 0x1DAC81: "E8599E00",
-# 0017DB: default (00 00 80 BF) -> (0A D7 23 BC)  -  (break -1.0 - -0.1)
-# 0x0017DB: "CDCCCCBD",
+projection_matrix_fix = {
+    0x1D770: "D94020D8701CD94020D80D68599E00D80DE8599E00D9F2DDD8D83D7C599E00D9C057B91000000089D7F30F1005545A9E0031C0F3AB5F0F28D0F30F5CD1F30F5EC2F30F114228F30F59C10F57C9F30F5CC8F30F10057C599E00F30F114A38F30F11422CD91AD8F1D95A14DDD8C3"
+}
+
+projection_matrix_vanilla = {
+    0x1D770: "D9402057D80D68599E00B9100000008BFAF30F1005545A9E00D80DE8599E00D9401C0F28D0D8702033C0F3ABF30F5CD1F30F5EC2F30F114228F30F59C10F57C9F30F5CC8F30F10057C599E00F30F114A38F30F11422C5FD8C9D80D68599E00D9F2DDD8D83D7C599E00D91AD80D"
+}
 
 binary_inserts = {
+    # void __cdecl _E17()
+    # 0x5FF000: "00DF9800",
+
+    # Init Kraken
+    # 0x58DF00: "5589E583EC0C6863ED9F00FF158CE198008945FC837DFC000F850B0000006AFFFF15BCE3980083C4046A018B45FC50FF1590E198008945F8837DF8000F850B0000006AFFFF15BCE3980083C4048B4DF8894DF48B55FC52FF55F483C40489EC5DC3CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+
+    # dllLibrary
+    # 0x5FED63: "6B72616B656E2E646C6C",
+
     # ConstantDLLName "library.dll"
     0x5FED63: "6C6962726172792E646C6C00",
 
@@ -193,6 +213,17 @@ offsets_draw_dist = {
     # 0x5AB268: "00000000"  # remove negative offset from z-guard
 }
 
+offsets_draw_dist_vanilla = {
+    # short draw distance
+    0x1BF494: "83F80C7E05B80C000000",  # m3d::Landscape::Load
+    0x23A682: "83F80C7E05B80C000000",  # m3d::SceneGraph::UpdateVis
+    0x3A54B5: "83F80C7E05B80C000000",  # m3d::Landscape::GetFogStartAndEnd
+    0x3AB185: "83FB0C7E09BB0C000000",  # m3d::Landscape::Render
+    0x3B61F3: "83FE0C7E05BE0C000000",  # m3d::RoadManager::UpdateVis
+    0x3EC1DD: "83F80C7E05B80C000000",  # ai::InfoCone::GetInfoObjId
+    0x4FBEC2: "83F80C7E05B80C000000",  # m3d::WeatherThunderstorm::Render
+}
+
 offset_draw_dist_numerics = {
     0x5E3204: 19.0,  # max drawDistance with lsViewDivider = 1.0 before min offset (+ 4.0 = 23.0)
     # 0x5E306C: 0.08,
@@ -206,6 +237,38 @@ offset_draw_dist_numerics = {
     0x4FBEAE: "0x009E3204",  # m3d::WeatherThunderstorm::Render
 }
 
+offset_draw_dist_numerics_vanilla = {
+    0x5E3204: 0.0,  # max drawDistance with lsViewDivider = 1.0 before min offset (+ 4.0 = 23.0)
+    0x1BF478: "0x00990944",  # m3d::Landscape::Load
+    0x23A666: "0x009E5978",  # m3d::SceneGraph::UpdateVis
+    0x3A5499: "0x009AB264",  # m3d::Landscape::GetFogStartAndEnd
+    0x3AB165: "0x009AB264",  # m3d::Landscape::Render
+    0x3B61D6: "0x009E5978",  # m3d::RoadManager::UpdateVis
+    0x3EC1C9: "0x009E5ADC",  # ai::InfoCone::GetInfoObjId
+    0x4FBEAE: "0x009E5ADC",  # m3d::WeatherThunderstorm::Render
+}
+
+
+# to do:
+# petrovich keep throttle
+# 1DAC06: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (auto throttle 1.0 -> 0.01)
+# 0x1DAC06: "E8599E00",
+# 1DAC81: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (handbrake 1.0 -> 0.01)
+# 0x1DAC81: "E8599E00",
+# 0017DB: default (00 00 80 BF) -> (CD CC CC BD)  -  (break -1.0 - -0.1)
+# 0x0017DB: "BDCCCCCD",
+
+offsets_slow_brake_vanilla = {
+    0x1DAC06: "0x009E597C",
+    0x1DAC81: "0x009E597C",
+    0x0017DB: "0x000080BF"
+}
+
+offsets_slow_brake = {
+    0x1DAC06: "0x009E59E8",
+    0x1DAC81: "0x009E59E8",
+    0x0017DB: "0xBDCCCCCD"
+}
 
 offsets_exe_fixes = {
     # aspect ratio hack for Frustum Culling
@@ -221,6 +284,14 @@ offsets_exe_fixes = {
     0x2D7295: "0x009E3C61",
     0x5E3C61: -101.0,  # -25.0 -> -101.0
     }
+
+offset_hq_reflections = {
+    0x1C14C9: "0x00000400"
+}
+
+offset_hq_reflections_vanilla = {
+    0x1C14C9: "0x00000200"
+}
 
 
 offsets_dll = {
@@ -426,15 +497,20 @@ configurable_offsets = {
     "skins_in_shop_0": 0x181DCA,
     "skins_in_shop_1": 0x181C95,
     "skins_in_shop_2": 0x181E75,
-    "blast_damage_friendly_fire": 0x3DFADC
+    "blast_damage_friendly_fire": 0x3DFADC,
+    "sell_price_coeff_new": 0x5E300C
     }
 
-hidden_values = {
-    "low_fuel_threshold": [0.25, 0x124CCD, "pointer", "used_elsewhere"],
-    "low_fuel_blinking_period": [300, 0x124CF3, "direct", "single_use"],
+sell_price_offsets = {
+    0x2B8995: "0x009E300C"
+}
+
+# hidden_values = {
+    # "low_fuel_threshold": [0.25, 0x124CCD, "pointer", "used_elsewhere"],
+    # "low_fuel_blinking_period": [300, 0x124CF3, "direct", "single_use"],
     #  "min_resistance_for_damage": [-25.1, 0x2D7295, "pointer", "single_use"],
     #  "max_resistance_for_damage": [25.0, 0x2D72A5, "pointer", "used_elsewhere"],
-    "blast_damage_friendly_fire": [0x01, 0x3DFADC, "direct", "single_use"]}  # bool
+    # "blast_damage_friendly_fire": [0x01, 0x3DFADC, "direct", "single_use"]}  # bool
 
 em_102_icon_offset = 0x60A3A8
 em_102_icon_size = 5694
@@ -445,6 +521,7 @@ size_of_image = 0x198
 offset_of_rsrc = 0x60A000
 resource_dir_size = 0x1D4
 size_of_rsrc_offset = 0x2C0
+size_of_rsrc = 6632
 raw_size_of_rsrc_offset = 0x2C8
 
 offset_of_reloc_offset = 0x2EC
@@ -457,17 +534,6 @@ new_icon_header_ends = 0x16
 
 new_icon_size_offset = 0x60A0BC
 new_icon_group_offset = 0x60A0C8
-
-
-def get_known_mod_display_name(service_name):
-    known_names = {"community_patch": "Community Patch",
-                   "community_remaster": "Community Remaster"}
-
-    return known_names.get(service_name)
-
-
-def is_known_lang(lang: str):
-    return lang in ["eng", "ru", "ua", "de", "pl", "tr"]
 
 
 def get_title() -> str:
@@ -501,3 +567,17 @@ def get_text_offsets(version: str) -> dict:
                     0x5BDCE8: [version_text, 70],
                     0x598DCC: ["169", 3]}
     return offsets_text
+
+
+class SupportedGames(StrEnum):
+    EXMACHINA = "exmachina"
+    M113 = "m113"
+    ARCADE = "arcade"
+
+    @classmethod
+    def _missing_(cls, value: str):
+        value = value.lower()
+        for member in cls:
+            if member == value:
+                return member
+        return None

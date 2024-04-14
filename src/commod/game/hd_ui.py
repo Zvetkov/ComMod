@@ -1,30 +1,28 @@
+# ruff: noqa: SIM108
+
 import logging
 import os
 from pathlib import Path
 
-from helpers import file_ops
-from helpers.get_system_fonts import get_fonts
+import commod.game.mod_auxiliary
+from commod.game import data
+from commod.helpers import file_ops, parse_ops
+from commod.helpers.get_system_fonts import get_fonts
 
-from . import data
-
-logger = logging.getLogger('dem')
+logger = logging.getLogger("dem")
 
 
 def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> None:
     config = file_ops.get_config(root_dir)
     ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
-    ui_schema = file_ops.xml_to_objfy(ui_schema_path)
+    ui_schema = parse_ops.xml_to_objfy(ui_schema_path)
 
-    if not custom_font:
-        font_alias = "Arial"
-    else:
-        font_alias = custom_font
+    font_alias = custom_font if custom_font else "Arial"
 
+    listed_system_fonts = []
     fonts_path = Path(Path.home().drive + "/", "Windows", "fonts")
     if fonts_path.exists():
         listed_system_fonts = [font.lower() for font in os.listdir(fonts_path)]
-    else:
-        listed_system_fonts = []
 
     font_available = f"{font_alias.lower().replace(' ', '')}.ttf" in listed_system_fonts
 
@@ -54,12 +52,12 @@ def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> No
         ui_schema["schema"].attrib["miscFontFace"] = font_alias
         ui_schema["schema"].attrib["miscFontSize"] = sml_font_size
         ui_schema["schema"].attrib["miscFontType"] = "0"
-    file_ops.save_to_file(ui_schema, ui_schema_path)
+    file_ops.write_xml_to_file(ui_schema, ui_schema_path)
 
     return True
 
-
-def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, enable: bool = True) -> None:
+# TODO: better to have two functions without bool flag
+def toggle_16_9_UI_xmls(root_dir: str,screen_width: int, screen_height: int, enable: bool = True) -> None:  # noqa: N802
     config = file_ops.get_config(root_dir)
     if config.attrib.get("pathToUiWindows") is not None:
         if enable:
@@ -104,43 +102,40 @@ def toggle_16_9_UI_xmls(root_dir: str, screen_width: int, screen_height: int, en
         config.attrib["pathToLevelInfo"] = new_value
 
     if config.attrib.get("g_impostorThreshold") is not None:
-        if enable:
-            new_value = r"1000"
-        else:
-            new_value = r"500"
+        new_value = "1000" if enable else "500"
         config.attrib["g_impostorThreshold"] = new_value
 
     width = config.attrib.get("r_width")
     height = config.attrib.get("r_height")
     if width is not None and height is not None:
         if enable:
-            good_width = screen_width in list(data.possible_resolutions.keys())
-            good_heigth = data.possible_resolutions.get(screen_width) == screen_height
+            good_width = screen_width in list(data.KNOWN_RESOLUTIONS.keys())
+            good_heigth = data.KNOWN_RESOLUTIONS.get(screen_width) == screen_height
             if good_width and good_heigth:
                 new_width = str(screen_width)
                 new_height = str(screen_height)
             else:
                 new_width = "1280"
                 new_height = "720"
-        else:
+        else:  # noqa: PLR5501
             if width == "1280" and height == "720":
                 new_width = "1024"
                 new_height = "768"
             else:
                 new_width = False
                 new_height = False
-        if not (width == "1920" or width == "2560" or width == "3840") and new_width and new_height:
+        if width not in ("1920", "2560", "3840") and new_width and new_height:
             config.attrib["r_width"] = new_width
             config.attrib["r_height"] = new_height
 
-    file_ops.save_to_file(config, os.path.join(root_dir, "data", "config.cfg"))
+    file_ops.write_xml_to_file(config, os.path.join(root_dir, "data", "config.cfg"))
 
 
 def toggle_16_9_glob_prop(root_dir: str, enable: bool = True) -> None:
-    glob_props_full_path = os.path.join(root_dir, file_ops.get_glob_props_path(root_dir))
-    glob_props = file_ops.xml_to_objfy(glob_props_full_path)
-    ground_repository = file_ops.child_from_xml_node(glob_props, "GroundRepository")
-    smart_cursor = file_ops.child_from_xml_node(glob_props, "SmartCursor")
+    glob_props_full_path = os.path.join(root_dir, commod.game.mod_auxiliary.get_glob_props_path(root_dir))
+    glob_props = parse_ops.xml_to_objfy(glob_props_full_path)
+    ground_repository = parse_ops.get_child_from_xml_node(glob_props, "GroundRepository")
+    smart_cursor = parse_ops.get_child_from_xml_node(glob_props, "SmartCursor")
     if ground_repository is not None:
         if enable:
             ground_repository.attrib["Size"] = "18 300"
@@ -155,4 +150,4 @@ def toggle_16_9_glob_prop(root_dir: str, enable: bool = True) -> None:
             smart_cursor.attrib["InfoAreaRadius"] = "50"
             smart_cursor.attrib["UnlockRegion"] = "300 300"
             smart_cursor.attrib["InfoObjUpdateTimeout"] = "0.5"
-    file_ops.save_to_file(glob_props, glob_props_full_path)
+    file_ops.write_xml_to_file(glob_props, glob_props_full_path)

@@ -4,29 +4,26 @@ import tempfile
 import flet as ft
 from flet import IconButton, Image, Page, Theme, ThemeVisualDensity
 
-import localisation.service as localisation
-from commod import _init_input_parser
-from game.data import get_title
-from game.environment import GameCopy, InstallationContext
-from helpers.file_ops import get_internal_file_path
-from localisation.service import SupportedLanguages, tr
-
-from .app_widgets import (App, DownloadModsScreen, HomeScreen, LocalModsScreen,
-                          SettingsScreen)
-from .config import Config
+from commod.game.data import get_title
+from commod.game.environment import GameCopy, InstallationContext
+from commod.gui.app_widgets import App, DownloadModsScreen, HomeScreen, LocalModsScreen, SettingsScreen
+from commod.gui.config import AppSections, Config
+from commod.helpers.file_ops import get_internal_file_path
+from commod.helpers.parse_ops import init_input_parser
+from commod.localisation.service import tr
 
 
-async def main(page: Page):
-    async def maximize(e):
+async def main(page: Page) -> None:
+    async def maximize(e: ft.ControlEvent) -> None:
         page.window_maximized = not page.window_maximized
         await page.update_async()
 
-    async def minimize(e):
+    async def minimize(e: ft.ControlEvent) -> None:
         page.window_minimized = True
         await page.update_async()
 
-    async def change_theme_mode(e):
-        theme = page._Page__theme_mode
+    async def change_theme_mode(e: ft.ControlEvent) -> None:
+        theme = page.theme_mode
         if theme == ft.ThemeMode.SYSTEM:
             page.theme_mode = ft.ThemeMode.DARK
             page.theme_icon_btn.current.icon = ft.icons.WB_SUNNY_OUTLINED
@@ -42,17 +39,17 @@ async def main(page: Page):
 
         await page.update_async()
 
-    def title_btn_style(hover_color: ft.colors = None):
+    def title_btn_style(hover_color: str | None = None) -> ft.ButtonStyle:
         color_dict = {ft.MaterialState.DEFAULT: ft.colors.ON_BACKGROUND}
         if hover_color is not None:
             color_dict[ft.MaterialState.HOVERED] = ft.colors.RED
         return ft.ButtonStyle(
             color=color_dict,
             padding={ft.MaterialState.DEFAULT: 0},
-            shape={ft.MaterialState.DEFAULT: ft.buttons.RoundedRectangleBorder(radius=2)}
+            shape={ft.MaterialState.DEFAULT: ft.RoundedRectangleBorder(radius=2)}
         )
 
-    def create_sections(app: App):
+    def create_sections(app: App) -> None:
         app.page.floating_action_button = ft.FloatingActionButton(
             icon=ft.icons.REFRESH_ROUNDED,
             on_click=app.upd_pressed,
@@ -65,10 +62,10 @@ async def main(page: Page):
 
         app.content_pages = [app.home, app.local_mods, app.download_mods, app.settings_page]
 
-    async def wrap_on_window_event(e):
+    async def wrap_on_window_event(e: ft.ControlEvent) -> None:
         if e.data == "close":
             await finalize(e)
-        elif e.data == "unmaximize" or e.data == "maximize":
+        elif e.data in ("unmaximize", "maximize"):
             if page.window_maximized:
                 page.icon_maximize.current.icon = ft.icons.FILTER_NONE
                 page.icon_maximize.current.icon_size = 15
@@ -77,13 +74,13 @@ async def main(page: Page):
                 page.icon_maximize.current.icon_size = 17
             await page.icon_maximize.current.update_async()
 
-    async def finalize(e):
+    async def finalize(e: ft.ControlEvent) -> None:
         app.logger.debug("closing")
         app.config.save_config()
         app.logger.debug("config saved")
         await page.window_close_async()
 
-    options = _init_input_parser().parse_args()
+    options = init_input_parser().parse_args()
 
     page.window_title_bar_hidden = True
     page.title = "ComMod"
@@ -91,32 +88,72 @@ async def main(page: Page):
     page.on_window_event = wrap_on_window_event
     page.window_min_width = 900
     page.window_min_height = 600
-    page.theme_mode = ft.ThemeMode.SYSTEM
-
     page.padding = 0
+
+    page.theme_mode = ft.ThemeMode.SYSTEM
     page.theme = Theme(color_scheme_seed="#FFA500", visual_density=ThemeVisualDensity.COMPACT)
     page.dark_theme = Theme(color_scheme_seed="#FFA500", visual_density=ThemeVisualDensity.COMPACT)
 
-    app = App(context=InstallationContext(dev_mode=options.dev, can_skip_adding_distro=True),
-              game=GameCopy(),
-              config=Config(page))
-
-    page.app = app
-    app.page = page
-    # TODO: pass 'dev' options further, it's needed in case of changing the context
-
-    # TODO: move to app init
-    app.current_game_process = None
-
-    # at the end of each operation, commod tries to create config near itself
+    conf = Config(page)
+    # at the end of excution, commod tries to create config near itself
     # if we can load it - we will use the data from it, except when overriden from console args
-    app.config = Config(page)
-    app.config.load_from_file()
+    conf.load_from_file()
 
-    app.context.setup_loggers(stream_only=True)
+    # loading distibution context
+    # console params can override distribution_dir and target_dir early
+    if options.distribution_dir:  # noqa: SIM108
+        distribution_dir = options.distribution_dir
+    else:
+        distribution_dir = conf.current_distro
 
-    app.logger = app.context.logger
-    app.context.load_system_info()
+    if distribution_dir:
+        try:
+            install_context = InstallationContext(
+                distribution_dir=distribution_dir,
+                dev_mode=options.dev)
+            install_context.setup_logging_folder()
+            install_context.setup_loggers()
+        except Exception:
+            # TODO: handle individuals exceptions properly if they are not caught lower
+            install_context.logger.exception("[Distro loading error]")
+
+            install_context = InstallationContext(dev_mode=options.dev)
+            install_context.setup_loggers(stream_only=True)
+    else:
+        install_context = InstallationContext(dev_mode=options.dev)
+        install_context.setup_loggers(stream_only=True)
+
+    install_context.load_system_info()
+
+    # loading game
+    if options.target_dir:  # noqa: SIM108
+        target_dir = options.target_dir
+    else:
+        # if app.config.known_games:
+        target_dir = conf.current_game
+        # else:
+        # TODO: rework for this default to work as expected, should detect the game and add to the list as current
+        # target_dir = InstallationContext.get_local_path()
+
+
+    # we checked everywhere, so we can try to properly load game
+    if target_dir:
+        try:
+            game = GameCopy()
+            game.process_game_install(target_dir)
+        except Exception as ex:
+            # TODO: Handle exceptions properly
+            install_context.logger.error(f"[Game loading error] {ex}")
+
+            game = GameCopy()
+    else:
+        game = GameCopy()
+
+    # TODO: pass 'dev' options further, it's needed in case of changing the context
+    app = App(context=install_context,
+              game=game,
+              config=conf,
+              page=page)
 
     page.window_width = app.config.init_width
     page.window_height = app.config.init_height
@@ -124,67 +161,8 @@ async def main(page: Page):
     page.window_top = app.config.init_pos_y
 
     page.theme_mode = app.config.init_theme
-    match app.config.lang:
-        case SupportedLanguages.ENG.value:
-            localisation.LANG = SupportedLanguages.ENG.value
-            app.config.prefered_mod_lang = SupportedLanguages.ENG.value
-        case SupportedLanguages.UA.value:
-            localisation.LANG = SupportedLanguages.UA.value
-            app.config.prefered_mod_lang = SupportedLanguages.UA.value
-        case SupportedLanguages.RU.value:
-            localisation.LANG = SupportedLanguages.RU.value
-            app.config.prefered_mod_lang = SupportedLanguages.RU.value
-        case _:
-            # override
-            app.config.lang = localisation.LANG
-            app.config.prefered_mod_lang = localisation.LANG
 
-    localisation.STRINGS = localisation.get_strings_dict()
-
-    app.logger.info(f"Current lang: {localisation.LANG}")
-
-    # if app.config.known_games:
-    target_dir = app.config.current_game
-    # else:
-    # TODO: rework for this default to work as expected, should detect the game and add to the list as current
-    # target_dir = InstallationContext.get_local_path()
-
-    distribution_dir = app.config.current_distro
-
-    # console params can override this early
-    if options.distribution_dir:
-        distribution_dir = options.distribution_dir
-    if options.target_dir:
-        target_dir = options.target_dir
-
-    # we checked everywhere, so we can try to properly load distribution and game
-    if target_dir:
-        try:
-            app.game.process_game_install(target_dir)
-        except Exception as ex:
-            # TODO: Handle exceptions properly
-            app.logger.error(f"[Game loading error] {ex}")
-
-    # TODO: do we want to check env arround binary to detect that we are running in distro directory?
-    # local_path = InstallationContext.get_local_path()
-    # if (app.context.get_config() is None
-    #    and not distribution_dir
-    #    and Path(Path(local_path) / "remaster").is_dir()
-    #    and Path(Path(local_path) / "patch").is_dir()):
-    #     distribution_dir = local_path
-
-    if distribution_dir:
-        try:
-            # TODO: all distribution validation needs to be async in case of many distro folders present
-            app.context.add_distribution_dir(distribution_dir)
-            # await app.load_distro_async()
-        except Exception as ex:
-            # TODO: handle individuals exceptions properly if they are not caught lower
-            app.logger.error(f"[Distro loading error] {ex}")
-
-    if app.context.distribution_dir:
-        app.context.setup_logging_folder()
-        app.context.setup_loggers()
+    app.logger.info(f"Current lang: {app.config.lang}")
 
     need_quick_start = (not app.config.game_names
                         and not app.context.distribution_dir
@@ -238,7 +216,6 @@ async def main(page: Page):
                                       selected_icon_color=ft.colors.ON_SURFACE_VARIANT)),
         on_change=app.change_page,
     )
-    page.rail = rail
     app.rail = rail
 
     page.icon_maximize = ft.Ref[IconButton]()
@@ -285,8 +262,17 @@ async def main(page: Page):
         # modern settings screen has a built-in flow for quick start
         await app.show_settings()
     else:
-        # app.load_distro()
         await app.load_distro_async()
+        if app.context.distribution_dir and not app.config.current_distro:
+            app.logger.debug(f"Added distro to empty config: {app.context.distribution_dir}")
+            app.config.add_distro_to_config(app.context.distribution_dir)
+        if app.game.game_root_path and not app.config.current_game:
+            app.logger.debug(f"Added game to empty config: {app.game.game_root_path}")
+            app.config.add_game_to_config(app.game.game_root_path)
+            if app.config.current_distro and app.config.current_game:
+                app.logger.debug("Automatically switched to local mods page as running with generated config")
+                app.config.current_section = AppSections.LOCAL_MODS.value
+        # select_game_from_home
         await app.change_page(index=app.config.current_section)
 
     if "NUITKA_ONEFILE_PARENT" in os.environ:
@@ -300,5 +286,5 @@ async def main(page: Page):
     await page.update_async()
 
 
-def start():
+def start() -> None:
     ft.app(target=main)
