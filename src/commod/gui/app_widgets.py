@@ -1748,7 +1748,7 @@ class ModInfo(UserControl):
         await self.app.page.launch_url_async(self.mod.trailer_url)
 
     async def delete_mod_ask(self, e: ft.ControlEvent) -> None:
-        await self.app.show_modal(tr("this_will_delete_mod")+".",
+        await self.app.show_modal(tr("this_will_delete_mod"),
                                   tr("ask_confirm_deletion").capitalize(),
                                   on_yes=self.delete_mod_runner)
 
@@ -2480,7 +2480,7 @@ class ModFamily(UserControl):
                             Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
                                  color=ft.colors.ON_BACKGROUND, size=20)], spacing=2)
                         ]),
-                        padding=ft.padding.only(left=5, right=5, top=2, bottom=2)),
+                        padding=ft.padding.only(left=8, right=5, top=2, bottom=3)),
                     items=variants),
                     border_radius=5,
                     bgcolor=ft.colors.BACKGROUND)
@@ -2602,7 +2602,11 @@ class ModItem(UserControl):
         self.mod_family = mod_family
 
         self.version_info = ft.Ref[ft.Container]()
-        self.mod_variant_info = ft.Ref[ft.Container]()
+        self.variant_info = ft.Ref[ft.Container]()
+
+        self.cant_install_warning = ft.Ref[ft.Container]()
+        self.cant_reinstall_warning = ft.Ref[ft.Container]()
+
         self.install_btn = ft.Ref[ft.ElevatedButton]()
         self.about_mod_btn = ft.Ref[ft.OutlinedButton]()
         self.info_container = ft.Ref[ModInfo]()
@@ -2640,6 +2644,19 @@ class ModItem(UserControl):
             self.app.page.overlay.append(fg)
             await self.app.page.update_async()
 
+    async def update_install_warnings(self) -> None:
+        has_validation_errors = (not (self.mod.commod_compatible
+                              and self.mod.compatible
+                              and self.mod.prevalidated
+                              and self.mod.installment_compatible))
+        cant_reinstall = self.mod.is_reinstall and not self.mod.can_be_reinstalled
+
+        self.cant_install_warning.current.visible = has_validation_errors and not cant_reinstall
+        self.cant_reinstall_warning.current.visible = not has_validation_errors and cant_reinstall
+
+        await self.cant_install_warning.current.update_async()
+        await self.cant_reinstall_warning.current.update_async()
+
     async def toggle_info(self, e: ft.ControlEvent) -> None:
         if self.about_mod_btn.current.text == tr("about_mod").capitalize():
             self.about_mod_btn.current.text = tr("hide_menu").capitalize()
@@ -2659,8 +2676,14 @@ class ModItem(UserControl):
 
         self.mod = self.mod_family.translations[lang_to_switch]
 
-        self.mod_variant_info.current.content = self.mod_family.get_variants_selector(self.mod)
-        await self.mod_variant_info.current.update_async()
+        self.version_info.current.content = self.mod_family.get_versions_selector(self.mod)
+        await self.version_info.current.update_async()
+
+        self.variant_info.current.content = self.mod_family.get_variants_selector(self.mod)
+        await self.variant_info.current.update_async()
+
+        await self.update_install_warnings()
+
         # self.mod_name_text.current.value = self.mod.display_name
         # await self.mod_name_text.current.update_async()
         self.author_text.current.value = f"{tr(self.mod.developer_title)} {self.mod.authors}"
@@ -2734,10 +2757,12 @@ class ModItem(UserControl):
 
         await self.version_info.current.update_async()
 
-        self.mod_variant_info.current.content = self.mod_family.get_variants_selector(self.mod)
-        self.mod_variant_info.current.margin = 0
+        self.variant_info.current.content = self.mod_family.get_variants_selector(self.mod)
+        self.variant_info.current.margin = 0
 
-        await self.mod_variant_info.current.update_async()
+        await self.variant_info.current.update_async()
+
+        await self.update_install_warnings()
 
         if (self.app.config.lang != self.mod.language
            and self.app.config.lang in self.mod_family.translations):
@@ -2756,12 +2781,6 @@ class ModItem(UserControl):
         else:
             install_tooltip = None
 
-        has_validation_errors = (not (self.mod.commod_compatible
-                                      and self.mod.compatible
-                                      and self.mod.prevalidated
-                                      and self.mod.installment_compatible))
-        cant_reinstall = self.mod.is_reinstall and not self.mod.can_be_reinstalled
-
         return ft.Card(
             ft.Container(
                 Column([
@@ -2777,22 +2796,24 @@ class ModItem(UserControl):
                         ft.Container(Column([
                             Row([
                                 Column([self.mod_family.get_variants_selector(self.mod)],
-                                       ref=self.mod_variant_info),
+                                       ref=self.variant_info),
                                  ft.Container(
                                     Icon(ft.icons.INFO_OUTLINE_ROUNDED,
                                          color=ft.colors.ERROR,
                                          size=14,
                                          tooltip=tr("cant_be_installed")),
                                     opacity=0.9,
-                                    visible=has_validation_errors and not cant_reinstall,
-                                    margin=ft.margin.only(top=3)),
+                                    visible=False,
+                                    margin=ft.margin.only(top=3),
+                                    ref=self.cant_install_warning),
                                  ft.Container(
                                     Icon(ft.icons.INFO_OUTLINE_ROUNDED,
                                          size=14,
                                          tooltip=tr("cant_reinstall")),
                                     opacity=0.9,
-                                    visible=not has_validation_errors and cant_reinstall,
-                                    margin=ft.margin.only(top=3))
+                                    visible=False,
+                                    margin=ft.margin.only(top=3),
+                                    ref=self.cant_reinstall_warning)
                                  ], vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                  alignment=ft.MainAxisAlignment.START),
                             Text(f"{tr(self.mod.developer_title)} {self.mod.authors}",
@@ -3347,7 +3368,7 @@ class ModInstallWizard(UserControl):
                                color=info_color,
                                weight=ft.FontWeight.BOLD)
             debug_info = ("**Debug info**\n"
-                          f"> ComMod version: {OWN_VERSION}\n"
+                          f"> ComMod version: {OWN_VERSION} {DATE}\n"
                           f"> Game: {self.app.game.installment} [{self.app.game.exe_version}]\n"
                           f"> Exe: {self.app.game.target_exe}\n"
                           "> Installed content:\n"
@@ -3661,7 +3682,11 @@ class ModInstallWizard(UserControl):
             btn_width = 180
             btn_height = 80
 
-        for srv_name, mod_variant in self.main_mod.variants_loaded.items():
+        for srv_name, mod_variant_main in self.main_mod.variants_loaded.items():
+            mod_variant = mod_variant_main.translations_loaded.get(lang)
+            if not mod_variant:
+                continue
+
             is_current = srv_name == variant_name
 
             if (mod_variant.is_reinstall and not mod_variant.can_install):

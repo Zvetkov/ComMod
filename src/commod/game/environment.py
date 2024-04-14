@@ -27,6 +27,7 @@ from flet import Text
 from pydantic import ValidationError
 
 from commod.game.data import (
+    DATE,
     KNOWN_RESOLUTIONS,
     OS_SCALE_FACTOR,
     OWN_VERSION,
@@ -519,7 +520,7 @@ class InstallationContext:
                 file_handler.setFormatter(formatter)
                 self.logger.addHandler(file_handler)
 
-            self.logger.info(f"ComMod {OWN_VERSION} is running, loggers initialised")
+            self.logger.info(f"ComMod {OWN_VERSION} ({DATE}) is running, loggers initialised")
 
     def setup_logging_folder(self) -> None:
         if self.distribution_dir:
