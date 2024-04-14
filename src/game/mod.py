@@ -1080,8 +1080,7 @@ class Mod:
                 "gravity": [[float], False, [-100.0, -1.0]],
                 "skins_in_shop": [[int], False, [8, 32]],
                 "blast_damage_friendly_fire": [[bool, str], False, None],
-                "game_font": [[str], False],
-                "draw_distance_limit": [[bool, str], False]
+                "game_font": [[str], False]
             }
             schema_config_options = {
                 "firstLevel": [[str], False],

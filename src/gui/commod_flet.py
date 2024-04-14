@@ -13,7 +13,7 @@ from localisation.service import SupportedLanguages, tr
 
 from .app_widgets import (App, DownloadModsScreen, HomeScreen, LocalModsScreen,
                           SettingsScreen)
-from .config import AppSections, Config
+from .config import Config
 
 
 async def main(page: Page):
@@ -157,6 +157,13 @@ async def main(page: Page):
     if options.target_dir:
         target_dir = options.target_dir
 
+    # we checked everywhere, so we can try to properly load distribution and game
+    if target_dir:
+        try:
+            app.game.process_game_install(target_dir)
+        except Exception as ex:
+            # TODO: Handle exceptions properly
+            app.logger.error(f"[Game loading error] {ex}")
 
     # TODO: do we want to check env arround binary to detect that we are running in distro directory?
     # local_path = InstallationContext.get_local_path()
@@ -178,14 +185,6 @@ async def main(page: Page):
     if app.context.distribution_dir:
         app.context.setup_logging_folder()
         app.context.setup_loggers()
-
-    # we checked everywhere, so we can try to properly load distribution and game
-    if target_dir:
-        try:
-            app.game.process_game_install(target_dir)
-        except Exception as ex:
-            # TODO: Handle exceptions properly
-            app.logger.error(f"[Game loading error] {ex}")
 
     need_quick_start = (not app.config.game_names
                         and not app.context.distribution_dir
@@ -288,16 +287,6 @@ async def main(page: Page):
     else:
         # app.load_distro()
         await app.load_distro_async()
-        if app.context.distribution_dir and not app.config.current_distro:
-            app.logger.debug(f"Added distro to empty config: {app.context.distribution_dir}")
-            app.config.add_distro_to_config(app.context.distribution_dir)
-        if app.game.game_root_path and not app.config.current_game:
-            app.logger.debug(f"Added game to empty config: {app.game.game_root_path}")
-            app.config.add_game_to_config(app.game.game_root_path)
-            if app.config.current_distro and app.config.current_game:
-                app.logger.debug("Automatically switched to local mods page as running with generated config")
-                app.config.current_section = AppSections.LOCAL_MODS.value
-        # select_game_from_home
         await app.change_page(index=app.config.current_section)
 
     if "NUITKA_ONEFILE_PARENT" in os.environ:
