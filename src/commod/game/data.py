@@ -4,9 +4,9 @@ from enum import StrEnum
 from os import system
 
 
-OWN_VERSION = "2.1.1"
+OWN_VERSION = "2.1.2"
 
-DATE = "(Apr 11 2024)"
+DATE = "(Apr 17 2024)"
 # version of binary fixes
 # corresponds with the latest major.minor ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"

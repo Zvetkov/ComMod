@@ -64,7 +64,8 @@ class Mod(BaseModel):
     description: Annotated[str, StringConstraints(max_length=2048)] = Field(repr=False)
     authors: Annotated[str, StringConstraints(max_length=256)] = Field(repr=False)
     version: Version = Field(repr=False)
-    build: Annotated[str, StringConstraints(min_length=1, max_length=7, strip_whitespace=True)] = Field(repr=False)
+    build: Annotated[str, StringConstraints(min_length=1, max_length=7,
+                                            strip_whitespace=True)] = Field(repr=False)
 
     # primary with defaults
     installment: SupportedGames = SupportedGames.EXMACHINA
@@ -108,7 +109,7 @@ class Mod(BaseModel):
     release_date: Annotated[str, StringConstraints(max_length=32, strip_whitespace=True)] = \
         Field(default="", repr=False)
     url: Annotated[str, StringConstraints(max_length=128, strip_whitespace=True)] = \
-        Field(default="", repr=False)
+        Field(default="", validation_alias="link", repr=False)
     trailer_url: Annotated[str, StringConstraints(max_length=128, strip_whitespace=True)] = \
         Field(default="", repr=False)
     tags: list[Tags] = Field(default=[Tags.UNCATEGORIZED], repr=False)
