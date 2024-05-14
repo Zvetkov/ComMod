@@ -1,12 +1,13 @@
 # flake8: noqa
 from ctypes import windll
+from dataclasses import dataclass
 from enum import StrEnum
 from os import system
 
 
-OWN_VERSION = "2.1.2"
+OWN_VERSION = "2.2-rc1"
 
-DATE = "(Apr 17 2024)"
+DATE = "(Apr 28 2024)"
 # version of binary fixes
 # corresponds with the latest major.minor ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"
@@ -50,6 +51,176 @@ ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
 TARGEM_POSITIVE = ("yes", "yeah", "yep", "true")
 TARGEM_NEGATIVE = ("no", "nope", "none", "false")
 
+PREFERED_RESOLUTIONS = {1920: [960, 1280, 1366, 1600, 1920],
+                        2560: [960, 1280, 1600, 1920, 2560],
+                        3840: [1280, 1366, 1920, 2560, 3840]}
+
+DEFAULT_RESOLUTIONS = PREFERED_RESOLUTIONS[1920]
+
+KNOWN_RESOLUTIONS = {426: 240,
+                     640: 360,
+                     854: 480,
+                     960: 540,
+                     1024: 576,
+                     1280: 720,
+                     1366: 768,
+                     1600: 900,
+                     1920: 1080,
+                     2560: 1440,
+                     3200: 1800,
+                     3840: 2160,
+                     5120: 2880,
+                     7680: 4320}
+
+@dataclass
+class BinaryPatch:
+    offset: int
+    enable_value: str
+    disable_value: str
+    comment: str = ""
+    value_is_offset: bool = False
+
+projection_matrix_patches = [
+    BinaryPatch(
+        offset=0x1D770,
+        enable_value="D94020D8701CD94020D80D68599E00D80DE8599E00D9F2DDD8D83D7C599E00D9C057B91000000089D7F30F1005545A9E0031C0F3AB5F0F28D0F30F5CD1F30F5EC2F30F114228F30F59C10F57C9F30F5CC8F30F10057C599E00F30F114A38F30F11422CD91AD8F1D95A14DDD8C3",
+        disable_value="D9402057D80D68599E00B9100000008BFAF30F1005545A9E00D80DE8599E00D9401C0F28D0D8702033C0F3ABF30F5CD1F30F5EC2F30F114228F30F59C10F57C9F30F5CC8F30F10057C599E00F30F114A38F30F11422C5FD8C9D80D68599E00D9F2DDD8D83D7C599E00D91AD80D"
+        )]
+
+draw_distance_patches = [
+    BinaryPatch(
+        offset=0x1BF494,
+        enable_value="83F8207E05B820000000",
+        disable_value="83F80C7E05B80C000000",
+        comment="m3d::Landscape::Load"
+    ),
+    BinaryPatch(
+        offset=0x23A682,
+        enable_value="83F8207E05B820000000",
+        disable_value="83F80C7E05B80C000000",
+        comment="m3d::SceneGraph::UpdateVis"
+    ),
+    BinaryPatch(
+        offset=0x3A54B5,
+        enable_value="83F8207E05B820000000",
+        disable_value="83F80C7E05B80C000000",
+        comment="m3d::Landscape::GetFogStartAndEnd"
+    ),
+    BinaryPatch(
+        offset=0x3AB185,
+        enable_value="83FB207E09BB20000000",
+        disable_value="83FB0C7E09BB0C000000",
+        comment="m3d::Landscape::Render"
+    ),
+    BinaryPatch(
+        offset=0x3B61F3,
+        enable_value="83FE207E05BE20000000",
+        disable_value="83FE0C7E05BE0C000000",
+        comment="m3d::RoadManager::UpdateVis"
+    ),
+    BinaryPatch(
+        offset=0x3EC1DD,
+        enable_value="83F8207E05B820000000",
+        disable_value="83F80C7E05B80C000000",
+        comment="ai::InfoCone::GetInfoObjId"
+    ),
+    BinaryPatch(
+        offset=0x4FBEC2,
+        enable_value="83F8207E05B820000000",
+        disable_value="83F80C7E05B80C000000",
+        comment="m3d::WeatherThunderstorm::Render"
+    ),
+    BinaryPatch(
+        offset=0x5E3204, enable_value=19.0, disable_value=0.0,
+        comment="max drawDistance with lsViewDivider = 1.0 before min offset (+ 4.0 = 23.0)"
+    ),
+    BinaryPatch(
+        offset=0x1BF478, enable_value="0x009E3204", disable_value="0x00990944",
+        comment="m3d::Landscape::Load",
+        value_is_offset=True
+    ),
+    BinaryPatch(
+        offset=0x23A666, enable_value="0x009E3204", disable_value="0x009E5978",
+        comment="m3d::SceneGraph::UpdateVis",
+        value_is_offset=True
+    ),
+    BinaryPatch(
+        offset=0x3A5499, enable_value="0x009E3204", disable_value="0x009AB264",
+        comment="m3d::Landscape::GetFogStartAndEnd",
+        value_is_offset=True
+    ),
+    BinaryPatch(
+        offset=0x3AB165, enable_value="0x009E3204", disable_value="0x009AB264",
+        comment="m3d::Landscape::Render",
+        value_is_offset=True
+    ),
+    BinaryPatch(
+        offset=0x3B61D6, enable_value="0x009E3204", disable_value="0x009E5978",
+        comment="m3d::RoadManager::UpdateVis",
+        value_is_offset=True
+    ),
+    BinaryPatch(
+        offset=0x3EC1C9, enable_value="0x009E3204", disable_value="0x009E5ADC",
+        comment="ai::InfoCone::GetInfoObjId",
+        value_is_offset=True
+    ),
+    BinaryPatch(
+        offset=0x4FBEAE, enable_value="0x009E3204", disable_value="0x009E5ADC",
+        comment="m3d::WeatherThunderstorm::Render",
+        value_is_offset=True
+    )
+]
+
+slow_brake_patches = [
+    BinaryPatch(
+        offset=0x1DAC06, enable_value="0x009E59E8", disable_value="0x009E597C",
+        comment="keep / auto throttle (7C 59 9E 00) -> (E8 59 9E 00) (1.0 -> 0.01)",
+        value_is_offset=True
+    ),
+    BinaryPatch(
+        offset=0x1DAC81, enable_value="0x009E59E8", disable_value="0x009E597C",
+        comment="handbrake (7C 59 9E 00) -> (E8 59 9E 00) ( 1.0 -> 0.01)",
+        value_is_offset=True
+    ),
+    BinaryPatch(
+        offset=0x0017DB, enable_value="0xBDCCCCCD", disable_value="0x000080BF",
+        comment="break (00 00 80 BF) -> (CD CC CC BD) (-1.0 -> -0.1)",
+        value_is_offset=True
+    )
+]
+
+hq_reflections_patches = [
+    BinaryPatch(
+        offset=0x1C14C9, enable_value="0x00000400", disable_value="0x00000200",
+        value_is_offset=True
+    )
+]
+
+default_difficulty_lowest_patches = [
+    BinaryPatch(
+        offset=0x000E387, enable_value="05", disable_value="0B",
+        comment="Sets default difficulty to index 0 (lowest difficulty), instead of index 1 (second lowest)"
+    )
+]
+
+peace_price_from_schwarz_patches = [
+    BinaryPatch(
+        offset=0x0346D7A, enable_value="A6", disable_value="8D",
+        comment=("When calculating price of making peace with faction,"
+        "game gets part of player money. Reroute this to use PlayersSchwarz, "
+        "this wont allow to make peace for free if player has no money")
+    )
+]
+
+no_money_in_player_schwarz_patches = [
+    BinaryPatch(
+        offset=0x0251381, enable_value="31F6EB02", disable_value="8BB11801",
+        comment=("All dyn.quests calculate rewards from player's vehicle schwarz, "
+                 "but hunt uses PlayerSchwarz, equal to VehicleSchwarz+PlayerMoney. "
+                 "This makes PlayerSchwarz equal to VehicleSchwarz, ignoring player's money.")
+    )
+]
+
 # were precalculated and hardcoded as we don't support changing the fov dynamically
 # ASPECT_RATIO = TARGET_RES_X / TARGET_RES_Y
 
@@ -66,8 +237,7 @@ TARGEM_NEGATIVE = ("no", "nope", "none", "false")
 # OFFSET_UI_X = round((TARGET_RES_X - ORIG_RES_X * ENLARGE_UI_COEF) / 2)
 # OFFSET_UI_Y = round((TARGET_RES_Y - ORIG_RES_Y * ENLARGE_UI_COEF) / 2)
 
-
-# cheat sheet table of used available empty spaces in binary
+# cheat sheet table of used available empty spaces (align) in binary
 # 0x5E2BCB
 # 0x5E300C # sell price coeff
 # 0x5E306C # 0.08 move fog start closer to camera
@@ -94,28 +264,6 @@ TARGEM_NEGATIVE = ("no", "nope", "none", "false")
 # 0x5E5AAC # target capturing texCapturingSizeY
 # 0x5E5B0C # target capturing texCapturingSizeX
 # 0x5E5BDC # target capturing texCaptureSzBig
-
-
-PREFERED_RESOLUTIONS = {1920: [960, 1280, 1366, 1600, 1920],
-                        2560: [960, 1280, 1600, 1920, 2560],
-                        3840: [1280, 1366, 1920, 2560, 3840]}
-
-DEFAULT_RESOLUTIONS = PREFERED_RESOLUTIONS[1920]
-
-KNOWN_RESOLUTIONS = {426: 240,
-                        640: 360,
-                        854: 480,
-                        960: 540,
-                        1024: 576,
-                        1280: 720,
-                        1366: 768,
-                        1600: 900,
-                        1920: 1080,
-                        2560: 1440,
-                        3200: 1800,
-                        3840: 2160,
-                        5120: 2880,
-                        7680: 4320}
 
 minimal_mm_inserts = {
     # 4GB patch
@@ -145,14 +293,6 @@ additional_mm_inserts = {
     0x2368C0: "C3CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
     }
 
-projection_matrix_fix = {
-    0x1D770: "D94020D8701CD94020D80D68599E00D80DE8599E00D9F2DDD8D83D7C599E00D9C057B91000000089D7F30F1005545A9E0031C0F3AB5F0F28D0F30F5CD1F30F5EC2F30F114228F30F59C10F57C9F30F5CC8F30F10057C599E00F30F114A38F30F11422CD91AD8F1D95A14DDD8C3"
-}
-
-projection_matrix_vanilla = {
-    0x1D770: "D9402057D80D68599E00B9100000008BFAF30F1005545A9E00D80DE8599E00D9401C0F28D0D8702033C0F3ABF30F5CD1F30F5EC2F30F114228F30F59C10F57C9F30F5CC8F30F10057C599E00F30F114A38F30F11422C5FD8C9D80D68599E00D9F2DDD8D83D7C599E00D91AD80D"
-}
-
 binary_inserts = {
     # void __cdecl _E17()
     # 0x5FF000: "00DF9800",
@@ -166,8 +306,6 @@ binary_inserts = {
     # ConstantDLLName "library.dll"
     0x5FED63: "6C6962726172792E646C6C00",
 
-    # proper projection matrix correction
-    0x1D770: "D94020D8701CD94020D80D68599E00D80DE8599E00D9F2DDD8D83D7C599E00D9C057B91000000089D7F30F1005545A9E0031C0F3AB5F0F28D0F30F5CD1F30F5EC2F30F114228F30F59C10F57C9F30F5CC8F30F10057C599E00F30F114A38F30F11422CD91AD8F1D95A14DDD8C3",
     # disabling blast damage friendly fire
     0x3DFADC: "00",
     # removing player death count from stats screen
@@ -198,78 +336,6 @@ binary_inserts = {
     0x5FED6F: "6C6F61646C6962006F70656E00696E69740073797374656D206572726F722025645C6E00",
     }
 
-offsets_draw_dist = {
-    # long draw distance
-    0x1BF494: "83F8207E05B820000000",  # m3d::Landscape::Load
-    0x23A682: "83F8207E05B820000000",  # m3d::SceneGraph::UpdateVis
-    0x3A54B5: "83F8207E05B820000000",  # m3d::Landscape::GetFogStartAndEnd
-    0x3AB185: "83FB207E09BB20000000",  # m3d::Landscape::Render
-    0x3B61F3: "83FE207E05BE20000000",  # m3d::RoadManager::UpdateVis
-    0x3EC1DD: "83F8207E05B820000000",  # ai::InfoCone::GetInfoObjId
-    0x4FBEC2: "83F8207E05B820000000",  # m3d::WeatherThunderstorm::Render
-
-    # 0x3A5535
-    # 0x3A5541: "F30F591580599E00",  # EXPERIMENTAL: fog end dist calculation make proportional
-    # 0x5AB268: "00000000"  # remove negative offset from z-guard
-}
-
-offsets_draw_dist_vanilla = {
-    # short draw distance
-    0x1BF494: "83F80C7E05B80C000000",  # m3d::Landscape::Load
-    0x23A682: "83F80C7E05B80C000000",  # m3d::SceneGraph::UpdateVis
-    0x3A54B5: "83F80C7E05B80C000000",  # m3d::Landscape::GetFogStartAndEnd
-    0x3AB185: "83FB0C7E09BB0C000000",  # m3d::Landscape::Render
-    0x3B61F3: "83FE0C7E05BE0C000000",  # m3d::RoadManager::UpdateVis
-    0x3EC1DD: "83F80C7E05B80C000000",  # ai::InfoCone::GetInfoObjId
-    0x4FBEC2: "83F80C7E05B80C000000",  # m3d::WeatherThunderstorm::Render
-}
-
-offset_draw_dist_numerics = {
-    0x5E3204: 19.0,  # max drawDistance with lsViewDivider = 1.0 before min offset (+ 4.0 = 23.0)
-    # 0x5E306C: 0.08,
-    # 0x3A5539: "0x009E306C",  # m3d::Landscape::GetFogStartAndEnd (fog start coeff)
-    0x1BF478: "0x009E3204",  # m3d::Landscape::Load
-    0x23A666: "0x009E3204",  # m3d::SceneGraph::UpdateVis
-    0x3A5499: "0x009E3204",  # m3d::Landscape::GetFogStartAndEnd
-    0x3AB165: "0x009E3204",  # m3d::Landscape::Render
-    0x3B61D6: "0x009E3204",  # m3d::RoadManager::UpdateVis
-    0x3EC1C9: "0x009E3204",  # ai::InfoCone::GetInfoObjId
-    0x4FBEAE: "0x009E3204",  # m3d::WeatherThunderstorm::Render
-}
-
-offset_draw_dist_numerics_vanilla = {
-    0x5E3204: 0.0,  # max drawDistance with lsViewDivider = 1.0 before min offset (+ 4.0 = 23.0)
-    0x1BF478: "0x00990944",  # m3d::Landscape::Load
-    0x23A666: "0x009E5978",  # m3d::SceneGraph::UpdateVis
-    0x3A5499: "0x009AB264",  # m3d::Landscape::GetFogStartAndEnd
-    0x3AB165: "0x009AB264",  # m3d::Landscape::Render
-    0x3B61D6: "0x009E5978",  # m3d::RoadManager::UpdateVis
-    0x3EC1C9: "0x009E5ADC",  # ai::InfoCone::GetInfoObjId
-    0x4FBEAE: "0x009E5ADC",  # m3d::WeatherThunderstorm::Render
-}
-
-
-# to do:
-# petrovich keep throttle
-# 1DAC06: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (auto throttle 1.0 -> 0.01)
-# 0x1DAC06: "E8599E00",
-# 1DAC81: default (7C 59 9E 00) -> (E8 59 9E 00) - 0.01      (handbrake 1.0 -> 0.01)
-# 0x1DAC81: "E8599E00",
-# 0017DB: default (00 00 80 BF) -> (CD CC CC BD)  -  (break -1.0 - -0.1)
-# 0x0017DB: "BDCCCCCD",
-
-offsets_slow_brake_vanilla = {
-    0x1DAC06: "0x009E597C",
-    0x1DAC81: "0x009E597C",
-    0x0017DB: "0x000080BF"
-}
-
-offsets_slow_brake = {
-    0x1DAC06: "0x009E59E8",
-    0x1DAC81: "0x009E59E8",
-    0x0017DB: "0xBDCCCCCD"
-}
-
 offsets_exe_fixes = {
     # aspect ratio hack for Frustum Culling
     0x3A6128: 1.5707963267948966,  # TARGET_FOV_X_RADS,   # fov_x passed to CClipper::CreateScreenFrustums
@@ -284,15 +350,6 @@ offsets_exe_fixes = {
     0x2D7295: "0x009E3C61",
     0x5E3C61: -101.0,  # -25.0 -> -101.0
     }
-
-offset_hq_reflections = {
-    0x1C14C9: "0x00000400"
-}
-
-offset_hq_reflections_vanilla = {
-    0x1C14C9: "0x00000200"
-}
-
 
 offsets_dll = {
     # to keep 1/1024 intact for other uses, redirect aspect ratio correction
@@ -511,6 +568,7 @@ sell_price_offsets = {
     #  "min_resistance_for_damage": [-25.1, 0x2D7295, "pointer", "single_use"],
     #  "max_resistance_for_damage": [25.0, 0x2D72A5, "pointer", "used_elsewhere"],
     # "blast_damage_friendly_fire": [0x01, 0x3DFADC, "direct", "single_use"]}  # bool
+
 
 em_102_icon_offset = 0x60A3A8
 em_102_icon_size = 5694

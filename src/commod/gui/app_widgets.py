@@ -43,7 +43,7 @@ from commod.game.data import (
 )
 from commod.game.environment import DistroStatus, GameCopy, GameInstallment, GameStatus, InstallationContext
 from commod.game.mod import Mod
-from commod.game.mod_auxiliary import OptionalContent, Version, VersionConstrainStyle
+from commod.game.mod_auxiliary import OptionalContent, Screenshot, Version, VersionConstrainStyle
 from commod.gui.common_widgets import ExpandableContainer
 from commod.gui.config import AppSections, Config
 from commod.helpers import file_ops
@@ -105,7 +105,8 @@ class App:
     def session(self) -> InstallationContext.Session:
         return self.context.current_session
 
-    async def is_current_page(self, page_type: "HomeScreen | LocalModsScreen | DownloadModsScreen | SettingsScreen") -> bool:
+    async def is_current_page(
+            self, page_type: "HomeScreen | LocalModsScreen | DownloadModsScreen | SettingsScreen") -> bool:
         return isinstance(self.content_column.content, page_type)
 
     async def refresh_page(self, index: int | None = None) -> None:
@@ -1600,10 +1601,11 @@ class ModInfo(UserControl):
         self.mod_screens_row = ft.Ref[Column]()
         self.mod_description_text = ft.Ref[Text]()
 
-        self.screenshot_index = 0
-        self.max_screenshot_index = len(self.mod.screenshots) - 1
-        self.screenshots = ft.Ref[ft.Container]()
-        self.screenshot_view = ft.Ref[Image]()
+        self.screens_option_name: str = "base"
+        self.screen_pool = self.get_screen_pool(self.screens_option_name)
+        self.screenshots_container = ft.Ref[ft.Container]()
+        self.screenshots_selector = ft.Ref[ft.Dropdown]()
+        self.screenshot_img = ft.Ref[Image]()
         self.screenshot_text = ft.Ref[Text]()
 
         self.change_log = ft.Ref[ft.Container]()
@@ -1613,6 +1615,38 @@ class ModInfo(UserControl):
         self.other_info_text = ft.Ref[ft.Markdown]()
 
         self.tab_info = []
+
+    class ScreenPool:
+        def __init__(self, screens: list[Screenshot]) -> None:
+            self.screens = screens
+            self.current_index = 0
+            self.pool_size = len(screens)
+
+        @property
+        def current_screen(self) -> Screenshot:
+            return self.screens[self.current_index]
+
+        def next_screen(self) -> Screenshot:
+            if self.current_index != self.pool_size - 1:
+                self.current_index += 1
+            else:
+                self.current_index = 0
+            return self.current_screen
+
+        def previous_screen(self) -> Screenshot:
+            if self.current_index != 0:
+                self.current_index -= 1
+            else:
+                self.current_index = self.pool_size - 1
+            return self.current_screen
+
+    def get_screen_pool(self, option_name: str) -> ScreenPool:
+        return self.ScreenPool([screen for screen in self.mod.screenshots
+                           if screen.option_name == option_name])
+
+    @property
+    def current_screenshot(self) -> Screenshot:
+        return self.screen_pool.current_screen
 
     @property
     def mod(self) -> Mod:
@@ -1637,15 +1671,27 @@ class ModInfo(UserControl):
             widget.current.visible = str(index) == self.tab_index
         await asyncio.gather(*[widget.current.update_async() for widget in self.tab_info])
 
+    async def update_screens_group(self, e: ft.ControlEvent) -> None:
+        self.screens_option_name = e.data
+        self.screen_pool = self.get_screen_pool(self.screens_option_name)
+        await self.set_mod_screens_row()
+        await self.update_screens()
+
     async def update_screens(self) -> None:
         if self.mod.screenshots:
-            self.screenshot_index = 0
-            self.max_screenshot_index = len(self.mod.screenshots) - 1
-            self.screenshot_view.current.src = self.mod.screenshots[self.screenshot_index].screen_path
-            self.screenshot_view.current.data = self.mod.screenshots[self.screenshot_index]
-            self.screenshot_text.current.value = self.mod.screenshots[self.screenshot_index].text
-            self.screenshot_text.current.visible = bool(self.mod.screenshots[self.screenshot_index].text)
-            await self.screenshot_view.current.update_async()
+            # self.screen_pool = self.get_screen_pool(self.screens_option_name)
+
+            if self.current_screenshot is None:
+                self.screen_pool.next_screen()
+
+            self.screenshot_img.current.src = self.current_screenshot.screen_path
+            self.screenshot_img.current.data = self.current_screenshot
+            self.screenshot_text.current.value = (
+                f"{self.current_screenshot.full_text} "
+                f"({self.screen_pool.current_index + 1} {tr('one_of_many')} {self.screen_pool.pool_size})")
+            self.screenshot_text.current.visible = \
+                bool(self.current_screenshot.full_text) or self.screen_pool.pool_size > 1
+            await self.screenshot_img.current.update_async()
             await self.screenshot_text.current.update_async()
 
     # TODO: implement or deprecate
@@ -1661,7 +1707,7 @@ class ModInfo(UserControl):
         self.tab_info = [self.main_info]
         if self.mod.screenshots:
             self.tabs.current.tabs.append(Tab(text=tr("screenshots").capitalize()))
-            self.tab_info.append(self.screenshots)
+            self.tab_info.append(self.screenshots_container)
         if self.mod.change_log_content:
             self.tabs.current.tabs.append(Tab(text=tr("change_log").capitalize()))
             self.tab_info.append(self.change_log)
@@ -1705,37 +1751,35 @@ class ModInfo(UserControl):
 
     async def show_next_screen(self, e: ft.ControlEvent) -> None:
         if self.mod.screenshots:
-            if self.screenshot_index == self.max_screenshot_index:
-                self.screenshot_index = 0
-            else:
-                self.screenshot_index += 1
-            self.screenshot_view.current.src = self.mod.screenshots[self.screenshot_index].screen_path
-            self.screenshot_view.current.data = self.mod.screenshots[self.screenshot_index]
-            self.screenshot_text.current.value = self.mod.screenshots[self.screenshot_index].text
-            self.screenshot_text.current.visible = bool(self.mod.screenshots[self.screenshot_index].text)
-            await self.screenshot_view.current.update_async()
-            await self.screenshot_text.current.update_async()
+            self.screen_pool.next_screen()
+
+            # self.screenshot_img.current.src = self.current_screenshot.screen_path
+            # self.screenshot_img.current.data = self.current_screenshot
+            # self.screenshot_text.current.value = self.current_screenshot.full_text
+            # self.screenshot_text.current.visible = bool(self.current_screenshot.full_text)
+            # await self.screenshot_img.current.update_async()
+            # await self.screenshot_text.current.update_async()
+            await self.update_screens()
 
     async def show_previous_screen(self, e: ft.ControlEvent) -> None:
         if self.mod.screenshots:
-            if self.screenshot_index == 0:
-                self.screenshot_index = self.max_screenshot_index
-            else:
-                self.screenshot_index -= 1
-            self.screenshot_view.current.src = self.mod.screenshots[self.screenshot_index].screen_path
-            self.screenshot_view.current.data = self.mod.screenshots[self.screenshot_index]
-            self.screenshot_text.current.value = self.mod.screenshots[self.screenshot_index].text
-            self.screenshot_text.current.visible = bool(self.mod.screenshots[self.screenshot_index].text)
-            await self.screenshot_view.current.update_async()
-            await self.screenshot_text.current.update_async()
+            self.screen_pool.previous_screen()
+
+            # self.screenshot_img.current.src = self.current_screenshot.screen_path
+            # self.screenshot_img.current.data = self.current_screenshot
+            # self.screenshot_text.current.value = self.current_screenshot.full_text
+            # self.screenshot_text.current.visible = bool(self.current_screenshot.full_text)
+            # await self.screenshot_img.current.update_async()
+            # await self.screenshot_text.current.update_async()
+            await self.update_screens()
 
     async def switch_compare_screen(self, e: ft.ControlEvent) -> None:
-        screen_widget = self.screenshot_view.current
+        screen_widget = self.screenshot_img.current
         if screen_widget.data.compare_path:
-            if screen_widget.src == self.mod.screenshots[self.screenshot_index].screen_path:
-                screen_widget.src = self.mod.screenshots[self.screenshot_index].compare_path
+            if screen_widget.src == self.current_screenshot.screen_path:
+                screen_widget.src = self.current_screenshot.compare_path
             else:
-                screen_widget.src = self.mod.screenshots[self.screenshot_index].screen_path
+                screen_widget.src = self.current_screenshot.screen_path
             await screen_widget.update_async()
 
     # async def launch_url(self, e: ft.ControlEvent):
@@ -1819,17 +1863,17 @@ class ModInfo(UserControl):
     async def set_mod_screens_row(self) -> None:
         self.mod_screens_row.current.controls = [
             Column([IconButton(ft.icons.CHEVRON_LEFT,
-                               visible=len(self.mod.screenshots) > 1,
+                               visible=self.screen_pool.pool_size > 1,
                                on_click=self.show_previous_screen)],
                    col=1, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ft.GestureDetector(
                 Image(src=get_internal_file_path("assets/no_logo.png"),
                       gapless_playback=True,
                       fit=ft.ImageFit.FIT_HEIGHT,
-                      ref=self.screenshot_view),
+                      ref=self.screenshot_img),
                 on_tap=self.switch_compare_screen, col=10),
             Column([IconButton(ft.icons.CHEVRON_RIGHT,
-                               visible=len(self.mod.screenshots) > 1,
+                               visible=self.screen_pool.pool_size > 1,
                                on_click=self.show_next_screen)],
                    col=1, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
             ]
@@ -2081,6 +2125,18 @@ class ModInfo(UserControl):
         return point_list
 
     def build(self) -> ft.Container:
+        screen_group_selector_data = {}
+        for screen in self.mod.screenshots:
+            if screen.option_name == "base":
+                screen_group_selector_data["base"] = tr("base_mod_screenshots")
+            else:
+                screen_group_selector_data[screen.option_name] = \
+                    f'{tr("option_screenshots")} "{self.mod.screen_option_names[screen.option_name]}"'
+        if not screen_group_selector_data:
+            screen_group_selector_data["base"] = tr("base_mod_screenshots")
+
+        start_key = "base" if "base" in screen_group_selector_data else screen_group_selector_data.values()[0]
+
         return ft.Container(
             ft.Container(
                 content=Column([
@@ -2180,12 +2236,30 @@ class ModInfo(UserControl):
                                 visible=self.tab_index == 0),
                             ft.Container(
                                 Column([
+                                    ft.ResponsiveRow([
+                                        ft.Text("", col=1),
+                                        ft.Dropdown(
+                                                value=start_key,
+                                                dense=True,
+                                                height=42,
+                                                text_size=13,
+                                                col=10,
+                                                options=[
+                                                    ft.dropdown.Option(key=opt_k, text=opt_v)
+                                                    for opt_k, opt_v in screen_group_selector_data.items()
+                                                ],
+                                                on_change=self.update_screens_group,
+                                                ref=self.screenshots_selector),
+                                        ft.Text("", col=1)],
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    visible=len(screen_group_selector_data) > 1),
                                     ft.ResponsiveRow([], ref=self.mod_screens_row,
                                                      alignment=ft.MainAxisAlignment.CENTER,
                                                      vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                     Text("Placeholder", ref=self.screenshot_text)
                                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                ref=self.screenshots,
+                                ref=self.screenshots_container,
                                 visible=False,
                                 padding=ft.padding.only(bottom=15)),
                             ft.Container(
@@ -2890,7 +2964,7 @@ class ModInstallWizard(UserControl):
         self.mod_var_lang: Mod | None = self.main_mod.variants_loaded[mod_var].translations_loaded[language]
         self.current_variant = self.main_mod.variants_loaded[mod_var]
         self.current_screen = None
-        self.options = []
+        self.options: list[self.ModOption] = []
         self.variant_buttons: dict[str, Mod] = {}
 
         self.can_close = True
@@ -2948,7 +3022,7 @@ class ModInstallWizard(UserControl):
             self.warning_text = ft.Ref[Text]()
             self.choice = None
             self.complex_selector = False
-            self.checkboxes = []
+            self.checkboxes: list[ft.Checkbox] = []
 
         async def set_active(self) -> None:
             if self.active:
@@ -3026,18 +3100,27 @@ class ModInstallWizard(UserControl):
                                         value=value)
                     self.checkboxes.append(check)
                     line_limit = 80
-                    if len(setting.name + setting.description) <= line_limit:
+
+                    setting_display_name = setting.display_name or setting.name
+
+                    if (len(setting_display_name + setting.description) <= line_limit
+                        and not setting.display_name):
                         selector.append(
                             Row([
                                 check,
-                                Text(setting.name, weight=ft.FontWeight.BOLD),
+                                Text(setting_display_name, weight=ft.FontWeight.BOLD),
                                 Text(setting.description, no_wrap=False),
                                 ], wrap=True, run_spacing=5)
                         )
                     else:
                         selector.append(
                             Row([
-                                Row([check, Text(setting.name, weight=ft.FontWeight.BOLD)]),
+                                Row([check,
+                                     Text(setting_display_name,
+                                          weight=ft.FontWeight.BOLD),
+                                     Text(f"[{setting.name}]",
+                                          opacity=0.6) if setting.display_name else Text()
+                                     ]),
                                 Text(setting.description, no_wrap=False),
                                 ], wrap=True, run_spacing=5)
                         )
@@ -3065,7 +3148,7 @@ class ModInstallWizard(UserControl):
                             Text(f"[{self.option.name}]", opacity=0.6),
                             Text(tr("will_not_be_installed").capitalize(),
                                  color=ft.colors.TERTIARY,
-                                 visible=not self.active,
+                                 visible=not self.active and self.existing_content in ("skip", ""),
                                  ref=self.warning_text,
                                  opacity=0.8),
                             Text(tr("cant_change_choice").capitalize(),
@@ -3098,7 +3181,7 @@ class ModInstallWizard(UserControl):
                         Text(f"[{self.option.name}]", opacity=0.6),
                         Text(tr("will_not_be_installed").capitalize(),
                              color=ft.colors.TERTIARY,
-                             visible=not self.active,
+                             visible=not self.active and self.existing_content != "yes",
                              ref=self.warning_text,
                              opacity=0.8),
                         Text(tr("cant_change_choice").capitalize(),
@@ -3305,7 +3388,7 @@ class ModInstallWizard(UserControl):
                     self.app.context.monitor_res,
                     patching_settings, # COMPATCHSPECIAL: if is_comrem else None,
                     self.app.context.under_windows)
-            elif mod.vanilla_mod:
+            elif mod.vanilla_mod and not game.patched_version:
                 changes_description = commod.game.mod_auxiliary.patch_memory(game.target_exe)
 
             if status_ok:
@@ -3893,7 +3976,7 @@ class ModInstallWizard(UserControl):
                      visible=forced_options)
                 ], alignment=ft.MainAxisAlignment.CENTER),
                 clip_behavior=ft.ClipBehavior.HARD_EDGE),
-            col=7 if forced_options else 6,
+            col={"xs": 7, "xxl": 8 if forced_options else 7},
             on_click=self.set_to_default,
             disabled=True,
             visible=not self.requires_custom_install or mod.is_reinstall,
@@ -4105,7 +4188,7 @@ class ModInstallWizard(UserControl):
                          ])
                     ))
                 ], alignment=ft.MainAxisAlignment.CENTER,
-                col={"xs": 10, "lg": 9, "xl": 8, "xxl": 7}),
+                col={"xs": 10, "lg": 9, "xxl": 8}),
             ], alignment=ft.MainAxisAlignment.CENTER)], scroll=ft.ScrollMode.ADAPTIVE),
             alignment=ft.alignment.center, padding=ft.padding.symmetric(vertical=15, horizontal=10))
 

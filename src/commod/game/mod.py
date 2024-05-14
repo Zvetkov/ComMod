@@ -116,6 +116,7 @@ class Mod(BaseModel):
     logo: str = Field(default="", repr=False)
     install_banner: str = Field(default="", repr=False)
     screenshots: list[Screenshot] = Field(default=[], repr=False)
+    _screen_option_names: dict[str, str] = {"base": ""}
     change_log: str = Field(default="", repr=False)
     other_info: str = Field(default="", repr=False)
 
@@ -469,9 +470,14 @@ class Mod(BaseModel):
     def options_dict(self) -> dict[str, OptionalContent]:
         return {cont.name: cont for cont in self.optional_content}
 
+    @computed_field(repr=False)
+    @property
+    def screen_option_names(self) -> dict[str, str]:
+        return self._screen_option_names
+
     @model_validator(mode="after")
     def load_file_paths(self) -> "Mod":
-        archive_files = []
+        archive_files: list[str] = []
         if self.archive_file_list:
             archive_files = [file.filename.rstrip("/") for file in self.archive_file_list]
 
@@ -488,12 +494,45 @@ class Mod(BaseModel):
                 # screen doesn't exist, probably can be ignored
                 logger.warning(f"Screen doesn't exist but specified in manifest: {screen._screen_path}")
 
+        screen_options = {screen.option_name for screen in self.screenshots}
+        for screen_opt_name in screen_options:
+            if screen_opt_name != "base":
+                screen_opt_name_parts = screen_opt_name.split("/")
+                screen_opt_obj = self.options_dict.get(screen_opt_name_parts[0])
+                if screen_opt_obj is None:
+                    raise AssertionError("Invalid 'option_name' specified for screen", screen_opt_name)
+                if len(screen_opt_name_parts) == 1:
+                    if screen_opt_obj.display_name:
+                        display_name = screen_opt_obj.display_name
+                    else:
+                        display_name = screen_opt_obj.name
+                    self._screen_option_names[screen_opt_name] = display_name
+                elif len(screen_opt_name_parts) == 2:
+                    install_sett_obj = screen_opt_obj.install_settings_dict.get(screen_opt_name_parts[1])
+                    if install_sett_obj is None:
+                        raise AssertionError("Invalid 'option_name' specified for screen", screen_opt_name)
+                    if install_sett_obj.display_name:
+                        display_name = (f"{install_sett_obj.display_name} "
+                                        f"({screen_opt_obj.display_name or screen_opt_obj.name})")
+                    else:
+                        display_name = (f"{install_sett_obj.name} "
+                                        f"({screen_opt_obj.display_name or screen_opt_obj.name})")
+                    self._screen_option_names[screen_opt_name] = display_name
+                else:
+                    raise AssertionError("Invalid 'option_name' specified for screen", screen_opt_name)
+
+
+        if self.no_base_content and self.raw_data_dirs:
+            raise AssertionError("no_base_content mods can't specify data_dirs for root mod!")
+
         for data_path in self.data_dirs:
             resolved_data_path = self.mod_files_root / data_path
 
             if archive_files:
                 data_arch_path = str(resolved_data_path).replace("\\", "/")
-                if data_arch_path not in archive_files:
+                if (data_arch_path not in archive_files and
+                    not any(file_path.startswith(data_arch_path) for file_path in archive_files)):
+                    # second partial match check for archives that don't list root directories
                     raise ValueError("Base data path wasn't found in archive", data_arch_path)
             elif not resolved_data_path.is_dir():
                 raise ValueError("Base data path doesn't exists", resolved_data_path)
@@ -503,7 +542,8 @@ class Mod(BaseModel):
 
             if archive_files:
                 bin_arch_path = str(resolved_bin_path).replace("\\", "/")
-                if bin_arch_path not in archive_files:
+                if (bin_arch_path not in archive_files and
+                    not any(file_path.startswith(bin_arch_path) for file_path in archive_files)):
                     raise ValueError("Base bin path wasn't found in archive", bin_arch_path)
             elif not resolved_bin_path.is_dir():
                 raise ValueError("Base bin path doesn't exists", resolved_bin_path)
@@ -514,19 +554,22 @@ class Mod(BaseModel):
             for resolved_opt_path in resolved_item_paths:
                 if item.install_settings:
                     for custom_setting in item.install_settings:
-                        path_to_check = resolved_opt_path / custom_setting.name / "data"
-                        if archive_files:
-                            path_to_check = str(resolved_opt_path).replace("\\", "/")
-                            if path_to_check not in archive_files:
-                                raise ValueError("Data path for optional content wasn't found in archive",
-                                                 path_to_check)
-                        elif not path_to_check.is_dir():
-                            raise ValueError("Data path doesn't exists for optional content", path_to_check)
+                        for custom_data_dir in custom_setting.data_dirs:
+                            path_to_check = resolved_opt_path / custom_data_dir
+                            if archive_files:
+                                path_to_check = str(resolved_opt_path).replace("\\", "/")
+                                if (path_to_check not in archive_files and
+                                    not any(file_path.startswith(path_to_check) for file_path in archive_files)):
+                                    raise ValueError("Data path for optional content wasn't found in archive",
+                                                     path_to_check)
+                            elif not path_to_check.is_dir():
+                                raise ValueError("Data path doesn't exists for optional content", path_to_check)
                 else:
                     path_to_check = resolved_opt_path / "data"
                     if archive_files:
                         path_to_check = str(resolved_opt_path).replace("\\", "/")
-                        if path_to_check not in archive_files:
+                        if (path_to_check not in archive_files and
+                            not any(file_path.startswith(path_to_check) for file_path in archive_files)):
                             raise ValueError("Data path for optional content wasn't found in archive",
                                              path_to_check)
                     elif not path_to_check.is_dir():
@@ -748,12 +791,14 @@ class Mod(BaseModel):
                     continue
                 else:
                     custom_install_method = install_settings[install_setting]
+                    install_setting_obj = next(iter([sett for sett in wip_setting.install_settings
+                                           if sett.name == custom_install_method]))
                     for data_dir in wip_setting.data_dirs:
-                        complex_option_path = Path(
-                            data_dir,
-                            custom_install_method,
-                            "data")
-                        mod_files.append(complex_option_path)
+                        for sett_data_dir in install_setting_obj.data_dirs:
+                            complex_option_path = Path(
+                                data_dir,
+                                sett_data_dir)
+                            mod_files.append(complex_option_path)
                 if installation_decision != "skip":
                     await callback_status(tr("copying_options_please_wait"))
 
@@ -861,7 +906,7 @@ class Mod(BaseModel):
 
         existing_other_mods = set(existing_content.keys()) - self_and_prereqs
 
-        if existing_other_mods:
+        if existing_other_mods and self.strict_requirements:
             # is reinstall, can't be installed as other mods not from prerequisites were installed
             existing_mods_display_names = []
             for name in existing_other_mods:
