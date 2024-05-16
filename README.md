@@ -13,7 +13,7 @@
   <img src="https://user-images.githubusercontent.com/79088546/174285554-cf467b80-7264-475f-94ec-bacc204b04c9.png" alt="Logo" width="400">
   </a>
 
-  <a href="https://github.com/DeusExMachinaTeam/EM-CommunityPatch"><img src="https://user-images.githubusercontent.com/79088546/174311991-c20e04bb-1cad-44e2-a0e9-5984de6d8d55.png"><strong> Part of Community Remaster project (Russian landing page) »</strong></a>
+  <a href="https://github.com/DeusExMachinaTeam/EM-CommunityPatch/blob/main/README_EN.md"><img src="https://user-images.githubusercontent.com/79088546/174311991-c20e04bb-1cad-44e2-a0e9-5984de6d8d55.png"><strong> Part of Community Remaster project »</strong></a>
 
   <a href="https://discord.gg/jZHxYdF"><img src="https://user-images.githubusercontent.com/79088546/174305727-755adfa0-57c2-41b0-9717-8476fcbc4567.png" alt="Discord link">  Follow the development on Discord »</a>
 <br />
