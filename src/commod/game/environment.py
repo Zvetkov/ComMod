@@ -17,14 +17,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-# import aiofiles
-import py7zr
 import yaml
 from aiopath import AsyncPath
 from flet import Text
-from pydantic import ValidationError
+
+# import aiofiles
+from py7zr import py7zr
+from pydantic import DirectoryPath, ValidationError
 
 from commod.game.data import (
     DATE,
@@ -106,6 +107,7 @@ class InstallationContext:
         self.hashed_mod_manifests: dict[Path, str] = {}
         self.archived_mods: dict[str, Mod] = {}
         self.archived_mods_cache: dict[str, Mod] = {}
+        self.archived_mod_manifests_cache: dict[str, tuple[Any, Path]] = {}
         self.commod_version = OWN_VERSION
         self.os = platform.system()
         self.os_version = platform.release()
@@ -280,7 +282,7 @@ class InstallationContext:
                 validated = True
                 self.hashed_mod_manifests[mod_config_path] = digest
                 self.logger.debug(f"Validated mod manifest and loaded mod: '{mod.id_str}'")
-            except (ValueError, ValidationError, AssertionError) as ex:
+            except (ValueError, AssertionError, ValidationError) as ex:
                 self.logger.warning(f"Couldn't load mod install manifest: {mod_config_path}")
                 self.logger.error(f"Validation error: {ex}")
                 mod_loading_errors.append(f"\n{tr('not_validated_mod_manifest')}.\n"
@@ -398,16 +400,24 @@ class InstallationContext:
         # self.logger.debug("Finished get_archived_manifests")
         return mod_list, archive_dict
 
-    async def get_zip_manifest_async(
+    async def get_zip_mod_manifest_async(
             self, archive_path: str | AsyncPath, ignore_cache: bool = False,
-            loading_text: Text | None = None) -> tuple[Mod | None, Exception | None]:
+            loading_text: Text | None = None
+            ) -> tuple[
+                str | None,
+                Path | None,
+                list[zipfile.ZipInfo] | None,
+                Exception | None]:
         if isinstance(archive_path, str):
             archive_path = AsyncPath(archive_path)
         if not ignore_cache:
-            cached = self.archived_mods_cache.get(archive_path)
-            if cached is not None:
-                return cached, None
+            cached_info = self.archived_mod_manifests_cache.get(archive_path)
+            if cached_info is not None:
+                cached, root_path, file_list = cached_info
+                if cached is not None:
+                    return cached, root_path, file_list, None
         try:
+            await asyncio.sleep(0)
             with zipfile.ZipFile(archive_path, "r") as archive:
                 if loading_text is not None:
                     uncompressed = sum([file.file_size for file in archive.filelist])
@@ -415,8 +425,8 @@ class InstallationContext:
                     loading_text.value = (f"[ZIP] "
                                           f"{compressed/1024/1024:.1f} MB -> "
                                           f"{uncompressed/1024/1024:.1f} MB")
-                    await loading_text.update_async()
-                    await asyncio.sleep(0.01)
+                    loading_text.update()
+                    await asyncio.sleep(0)
                 file_list = archive.filelist
                 manifests = [file for file in file_list
                              if "manifest.yaml" in file.filename]
@@ -427,41 +437,43 @@ class InstallationContext:
                         manifest = load_yaml(manifest_b)
                         if manifest is None:
                             raise yaml.YAMLError("Invalid yaml found in archive")
-                        try:
-                            mod = Mod(
-                                **manifest, manifest_root=manifest_root_dir,
-                                archive_file_list=file_list)
-                        except (ValueError, ValidationError, AssertionError) as ex:
-                            self.archived_mods_cache[archive_path] = None
-                            return None, ex
-                        else:
-                            self.archived_mods_cache[archive_path] = mod
-                            return mod, None
-                return None, ValueError("Manifest not found in archive or broken")
+
+                        self.archived_mod_manifests_cache[archive_path] = (
+                            manifest, manifest_root_dir, file_list)
+                        return manifest, manifest_root_dir, file_list, None
+
+                return None, None, None, ValueError("Manifest not found in archive or broken")
         except Exception as ex:
             self.logger.exception("Error on ZIP manifest check")
-            self.archived_mods_cache[archive_path] = None
-            return None, ex
+            self.archived_mod_manifests_cache[archive_path] = (None, None, None)
+            return None, None, None, ex
 
-    async def get_7z_manifest_async(
+    async def get_7z_mod_manifest_async(
             self, archive_path: str | AsyncPath, ignore_cache: bool = False,
-            loading_text: Text | None = None) -> tuple[Mod | None, Exception | None]:
+            loading_text: Text | None = None
+            ) -> tuple[
+                str | None,
+                Path | None,
+                py7zr.ArchiveFileList | None,
+                Exception | None]:
         if isinstance(archive_path, str):
             archive_path = AsyncPath(archive_path)
         if not ignore_cache:
-            cached = self.archived_mods_cache.get(archive_path)
-            if cached is not None:
-                return cached, None
+            cached_info = self.archived_mod_manifests_cache.get(archive_path)
+            if cached_info is not None:
+                cached, root_path, file_list = cached_info
+                if cached is not None:
+                    return cached, root_path, file_list, None
         try:
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0)
             with py7zr.SevenZipFile(str(archive_path), "r") as archive:
                 if loading_text is not None:
                     info = archive.archiveinfo()
                     loading_text.value = (f"[{info.method_names[0]}] "
                                           f"{info.size/1024/1024:.1f} MB -> "
                                           f"{info.uncompressed/1024/1024:.1f} MB")
-                    await loading_text.update_async()
-                    await asyncio.sleep(0.01)
+                    loading_text.update()
+                    await asyncio.sleep(0)
                 file_list = archive.files
                 manifests = [file for file in file_list
                              if "manifest.yaml" in file.filename]
@@ -474,21 +486,53 @@ class InstallationContext:
                         manifest = load_yaml(manifest_b)
                         if manifest is None:
                             raise yaml.YAMLError("Invalid yaml found in archive")
-                        try:
-                            mod = Mod(
-                                **manifest, manifest_root=manifest_root_dir,
-                                archive_file_list=file_list)
-                        except (ValueError, ValidationError, AssertionError) as ex:
-                            self.archived_mods_cache[archive_path] = None
-                            return None, ex
-                        else:
-                            self.archived_mods_cache[archive_path] = mod
-                            return mod, None
-                return None, ValueError("Manifest not found in archive or broken")
+
+                        self.archived_mod_manifests_cache[archive_path] = (
+                            manifest, manifest_root_dir, file_list)
+                        return manifest, manifest_root_dir, file_list, None
+
+                return None, None, None, ValueError("Manifest not found in archive or broken")
         except Exception as ex:
             self.logger.exception("Error on 7z manifest check")
+            self.archived_mod_manifests_cache[archive_path] = (None, None, None)
+            return None, None, None, ex
+
+    async def get_archive_manifest(
+            self, archive_path: str | AsyncPath, ignore_cache: bool = False,
+            loading_text: Text | None = None) -> tuple[dict | None, Exception | None]:
+        extension = Path(archive_path).suffix
+        match extension:
+            case ".7z":
+                manifest, manifest_root_dir, file_list, exception = await self.get_7z_mod_manifest_async(
+                    archive_path, loading_text=loading_text)
+            case ".zip":
+                manifest, manifest_root_dir, file_list, exception = await self.get_zip_mod_manifest_async(
+                    archive_path, loading_text=loading_text)
+            case _:
+                manifest, manifest_root_dir, file_list, exception = \
+                    None, None, None, TypeError("Unsuported archive type")
+        return manifest, manifest_root_dir, file_list, exception
+
+    async def get_archived_mod(
+            self, archive_path: str | AsyncPath,
+            manifest: Any, manifest_root_dir: DirectoryPath,  # noqa: ANN401
+            file_list: list[zipfile.ZipInfo] | py7zr.ArchiveFileList | None,
+            ignore_cache: bool = False
+            ) -> tuple[Mod | None, Exception | None]:
+        if not ignore_cache:
+            cached = self.archived_mods_cache.get(archive_path)
+            if cached is not None:
+                return cached, None
+        try:
+            mod = Mod(
+                **manifest, manifest_root=manifest_root_dir,
+                archive_file_list=file_list)
+        except (ValueError, AssertionError, ValidationError) as ex:
             self.archived_mods_cache[archive_path] = None
             return None, ex
+        else:
+            self.archived_mods_cache[archive_path] = mod
+            return mod, None
 
     def setup_loggers(self, stream_only: bool = False) -> None:
         self.logger = logging.getLogger("dem")
@@ -520,7 +564,7 @@ class InstallationContext:
                 file_handler.setFormatter(formatter)
                 self.logger.addHandler(file_handler)
 
-            self.logger.info(f"ComMod {OWN_VERSION} ({DATE}) is running, loggers initialised")
+            self.logger.info(f"ComMod {OWN_VERSION} {DATE} is running, loggers initialised")
 
     def setup_logging_folder(self) -> None:
         if self.distribution_dir:

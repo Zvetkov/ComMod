@@ -1,14 +1,17 @@
 import argparse
 import html
 from collections.abc import Iterable
+from functools import cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import markdownify
 from lxml import objectify
 
 from commod.game import data
 
+DOMAIN_SAFELIST = {"youtube.com", "youtu.be", "github.com", "deuswiki.com", "dem.org.ua"}
 
 def init_input_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="DEM Community Mod Manager")
@@ -21,6 +24,12 @@ def init_input_parser() -> argparse.ArgumentParser:
                         action="store_true", default=False, required=False)
 
     return parser
+
+@cache
+def is_url_safe(url: str) -> bool:
+    if url:
+        return urlparse(url).netloc in DOMAIN_SAFELIST
+    return True
 
 def parse_str_from_dict(dictionary: dict[str, Any], key: str, default: str) -> str:
     value = dictionary.get(key)
@@ -51,6 +60,14 @@ def process_markdown(md_raw: str) -> str:
     md_result = html.unescape(md_raw)
     md_result = md_result.replace('<p align="right">(<a href="#top">перейти наверх</a>)</p>', "")
     return markdownify.markdownify(md_result, convert=["a", "b", "img"], escape_asterisks=False)
+
+
+def str_to_md_format(md_str: str) -> str:
+    return "\n\n".join(
+        [" ".join([
+            word if ("https://" not in word) else f"[{word}]({word})"
+                 for word in line.split()])
+                     for line in md_str.splitlines()])
 
 
 def shorten_path(path: str | Path, length: int = 60) -> str:

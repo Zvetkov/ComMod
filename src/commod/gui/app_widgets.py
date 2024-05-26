@@ -27,7 +27,6 @@ from flet import (
     Tabs,
     Text,
     TextField,
-    UserControl,
     colors,
     icons,
 )
@@ -43,8 +42,13 @@ from commod.game.data import (
 )
 from commod.game.environment import DistroStatus, GameCopy, GameInstallment, GameStatus, InstallationContext
 from commod.game.mod import Mod
-from commod.game.mod_auxiliary import OptionalContent, Screenshot, Version, VersionConstrainStyle
-from commod.gui.common_widgets import ExpandableContainer
+from commod.game.mod_auxiliary import (
+    OptionalContent,
+    Screenshot,
+    Version,
+    VersionConstrainStyle,
+)
+from commod.gui.common_widgets import ExpandableContainer, title_btn_style
 from commod.gui.config import AppSections, Config
 from commod.helpers import file_ops
 from commod.helpers.errors import (
@@ -59,7 +63,7 @@ from commod.helpers.file_ops import (
     get_proc_by_names,
     load_yaml,
 )
-from commod.helpers.parse_ops import process_markdown
+from commod.helpers.parse_ops import is_url_safe, process_markdown, str_to_md_format
 from commod.localisation.service import (
     KnownLangFlags,
     SupportedLanguages,
@@ -105,9 +109,65 @@ class App:
     def session(self) -> InstallationContext.Session:
         return self.context.current_session
 
-    async def is_current_page(
+    def is_current_page(
             self, page_type: "HomeScreen | LocalModsScreen | DownloadModsScreen | SettingsScreen") -> bool:
         return isinstance(self.content_column.content, page_type)
+
+    async def maximize(self, e: ft.ControlEvent) -> None:
+        self.page.window_maximized = not self.page.window_maximized
+        self.page.update()
+
+    async def minimize(self, e: ft.ControlEvent) -> None:
+        self.page.window_minimized = True
+        self.page.update()
+
+    async def change_theme_mode(self, e: ft.ControlEvent) -> None:
+        theme = self.page.theme_mode
+        if theme == ft.ThemeMode.SYSTEM:
+            self.page.theme_mode = ft.ThemeMode.DARK
+            self.page.theme_icon_btn.current.icon = ft.icons.WB_SUNNY_OUTLINED
+            self.page.theme_icon_btn.current.update()
+        elif theme == ft.ThemeMode.DARK:
+            self.page.theme_mode = ft.ThemeMode.LIGHT
+            self.page.theme_icon_btn.current.icon = ft.icons.NIGHTLIGHT_OUTLINED
+            self.page.theme_icon_btn.current.update()
+        else:
+            self.page.theme_mode = ft.ThemeMode.SYSTEM
+            self.page.theme_icon_btn.current.icon = ft.icons.BRIGHTNESS_AUTO
+            self.page.theme_icon_btn.current.update()
+
+        self.page.update()
+
+
+    def create_sections(self) -> None:
+        self.page.floating_action_button = ft.FloatingActionButton(
+            icon=ft.icons.REFRESH_ROUNDED,
+            on_click=self.upd_pressed,
+            mini=True
+            )
+        self.home = HomeScreen(self)
+        self.local_mods = LocalModsScreen(self)
+        self.download_mods = DownloadModsScreen(self)
+        self.settings_page = SettingsScreen(self)
+
+        self.content_pages = [self.home, self.local_mods, self.download_mods, self.settings_page]
+
+    async def wrap_on_window_event(self, e: ft.ControlEvent) -> None:
+        if e.data == "close":
+            await self.finalize(e)
+        elif e.data in ("unmaximize", "maximize"):
+            if self.page.window_maximized:
+                self.page.maximize_btn.current.icon = ft.icons.FILTER_NONE
+                self.page.maximize_btn.current.icon_size = 15
+            else:
+                self.page.maximize_btn.current.icon = ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED
+                self.page.maximize_btn.current.icon_size = 17
+            self.page.maximize_btn.current.update()
+
+    async def finalize(self, e: ft.ControlEvent) -> None:
+        self.config.save_config()
+        self.logger.debug("Config saved, closing")
+        self.page.window_close()
 
     async def refresh_page(self, index: int | None = None) -> None:
         if index is not None and (self.rail is None or index != self.rail.selected_index):
@@ -122,10 +182,10 @@ class App:
            and not content.refreshing):
             content.refreshing = True
             self.content_column.content = None
-            await self.content_column.update_async()
+            self.content_column.update()
             self.content_column.content = content
-            await self.content_column.update_async()
-            await self.content_column.content.update_async()
+            self.content_column.update()
+            # self.content_column.content.update()
             content.refreshing = False
 
     async def upd_pressed(self, e: ft.ControlEvent) -> None:
@@ -141,23 +201,24 @@ class App:
             self.page.floating_action_button.visible = False
         else:
             self.page.floating_action_button.visible = True
-        await self.page.update_async()
 
         if new_index != real_index:
-            self.rail.selected_index = new_index
             self.content_column.content = self.content_pages[new_index]
-            await self.content_column.update_async()
-            await self.content_pages[new_index].update_async()
+            # self.content_column.update()
+            # self.content_column.content.update()
+            # self.content_pages[new_index].update()
+            self.rail.selected_index = new_index
             self.config.current_section = new_index
-        await self.rail.update_async()
+        self.page.update()
+        # self.rail.update()
 
     async def show_settings(self, e: ft.ControlEvent | None = None) -> None:
         await self.change_page(index=AppSections.SETTINGS.value)
-        await self.content_column.update_async()
+        self.content_column.update()
 
     async def close_alert(self, e: ft.ControlEvent | None = None) -> None:
         self.page.dialog.open = False
-        await self.page.update_async()
+        self.page.update()
 
     async def show_modal(self, text: str, additional_text: str = "", title: str | None = None,
                          on_yes: Awaitable | None = None, on_no: Awaitable | None = None) -> None:
@@ -190,37 +251,44 @@ class App:
             )
         self.page.dialog = dlg
         dlg.open = True
-        await self.page.update_async()
+        self.page.update()
 
     async def set_clip(self, e: ft.ControlEvent | None = None) -> None:
         if e:
             await self.page.set_clipboard_async(e.control.data)
 
     async def show_alert(self, text: str, additional_text: str = "",
-                         allow_copy: bool = False) -> None:
+                         allow_copy: bool = False,
+                         additional_as_markdown: bool = False) -> None:
         if self.page.dialog is not None and self.page.dialog.open:
             return
         dlg = ft.AlertDialog(
             title=Row([Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
                        Text(tr("error"))]),
             shape=ft.RoundedRectangleBorder(radius=10),
-            content=Row([Column([ft.Markdown(text.strip()),
-                            ft.Divider(visible=bool(additional_text)),
-                            Text(additional_text.strip(),
-                                 visible=bool(additional_text),
-                                 color=ft.colors.ON_ERROR_CONTAINER)],
-                           spacing=5, tight=True, expand=10),
-                         IconButton(icon=ft.icons.COPY, on_click=self.set_clip,
-                                    data=text.replace("\n\n", "\n").strip(), expand=1,
-                                    visible=allow_copy)],
-                        tight=True),
+            content=Row([
+                Column([
+                    ft.Markdown(text.strip()),
+                    ft.Divider(visible=bool(additional_text)),
+                    Text(additional_text.strip(),
+                         visible=bool(additional_text) and not additional_as_markdown,
+                         color=ft.colors.ON_ERROR_CONTAINER),
+                    ft.Markdown(str_to_md_format(additional_text.strip()),
+                         auto_follow_links=True,
+                         visible=bool(additional_text) and additional_as_markdown)
+                    ],
+                    spacing=5, tight=True, expand=10),
+                IconButton(icon=ft.icons.COPY, on_click=self.set_clip,
+                           data=text.replace("\n\n", "\n").strip(), expand=1,
+                           visible=allow_copy)],
+                tight=True),
             actions=[
                 ft.TextButton("Ok", on_click=self.close_alert)],
             actions_padding=ft.padding.only(left=20, bottom=20, right=20)
             )
         self.page.dialog = dlg
         dlg.open = True
-        await self.page.update_async()
+        self.page.update()
 
     # TODO: why this returns Text?
     async def show_loading(self, text: str, additional_text: str = "") -> Text:
@@ -248,7 +316,7 @@ class App:
             ))
         self.page.dialog = dlg
         dlg.open = True
-        await self.page.update_async()
+        self.page.update()
         return loading_text
 
     async def load_distro_async(self) -> None:
@@ -271,9 +339,6 @@ class App:
         if self.context.validated_mods:
             library_mods_info = self.context.library_mods_info
             for manifest_path, mod in self.context.validated_mods.items():
-                # mod_old = Mod(manifest, Path(manifest_path).parent)
-                # try:
-
                 if not Path(manifest_path).exists():
                     self.session.mods.pop(manifest_path, None)
                     self.logger.debug(f"{mod.id_str} removed, as manifest no longer exists")
@@ -285,7 +350,6 @@ class App:
                         # self.logger.debug(f"{mod.id_str} already loaded to distro, skipping")
                         continue
 
-                    # self.session.tracked_mods.remove(mod.id_str)
                     self.session.tracked_mods_hashes.pop(mod.id_str, None)
                     self.session.mods.pop(manifest_path, None)
                     self.logger.debug(f"{mod.id_str} was tracked but hash is different, removing from distro")
@@ -296,11 +360,7 @@ class App:
                     variant.load_session_compatibility(self.game.installed_content,
                                                        self.game.installed_descriptions,
                                                        library_mods_info)
-                # TODO: maybe also load variants to session but ignore them on display?
-                # self.session.variants[manifest_path] = [variant for variant in mod.variants_loaded.values()]
-                # maybe just load vars from main mods?
                 self.session.mods[manifest_path] = mod
-                # self.session.tracked_mods.add(mod.id_str)
                 self.session.tracked_mods_hashes[mod.id_str] = \
                     self.context.hashed_mod_manifests[manifest_path]
 
@@ -309,7 +369,6 @@ class App:
         removed_mods = set(self.session.mods.keys()) - set(self.context.validated_mods.keys())
         for mod_path in removed_mods:
             mod_id = self.session.mods[mod_path].id_str
-            # self.session.tracked_mods.remove(mod_id)
             self.session.tracked_mods_hashes.pop(mod_id, None)
             self.session.mods.pop(mod_path, None)
             self.logger.debug(f"Removed {mod_id} from session as it was deleted")
@@ -321,13 +380,13 @@ class App:
                                                self.game.installed_descriptions,
                                                self.context.library_mods_info)
 
-class GameCopyListItem(UserControl):
+class GameCopyListItem(ft.Container):
     def __init__(self, game_name: str, game_path: str,
                  game_installment: GameInstallment, game_version: str,
                  warning: str, game_is_running: bool, current: bool,
                  select_game_func: Awaitable, remove_game_func: Awaitable,
-                 config: Config, visible: bool):
-        super().__init__()
+                 config: Config, visible: bool, **kwargs):
+        super().__init__(**kwargs)
         self.current = current
         self.game_name = game_name
         self.game_path = game_path
@@ -337,8 +396,14 @@ class GameCopyListItem(UserControl):
         self.select_game = select_game_func
         self.remove_game = remove_game_func
         self.config = config
-        self.visible = visible
+        # self.visible = visible
         self.game_is_running = game_is_running
+
+        self.border_radius = 25
+        self.padding = ft.padding.only(right=10)
+
+        self.game_name_label = ft.Ref[Text]()
+        self.current_icon = ft.Ref[IconButton]()
 
     def get_current_game_badges(self) -> Row:
         return Row([
@@ -392,11 +457,7 @@ class GameCopyListItem(UserControl):
                 ])
                 ], spacing=5, expand=True)
 
-    def build(self) -> ft.Container:
-        self.game_name_label = ft.Ref[Text]()
-        self.current_icon = ft.Ref[IconButton]()
-        self.item_container = ft.Ref[ft.Container]()
-
+    def build(self) -> None:
         self.current_game_badges = self.get_current_game_badges()
 
         self.edit_name = TextField(prefix_text=f'{tr("new_name")}:  ',
@@ -459,50 +520,45 @@ class GameCopyListItem(UserControl):
                 ),
             ],
         )
-        return ft.Container(Column(controls=[self.display_view, self.edit_view]),
-                            bgcolor=ft.colors.SECONDARY_CONTAINER if self.current else ft.colors.TRANSPARENT,
-                            border_radius=25,
-                            padding=ft.padding.only(right=10),
-                            ref=self.item_container)
+        self.bgcolor = ft.colors.SECONDARY_CONTAINER if self.current else ft.colors.TRANSPARENT
+        self.content = ft.Column(controls=[self.display_view, self.edit_view])
 
     async def make_current(self, e: ft.ControlEvent | None = None) -> None:
         if not self.current:
             await self.select_game(self)
-        await self.update_async()
+        self.update()
 
     async def open_clicked(self, e: ft.ControlEvent) -> None:
         # open game directory in Windows Explorer
         if os.path.isdir(self.game_path):
             os.startfile(self.game_path)  # noqa: S606
-        await self.update_async()
+        self.update()
 
     async def display_as_current(self) -> None:
         self.current = True
         self.current_icon.current.icon = ft.icons.DONE_OUTLINE_ROUNDED
         self.current_icon.current.icon_color = ft.colors.GREEN
-        await self.current_icon.current.update_async()
-        self.item_container.current.bgcolor = ft.colors.SECONDARY_CONTAINER
-        await self.item_container.current.update_async()
+        # self.current_icon.current.update()
+        self.bgcolor = ft.colors.SECONDARY_CONTAINER
         self.current_game_badges = self.get_current_game_badges()
         self.display_view.controls[0] = self.current_game_badges
-        await self.display_view.update_async()
-        # await self.current_game.update_async()
-        await self.update_async()
+        # self.display_view.update()
+        # self.current_game.update()
+        self.update()
 
     async def display_as_reserve(self) -> None:
         self.current = False
         self.current_icon.current.icon = ft.icons.DONE_OUTLINE
         self.current_icon.current.icon_color = ft.colors.SURFACE_VARIANT
-        await self.current_icon.current.update_async()
-        self.item_container.current.bgcolor = ft.colors.TRANSPARENT
-        await self.item_container.current.update_async()
-        await self.update_async()
+        # self.current_icon.current.update()
+        self.bgcolor = ft.colors.TRANSPARENT
+        self.update()
 
     async def edit_clicked(self, e: ft.ControlEvent) -> None:
         self.edit_name.value = self.game_name_label.current.value
         self.display_view.visible = False
         self.edit_view.visible = True
-        await self.update_async()
+        self.update()
 
     async def save_clicked(self, e: ft.ControlEvent) -> None:
         self.game_name_label.current.value = self.edit_name.value
@@ -510,22 +566,24 @@ class GameCopyListItem(UserControl):
         self.display_view.visible = True
         self.edit_view.visible = False
         self.config.game_names[self.game_path] = self.game_name
-        await self.update_async()
+        self.update()
 
     async def status_changed(self, e: ft.ControlEvent) -> None:
         self.completed = self.current_game_badges.value
         self.task_status_change(self)
-        await self.update_async()
+        self.update()
 
     async def delete_clicked(self, e: ft.ControlEvent) -> None:
         await self.remove_game(self)
 
 
-class SettingsScreen(UserControl):
+class SettingsScreen(ft.Container):
     def __init__(self, app: App, **kwargs):
-        super().__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.app = app
         self.refreshing = False
+
+        self.margin = ft.margin.only(right=3)
 
     async def change_app_lang(self, e: ft.ControlEvent) -> None:
         # TODO: hacky, probably need to replace
@@ -542,7 +600,7 @@ class SettingsScreen(UserControl):
             dialog_title=f'{tr("where_is_distro")} ({tr("ask_to_choose_path")})'
         )
 
-    def build(self) -> ft.Container:
+    def build(self) -> None:
         self.list_of_games = Column(height=None if bool(self.app.config.known_games) else 0,
                                     animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE))
         self.filter = Tabs(
@@ -638,7 +696,7 @@ class SettingsScreen(UserControl):
                           expand=15)]),
                 bgcolor=ft.colors.TERTIARY_CONTAINER, padding=10, border_radius=10,
                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                col={"xs": 12, "lg": 10, "xxl": 8},
+                col={"xs": 12, "xl": 10, "xxl": 8},
                 margin=ft.margin.only(right=20, bottom=15))
             ],
             alignment=ft.MainAxisAlignment.CENTER,
@@ -658,7 +716,7 @@ class SettingsScreen(UserControl):
                           expand=15)]),
                 bgcolor=ft.colors.TERTIARY_CONTAINER, padding=10, border_radius=10,
                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                col={"xs": 12, "lg": 10, "xxl": 8},
+                col={"xs": 12, "xl": 10, "xxl": 8},
                 margin=ft.margin.only(right=20, bottom=15))
             ],
             alignment=ft.MainAxisAlignment.CENTER,
@@ -797,7 +855,7 @@ class SettingsScreen(UserControl):
                     ref=self.no_games_for_filter_warning,
                     visible=not bool(self.app.config.known_games)),
                 self.list_of_games
-                ], col={"xs": 12, "lg": 10, "xxl": 8})
+                ], col={"xs": 12, "xl": 10, "xxl": 8})
 
 
         self.distro_location_text = ft.Ref[Text]()
@@ -822,7 +880,7 @@ class SettingsScreen(UserControl):
            animate_size=ft.animation.Animation(500, ft.AnimationCurve.EASE_IN_OUT),
            bgcolor=ft.colors.SECONDARY_CONTAINER, border_radius=20,
            padding=ft.padding.symmetric(horizontal=10),
-           col={"xs": 12, "lg": 10, "xxl": 8})
+           col={"xs": 12, "xl": 10, "xxl": 8})
 
         langs = SupportedLanguages.list_values()
 
@@ -853,7 +911,7 @@ class SettingsScreen(UserControl):
                          color=ft.colors.TERTIARY,
                          opacity=0.7,
                          no_wrap=False)
-                    ]), col={"xs": 12, "lg": 10, "xxl": 8})
+                    ]), col={"xs": 12, "xl": 10, "xxl": 8})
 
         self.about = ft.Card(
             ft.Container(
@@ -907,7 +965,7 @@ class SettingsScreen(UserControl):
 
         # hide dialogs in overlay
         # self.page.overlay.extend([get_directory_dialog])  # pick_files_dialog, save_file_dialog,
-        return ft.Container(ft.Column(
+        self.content = ft.Column(
             controls=[
                 self.no_game_warning,
                 self.no_distro_warning,
@@ -915,8 +973,8 @@ class SettingsScreen(UserControl):
                     Row([
                         Icon(ft.icons.VIDEOGAME_ASSET_ROUNDED, color=ft.colors.ON_BACKGROUND),
                         Text(value=tr("control_game_copies").upper(),
-                             style=ft.TextThemeStyle.TITLE_SMALL)
-                        ], col={"xs": 12, "lg": 10, "xxl": 8}),
+                             theme_style=ft.TextThemeStyle.TITLE_SMALL)
+                        ], col={"xs": 12, "xl": 10, "xxl": 8}),
                     self.view_list_of_games,
                     ft.Container(content=Column(
                         [ft.Container(Row([game_icon,
@@ -940,7 +998,7 @@ class SettingsScreen(UserControl):
                          animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
                          ref=self.add_game_manual_container,
                          height=104 if self.add_game_expanded else 48,
-                         col={"xs": 12, "lg": 10, "xxl": 7}
+                         col={"xs": 12, "xl": 10, "xxl": 7}
                          ),
                     ft.Container(content=Column(
                         [ft.Container(Row([steam_icon,
@@ -959,19 +1017,20 @@ class SettingsScreen(UserControl):
                         animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
                         ref=self.add_game_steam_container,
                         height=104 if self.add_steam_expanded else 48,
-                        col={"xs": 12, "lg": 10, "xxl": 7},
+                        col={"xs": 12, "xl": 10, "xxl": 7},
                         visible=bool(self.app.session.steam_game_paths)
                         )
                     ], alignment=ft.MainAxisAlignment.CENTER), border_radius=10, padding=15,
                     margin=ft.margin.only(right=20, bottom=15),
                     border=ft.border.all(1, ft.colors.SURFACE_VARIANT)),
                 ft.Container(ft.ResponsiveRow(
-                    # contols of distro/comrem/mods folders
+                    # controls of distro/comrem/mods folders
                     controls=[
                         Row([
                             ft.Icon(ft.icons.CREATE_NEW_FOLDER, color=ft.colors.ON_BACKGROUND),
-                            Text(value=tr("control_mod_folders").upper(), style=ft.TextThemeStyle.TITLE_SMALL)
-                             ], col={"xs": 12, "lg": 10, "xxl": 8}),
+                            Text(value=tr("control_mod_folders").upper(),
+                                 theme_style=ft.TextThemeStyle.TITLE_SMALL)
+                             ], col={"xs": 12, "xl": 10, "xxl": 8}),
                         self.distro_display,
                         ft.Container(content=Column(
                             [ft.Container(Row([dem_icon,
@@ -995,7 +1054,7 @@ class SettingsScreen(UserControl):
                                      animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
                                      ref=self.add_distro_container,
                                      height=104 if self.add_distro_expanded else 48,
-                                     col={"xs": 12, "lg": 10, "xxl": 7}
+                                     col={"xs": 12, "xl": 10, "xxl": 7}
                                      )], alignment=ft.MainAxisAlignment.CENTER
                                  ), border_radius=10, padding=15,
                                  margin=ft.margin.only(right=20, bottom=15),
@@ -1006,8 +1065,8 @@ class SettingsScreen(UserControl):
                         controls=[
                             Row([
                                 ft.Icon(ft.icons.SETTINGS, color=ft.colors.ON_BACKGROUND),
-                                Text(value=tr("other_settings").upper(), style=ft.TextThemeStyle.TITLE_SMALL)
-                                 ], col={"xs": 12, "lg": 10, "xxl": 8}),
+                                Text(value=tr("other_settings").upper(), theme_style=ft.TextThemeStyle.TITLE_SMALL)
+                                 ], col={"xs": 12, "xl": 10, "xxl": 8}),
                             self.language_select,
                             ], alignment=ft.MainAxisAlignment.CENTER, run_spacing=15
                     ), border_radius=10, padding=15, margin=ft.margin.only(right=20, bottom=15),
@@ -1017,46 +1076,46 @@ class SettingsScreen(UserControl):
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             scroll=ft.ScrollMode.ADAPTIVE,
             alignment=ft.MainAxisAlignment.START
-        ), margin=ft.margin.only(right=3))
+        )
 
     # Open directory dialog
     async def get_game_dir_result(self, e: ft.FilePickerResultEvent) -> None:
         if e.path:
             self.game_location_field.value = e.path
-            await self.game_location_field.update_async()
+            # self.game_location_field.update()
             await self.check_game_fields(e)
             await self.expand_adding_game_manual()
             await self.game_location_field.focus_async()
-        await self.update_async()
+        self.update()
 
     async def get_distro_dir_result(self, e: ft.FilePickerResultEvent) -> None:
         if e.path:
             self.distro_location_field.value = e.path
-            await self.distro_location_field.update_async()
+            # self.distro_location_field.update()
             await self.check_distro_field(e)
             await self.distro_location_field.focus_async()
-        await self.update_async()
+        self.update()
 
     async def toggle_adding_game_manual(self, e: ft.ControlEvent) -> None:
         if self.add_game_expanded:
             await self.minimize_adding_game_manual()
         else:
             await self.expand_adding_game_manual()
-        await self.update_async()
+        self.update()
 
     async def toggle_adding_game_steam(self, e: ft.ControlEvent) -> None:
         if self.add_steam_expanded:
             await self.minimize_adding_game_steam()
         else:
             await self.expand_adding_game_steam()
-        await self.update_async()
+        self.update()
 
     async def toggle_adding_distro(self, e: ft.ControlEvent) -> None:
         if self.add_distro_expanded:
             await self.minimize_adding_distro()
         else:
             await self.expand_adding_distro()
-        await self.update_async()
+        self.update()
 
     async def expand_adding_game_manual(self) -> None:
         final_height = 104
@@ -1081,21 +1140,21 @@ class SettingsScreen(UserControl):
         self.add_game_manual_container.current.height = final_height
         self.add_game_expanded = True
         self.icon_expand_add_game_manual.current.name = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
-        await self.add_game_manual_container.current.update_async()
-        await self.update_async()
+        # self.add_game_manual_container.current.update()
+        self.update()
 
     async def minimize_adding_game_manual(self) -> None:
         self.game_location_field.value = ""
-        await self.game_location_field.update_async()
+        # self.game_location_field.update()
         self.add_game_manual_btn.visible = False
-        await self.add_game_manual_btn.update_async()
+        # self.add_game_manual_btn.update()
         self.game_copy_warning.visible = False
-        await self.game_copy_warning.update_async()
+        # self.game_copy_warning.update()
         self.icon_expand_add_game_manual.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
         self.add_game_manual_container.current.height = 48
-        await self.add_game_manual_container.current.update_async()
+        # self.add_game_manual_container.current.update()
         self.add_game_expanded = False
-        await self.update_async()
+        self.update()
 
     async def expand_adding_game_steam(self) -> None:
         final_height = 104
@@ -1121,25 +1180,25 @@ class SettingsScreen(UserControl):
         self.add_game_steam_container.current.height = final_height
         self.add_steam_expanded = True
         self.icon_expand_add_game_steam.current.name = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
-        await self.add_game_steam_container.current.update_async()
+        # self.add_game_steam_container.current.update()
         self.steam_locations_dropdown.visible = True
-        await self.steam_locations_dropdown.update_async()
-        await warning_control.update_async()
-        await self.update_async()
+        # self.steam_locations_dropdown.update()
+        # warning_control.update()
+        self.update()
 
     async def minimize_adding_game_steam(self) -> None:
         self.add_game_steam_container.current.height = 48
         self.add_steam_expanded = False
         self.icon_expand_add_game_steam.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
-        await self.add_game_steam_container.current.update_async()
+        # self.add_game_steam_container.current.update()
         self.steam_locations_dropdown.visible = False
         self.steam_locations_dropdown.value = ""
-        await self.steam_locations_dropdown.update_async()
+        # self.steam_locations_dropdown.update()
         self.add_from_steam_btn.visible = False
         self.steam_game_copy_warning.visible = False
-        await self.steam_game_copy_warning.update_async()
-        await self.add_from_steam_btn.update_async()
-        await self.update_async()
+        # self.steam_game_copy_warning.update()
+        # self.add_from_steam_btn.update()
+        self.update()
 
     async def expand_adding_distro(self) -> None:
         final_height = 104
@@ -1151,24 +1210,23 @@ class SettingsScreen(UserControl):
         self.add_distro_container.current.height = final_height
         self.add_distro_expanded = True
         self.icon_expand_add_distro.current.name = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
-        await self.add_distro_container.current.update_async()
-        await self.update_async()
+        # self.add_distro_container.current.update()
+        self.update()
 
     async def minimize_adding_distro(self) -> None:
         self.add_distro_container.current.height = 48
         self.add_distro_expanded = False
         self.icon_expand_add_distro.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
-        await self.add_distro_container.current.update_async()
-        await self.page.update_async()
-        await self.update_async()
+        self.add_distro_btn.visible = False
+        # self.add_distro_container.current.update()
+        self.update()
 
     async def add_steam(self, e: ft.ControlEvent) -> None:
         new_path = self.steam_locations_dropdown.value
         self.app.logger.debug(f"New path get from steam dropdown: '{new_path}'")
         await self.add_game_to_list(new_path, from_steam=True)
-
         self.steam_locations_dropdown.value = ""
-        await self.update_async()
+        self.update()
 
     async def add_game_manual(self, e: ft.ControlEvent) -> None:
         new_path = self.game_location_field.value
@@ -1178,25 +1236,25 @@ class SettingsScreen(UserControl):
         await self.add_game_to_list(new_path, from_steam=False)
 
         self.game_location_field.value = None
-        await self.game_location_field.update_async()
+        # self.game_location_field.update()
         await self.switch_add_game_btn(GameStatus.NOT_EXISTS)
-        await self.update_async()
+        self.update()
 
     async def add_distro(self, e: ft.ControlEvent) -> None:
         self.distro_display.height = None
-        await self.distro_display.update_async()
+        self.distro_display.update()
         self.distro_location_text.current.value = self.distro_location_field.value.strip()
-        await self.distro_location_text.current.update_async()
+        # self.distro_location_text.current.update()
         self.distro_locaiton_open_btn.current.visible = True
-        await self.distro_locaiton_open_btn.current.update_async()
+        # self.distro_locaiton_open_btn.current.update()
         await self.minimize_adding_distro()
         self.no_distro_warning.height = 0
-        await self.no_distro_warning.update_async()
+        # self.no_distro_warning.update()
+        self.app.logger.debug("Finished updating warnings")
 
         self.app.config.current_distro = self.distro_location_text.current.value
         self.app.config.known_distros = set(self.app.config.current_distro)
         self.distro_location_field.value = None
-        await self.update_async()
         # TODO: sort out the duplicating functions of context, session and config
         # TODO: exception handling for add_distribution_dir,
         # check that overwriting distro is working correctly
@@ -1210,8 +1268,10 @@ class SettingsScreen(UserControl):
         self.app.context.load_system_info()
         # self.app.session = self.app.context.current_session
         self.app.session.steam_game_paths = loaded_steam_game_paths
+        self.update()
+        await asyncio.sleep(0)
         if self.app.config.current_game:
-            await self.app.load_distro_async()
+            self.page.run_task(self.app.load_distro_async)
         else:
             self.app.logger.debug("No current game found in config")
 
@@ -1219,7 +1279,7 @@ class SettingsScreen(UserControl):
         if e.data:
             await self.check_game_fields(e)
             await self.expand_adding_game_steam()
-        await self.update_async()
+        self.update()
 
     async def add_game_to_list(self, game_path: str, game_name: str = "",
                                is_current: bool = True, from_steam: bool = False) -> bool:
@@ -1242,8 +1302,8 @@ class SettingsScreen(UserControl):
             # self.filter.height = None
             self.no_games_for_filter_warning.current.visible = False
             self.list_of_games.height = None
-            await self.view_list_of_games.update_async()
-            await self.filter.update_async()
+            # self.view_list_of_games.update()
+            # self.filter.update()
             # deselect currently selected if any exist
             if is_current:
                 for control in self.list_of_games.controls:
@@ -1262,8 +1322,9 @@ class SettingsScreen(UserControl):
                                         self.remove_game,
                                         self.app.config, visible)
             self.list_of_games.controls.append(new_game)
-            await self.list_of_games.update_async()
-            await self.select_game(new_game, recheck_game=True)
+            self.list_of_games.update()
+            if is_current:
+                await self.select_game(new_game, recheck_game=True)
 
             await self.minimize_adding_game_manual()
             await self.minimize_adding_game_steam()
@@ -1273,7 +1334,7 @@ class SettingsScreen(UserControl):
             for control in self.list_of_games.controls:
                 control.visible = True
             self.no_game_warning.height = 0
-            await self.no_game_warning.update_async()
+            # self.no_game_warning.update()
         elif from_steam:
             await self.switch_steam_game_copy_warning(GameStatus.GENERAL_ERROR,
                                                       additional_info=game_obj.cached_warning)
@@ -1283,7 +1344,7 @@ class SettingsScreen(UserControl):
         elif not game_name:
             await self.switch_game_copy_warning(GameStatus.GENERAL_ERROR,
                                                 additional_info=game_obj.cached_warning)
-        await self.update_async()
+        self.update()
         return can_be_added
 
     async def select_game(self, item: GameCopyListItem, recheck_game: bool = True) -> None:
@@ -1323,10 +1384,10 @@ class SettingsScreen(UserControl):
         await item.display_as_current()
         self.app.settings_page.no_game_warning.height = 0
         # self.app.settings_page.no_game_warning.visible = False # TODO: is animating if this is False?
-        await self.app.settings_page.no_game_warning.update_async()
+        # self.app.settings_page.no_game_warning.update()
         self.app.config.current_game = item.game_path
         self.app.logger.info(f"Game is now: {self.app.game.target_exe}")
-        await self.update_async()
+        self.update()
 
         if self.app.context.distribution_dir:
             # self.app.context.validated_mods.clear()
@@ -1336,7 +1397,7 @@ class SettingsScreen(UserControl):
             # TODO: maybe do a full steam path reload?
             # or maybe also copy steam_parsing_error
             self.app.session.steam_game_paths = loaded_steam_game_paths
-            await self.app.load_distro_async()
+            self.page.run_task(self.app.load_distro_async)
         else:
             self.app.logger.debug("No distro dir found in context")
 
@@ -1347,7 +1408,7 @@ class SettingsScreen(UserControl):
             self.app.config.current_game = ""
             self.app.settings_page.no_game_warning.height = None
             self.app.settings_page.no_game_warning.visible = True
-            await self.app.settings_page.no_game_warning.update_async()
+            # self.app.settings_page.no_game_warning.update()
 
             if self.app.context.distribution_dir:
                 # self.app.context.validated_mods.clear()
@@ -1357,26 +1418,26 @@ class SettingsScreen(UserControl):
                 # TODO: maybe do a full steam path reload?
                 # or maybe also copy steam_parsing_error
                 self.app.session.steam_game_paths = loaded_steam_game_paths
-                await self.app.load_distro_async()
+                self.page.run_task(self.app.load_distro_async)
             else:
                 self.app.logger.debug("No distro dir found in context")
 
         other_game_copies = self.app.config.known_games - {item.game_path.lower()}
         self.app.settings_page.no_game_warning_text.current.value = \
             tr("commod_needs_selected_game") if other_game_copies else tr("commod_needs_game")
-        await self.app.settings_page.no_game_warning_text.current.update_async()
+        # self.app.settings_page.no_game_warning_text.current.update()
 
         self.list_of_games.controls.remove(item)
-        await self.list_of_games.update_async()
+        # self.list_of_games.update()
 
         # hide list if there are zero games tracked
         if not self.list_of_games.controls:
             self.view_list_of_games.height = 0
             # self.filter.height = 0
             self.list_of_games.height = 0
-            await self.list_of_games.update_async()
-            await self.filter.update_async()
-            await self.view_list_of_games.update_async()
+            # self.list_of_games.update()
+            # self.filter.update()
+            # self.view_list_of_games.update()
 
         self.app.config.game_names.pop(item.game_path)
         self.app.logger.debug(f"Game is now: {self.app.game.target_exe}")
@@ -1385,7 +1446,7 @@ class SettingsScreen(UserControl):
         await self.minimize_adding_game_manual()
         await self.minimize_adding_game_steam()
 
-        await self.update_async()
+        self.update()
 
     def check_game(self, game_path: str) -> tuple[GameStatus, str]:
         try:
@@ -1444,7 +1505,7 @@ class SettingsScreen(UserControl):
             await self.switch_steam_game_copy_warning(status, additional_info)
             await self.switch_add_from_steam_btn(status)
             await self.expand_adding_game_steam()
-        await self.update_async()
+        self.update()
 
     def check_distro(self, distribution_dir: str) -> DistroStatus | None:
         if not distribution_dir:
@@ -1464,34 +1525,35 @@ class SettingsScreen(UserControl):
 
         status = self.check_distro(distro_path)
         if status is not None:
-            await self.switch_distro_warning(status)
-            await self.switch_add_distro_btn(status)
-            await self.expand_adding_distro()
-            await self.update_async()
+            switch_warning = self.switch_distro_warning(status)
+            switch_add = self.switch_add_distro_btn(status)
+            expand_add_distro = self.expand_adding_distro()
+            await asyncio.gather(switch_warning, switch_add, expand_add_distro)
+            self.update()
 
     async def switch_add_game_btn(self, status: GameStatus = GameStatus.COMPATIBLE) -> None:
         if status is None:
             status = GameStatus.NOT_EXISTS
         self.add_game_manual_btn.disabled = status is not GameStatus.COMPATIBLE
         self.add_game_manual_btn.visible = status is GameStatus.COMPATIBLE
-        await self.add_game_manual_btn.update_async()
-        await self.update_async()
+        # self.add_game_manual_btn.update()
+        self.update()
 
     async def switch_add_from_steam_btn(self, status: GameStatus = GameStatus.COMPATIBLE) -> None:
         if status is None:
             status = GameStatus.NOT_EXISTS
         self.add_from_steam_btn.disabled = status is not GameStatus.COMPATIBLE
         self.add_from_steam_btn.visible = status is GameStatus.COMPATIBLE
-        await self.add_from_steam_btn.update_async()
-        await self.update_async()
+        # self.add_from_steam_btn.update()
+        self.update()
 
     async def switch_add_distro_btn(self, status: DistroStatus = DistroStatus.COMPATIBLE) -> None:
         if status is None:
             status = DistroStatus.NOT_EXISTS
         self.add_distro_btn.disabled = status is not DistroStatus.COMPATIBLE
         self.add_distro_btn.visible = status is DistroStatus.COMPATIBLE
-        await self.add_distro_btn.update_async()
-        await self.update_async()
+        # self.add_distro_btn.update()
+        self.update()
 
     async def switch_game_copy_warning(self,
                                        status: GameStatus = GameStatus.COMPATIBLE,
@@ -1507,8 +1569,8 @@ class SettingsScreen(UserControl):
                 else:
                     full_text += f":\n{additional_info}"
             self.game_copy_warning_text.current.value = full_text
-        await self.game_copy_warning.update_async()
-        await self.update_async()
+        # self.game_copy_warning.update()
+        self.update()
 
     async def switch_steam_game_copy_warning(self,
                                              status: GameStatus = GameStatus.COMPATIBLE,
@@ -1524,8 +1586,8 @@ class SettingsScreen(UserControl):
                 else:
                     full_text += f":\n{additional_info}"
             self.steam_game_copy_warning_text.current.value = full_text
-        await self.steam_game_copy_warning.update_async()
-        await self.update_async()
+        # self.steam_game_copy_warning.update()
+        self.update()
 
     async def switch_distro_warning(
             self, status: DistroStatus = DistroStatus.COMPATIBLE) -> None:
@@ -1533,14 +1595,14 @@ class SettingsScreen(UserControl):
             status = DistroStatus.COMPATIBLE
         self.distro_warning.visible = status is not DistroStatus.COMPATIBLE
         self.distro_warning_text.current.value = tr(DistroStatus(status).value)
-        await self.distro_warning.update_async()
-        await self.update_async()
+        # self.distro_warning.update()
+        self.update()
 
     async def open_distro_dir(self, e: ft.ControlEvent) -> None:
         # open distro directory in Windows Explorer
         if os.path.isdir(self.distro_location_text.current.value):
             os.startfile(self.distro_location_text.current.value)  # noqa: S606
-        await self.update_async()
+        self.update()
 
     async def tabs_changed(self, e: ft.ControlEvent) -> None:
         tab_filter = "all"
@@ -1558,15 +1620,15 @@ class SettingsScreen(UserControl):
                 control.visible = True
             else:
                 control.visible = False
-            await control.update_async()
+            control.update()
         if all(not control.visible for control in self.list_of_games.controls):
             self.no_games_for_filter_warning.current.visible = True
         else:
             self.no_games_for_filter_warning.current.visible = False
-        await self.no_games_for_filter_warning.current.update_async()
+        # self.no_games_for_filter_warning.current.update()
 
         self.app.config.current_game_filter = int(e.data)
-        await self.update_async()
+        self.update()
 
     def is_installment_filtered(self, installment: str) -> bool:
         match self.filter.selected_index:
@@ -1580,33 +1642,42 @@ class SettingsScreen(UserControl):
                 return installment != "arcade"
 
 
-class ModInfo(UserControl):
+class ModInfo(ft.Container):
     def __init__(self, app: App, mod: Mod, mod_item: "ModItem", **kwargs):
-        super().__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.app = app
         self.mod_item = mod_item
         self.tabs = ft.Ref[ft.Tabs]()
         self.tab_index = 0
         self.expanded = False
-        self.container = ft.Ref[ft.Container]()
 
         self.main_info = ft.Ref[ft.Container]()
         self.compatibility = ft.Ref[ft.Container]()
-        self.lang_list = ft.Ref[Row]()
+
+        self.flag_buttons = ft.Ref[Row]()
         self.release_date = ft.Ref[Text]()
         self.home_url_btn = ft.Ref[ft.TextButton]()
         self.trailer_btn = ft.Ref[ft.TextButton]()
         self.mod_delete_btn = ft.Ref[ft.TextButton]()
+
         self.mod_info_column = ft.Ref[Column]()
-        self.mod_screens_row = ft.Ref[Column]()
+        self.mod_screens = ft.Ref[Column]()
         self.mod_description_text = ft.Ref[Text]()
 
         self.screens_option_name: str = "base"
+        if self.mod.no_base_content and self.mod.screenshots:
+            self.screens_option_name = next(iter(self.mod.screenshots)).option_name
+
         self.screen_pool = self.get_screen_pool(self.screens_option_name)
         self.screenshots_container = ft.Ref[ft.Container]()
         self.screenshots_selector = ft.Ref[ft.Dropdown]()
         self.screenshot_img = ft.Ref[Image]()
+        self.screenshot_num = ft.Ref[Text]()
         self.screenshot_text = ft.Ref[Text]()
+        self.screenshot_tip = ft.Ref[Text]()
+        self.screenshot_preview = ft.Ref[ft.GestureDetector]()
+        self.screen_preview_img = ft.Ref[Image]()
+        self.screen_preview_text = ft.Ref[Text]()
 
         self.change_log = ft.Ref[ft.Container]()
         self.change_log_text = ft.Ref[ft.Markdown]()
@@ -1623,8 +1694,10 @@ class ModInfo(UserControl):
             self.pool_size = len(screens)
 
         @property
-        def current_screen(self) -> Screenshot:
-            return self.screens[self.current_index]
+        def current_screen(self) -> Screenshot | None:
+            if self.screens:
+                return self.screens[self.current_index]
+            return None
 
         def next_screen(self) -> Screenshot:
             if self.current_index != self.pool_size - 1:
@@ -1662,46 +1735,51 @@ class ModInfo(UserControl):
 
     async def toggle(self) -> None:
         self.expanded = not self.expanded
-        self.container.current.height = 0 if not self.expanded else None
-        await self.update_async()
+        self.height = 0 if not self.expanded else None
+        if self.expanded:
+            self.visible = True
+        else:
+            self.visible = False
+        self.update()
 
     async def switch_tab(self, e: ft.ControlEvent) -> None:
         self.tab_index = e.data
         for index, widget in enumerate(self.tab_info):
             widget.current.visible = str(index) == self.tab_index
-        await asyncio.gather(*[widget.current.update_async() for widget in self.tab_info])
+        self.update()
 
-    async def update_screens_group(self, e: ft.ControlEvent) -> None:
-        self.screens_option_name = e.data
+    async def set_screens_group(self, e: ft.ControlEvent | None = None) -> None:
+        if e is None:
+            self.screens_option_name = "base"
+            if self.mod.no_base_content and self.mod.screenshots:
+                self.screens_option_name = next(iter(self.mod.screenshots)).option_name
+        else:
+            self.screens_option_name = e.data
+
         self.screen_pool = self.get_screen_pool(self.screens_option_name)
-        await self.set_mod_screens_row()
+        await self.set_mod_screens()
+        await self.set_screens_selector()
         await self.update_screens()
 
     async def update_screens(self) -> None:
         if self.mod.screenshots:
-            # self.screen_pool = self.get_screen_pool(self.screens_option_name)
-
             if self.current_screenshot is None:
                 self.screen_pool.next_screen()
 
             self.screenshot_img.current.src = self.current_screenshot.screen_path
             self.screenshot_img.current.data = self.current_screenshot
-            self.screenshot_text.current.value = (
-                f"{self.current_screenshot.full_text} "
-                f"({self.screen_pool.current_index + 1} {tr('one_of_many')} {self.screen_pool.pool_size})")
-            self.screenshot_text.current.visible = \
-                bool(self.current_screenshot.full_text) or self.screen_pool.pool_size > 1
-            await self.screenshot_img.current.update_async()
-            await self.screenshot_text.current.update_async()
 
-    # TODO: implement or deprecate
-    async def update_change_log(self) -> None:
-        pass
+            self.screenshot_num.current.value =\
+                f"{self.screen_pool.current_index + 1} {tr('one_of_many')} {self.screen_pool.pool_size}"
+            self.screenshot_num.current.visible = self.screen_pool.pool_size > 1
 
-    async def update_other_info(self) -> None:
-        pass
+            self.screenshot_text.current.value = self.current_screenshot.text
+            self.screenshot_text.current.visible = bool(self.current_screenshot.text)
 
-    async def update_tabs(self) -> None:
+            self.screenshot_tip.current.value = self.get_screenshot_tip()
+        self.update()
+
+    async def set_tabs(self) -> None:
         self.tabs.current.tabs.clear()
         self.tabs.current.tabs.append(Tab(text=tr("main_info").capitalize()))
         self.tab_info = [self.main_info]
@@ -1715,18 +1793,10 @@ class ModInfo(UserControl):
             self.tabs.current.tabs.append(Tab(text=tr("other_info").capitalize()))
             self.tab_info.append(self.other_info)
 
-        await self.tabs.current.update_async()
+        self.tabs.current.update()
 
-    async def did_mount_async(self) -> None:
-        await self.set_mod_info_column()
-        await self.update_tabs()
-        await self.set_mod_screens_row()
-        await self.update_screens()
-
-        # TODO: maybe not needed
-        # if self.main_mod.variants_loaded:
-        #     for variant_name, mod in self.main_mod.variants_loaded.items():
-        #         ...
+    def get_flag_buttons(self) -> None:
+        flag_buttons = []
         if self.mod_family.translations:
             for lang, mod in self.mod_family.translations.items():
                 if mod.known_language:
@@ -1734,44 +1804,61 @@ class ModInfo(UserControl):
                 else:
                     flag = get_internal_file_path(KnownLangFlags.other.value)
 
-                icon = Image(flag, width=26)
-                icon.tooltip = mod.lang_label.capitalize()
+                icon = Image(flag, width=27)
+                flag_tooltip = mod.lang_label.capitalize()
 
                 if not mod.can_install:
                     icon.opacity = 0.5
-                    icon.tooltip += f' ({tr("cant_be_installed")})'
+                    flag_tooltip += f' ({tr("cant_be_installed")})'
 
-                flag_btn = ft.IconButton(
-                    content=icon,
+                flag_buttons.append(ft.IconButton(
+                    content=ft.Container(icon),
                     data=lang,
-                    on_click=self.mod_item.change_lang)
+                    tooltip=flag_tooltip,
+                    selected=self.mod.language==lang,
+                    style=ft.ButtonStyle(
+                        bgcolor={
+                            ft.MaterialState.SELECTED: ft.colors.SECONDARY_CONTAINER,
+                            ft.MaterialState.DEFAULT: ft.colors.TRANSPARENT,
+                        }
+                    ),
+                    col=4,
+                    on_click=self.mod_item.change_lang))
+        return flag_buttons
 
-                self.lang_list.current.controls.append(flag_btn)
+    def did_mount(self) -> None:
+        self.page.run_task(self.update_info)
 
+        self.flag_buttons.current.controls = self.get_flag_buttons()
+        self.visible = False
+        self.update()
+
+    async def select_flag_icon(self, lang: str) -> None:
+        if self.flag_buttons.current:
+            for flag in self.flag_buttons.current.controls:
+                if flag.data == lang:
+                    flag.selected = True
+                else:
+                    flag.selected = False
+            self.flag_buttons.current.update()
 
     async def show_next_screen(self, e: ft.ControlEvent) -> None:
         if self.mod.screenshots:
             self.screen_pool.next_screen()
-
-            # self.screenshot_img.current.src = self.current_screenshot.screen_path
-            # self.screenshot_img.current.data = self.current_screenshot
-            # self.screenshot_text.current.value = self.current_screenshot.full_text
-            # self.screenshot_text.current.visible = bool(self.current_screenshot.full_text)
-            # await self.screenshot_img.current.update_async()
-            # await self.screenshot_text.current.update_async()
             await self.update_screens()
 
     async def show_previous_screen(self, e: ft.ControlEvent) -> None:
         if self.mod.screenshots:
             self.screen_pool.previous_screen()
-
-            # self.screenshot_img.current.src = self.current_screenshot.screen_path
-            # self.screenshot_img.current.data = self.current_screenshot
-            # self.screenshot_text.current.value = self.current_screenshot.full_text
-            # self.screenshot_text.current.visible = bool(self.current_screenshot.full_text)
-            # await self.screenshot_img.current.update_async()
-            # await self.screenshot_text.current.update_async()
             await self.update_screens()
+
+    async def switch_expanded_compare_screen(self, e: ft.ControlEvent) -> None:
+        if self.current_screenshot.compare_path:
+            if self.screen_preview_img.current.src == self.current_screenshot.screen_path:
+                self.screen_preview_img.current.src = self.current_screenshot.compare_path
+            else:
+                self.screen_preview_img.current.src = self.current_screenshot.screen_path
+            self.screen_preview_img.current.update()
 
     async def switch_compare_screen(self, e: ft.ControlEvent) -> None:
         screen_widget = self.screenshot_img.current
@@ -1780,7 +1867,71 @@ class ModInfo(UserControl):
                 screen_widget.src = self.current_screenshot.compare_path
             else:
                 screen_widget.src = self.current_screenshot.screen_path
-            await screen_widget.update_async()
+            screen_widget.update()
+
+    def get_screen_preview_text(self) -> str:
+        return tr("lmb_to_discard") + (
+            f', {tr("rmb_to_compare")}' if self.current_screenshot.compare_path else "") + (
+                f', {tr("arrows_to_cycle")}' if self.screen_pool.pool_size > 1 else "")
+
+    async def handle_keyboard_shortcuts(self, e: ft.KeyboardEvent) -> None:
+        # if not self.screenshot_preview.current.visible:
+        #     return
+
+        if e.key == "Arrow Right":
+            await self.show_next_screen(e=None)
+        elif e.key == "Arrow Left":
+            await self.show_previous_screen(e=None)
+        else:
+            return
+
+        self.screen_preview_img.current.src = self.current_screenshot.screen_path
+        self.screen_preview_text.current.value = self.get_screen_preview_text()
+        self.screen_preview_img.current.update()
+        self.screen_preview_text.current.update()
+
+    async def discard_screenshot_preview(self, e: ft.ControlEvent) -> None:
+        self.app.page.floating_action_button.visible = True
+        self.app.page.floating_action_button.update()
+
+        self.app.page.on_keyboard_event.unsubscribe(self.handle_keyboard_shortcuts)
+
+        self.screenshot_preview.current.visible = False
+        self.screenshot_preview.current.update()
+        self.app.page.overlay.pop()
+
+    async def expand_screenshot_preview(self, e: ft.ControlEvent) -> None:
+        self.app.page.floating_action_button.visible = False
+        self.app.page.floating_action_button.update()
+
+        self.app.page.on_keyboard_event = self.handle_keyboard_shortcuts
+
+        self.app.page.overlay.append(
+            ft.GestureDetector(
+                ft.Container(
+                        ft.Column([
+                            ft.ResponsiveRow([
+                                ft.Container(
+                                    Text(self.get_screen_preview_text(),
+                                         color=ft.colors.WHITE,
+                                         style=ft.TextStyle(shadow=ft.BoxShadow(10, 5)),
+                                         theme_style=ft.TextThemeStyle.BODY_LARGE,
+                                         text_align=ft.TextAlign.CENTER,
+                                         ref=self.screen_preview_text),
+                                    margin=ft.margin.only(top=5))
+                                ]),
+                            ft.ResponsiveRow([Image(self.current_screenshot.screen_path,
+                                       ref=self.screen_preview_img,
+                                       gapless_playback=True)],
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            ], alignment=ft.MainAxisAlignment.CENTER),
+                    bgcolor=ft.colors.BLACK87, alignment=ft.alignment.center),
+                ref=self.screenshot_preview,
+                on_tap=self.discard_screenshot_preview,
+                on_secondary_tap=self.switch_expanded_compare_screen,
+            ))
+        self.app.page.update()
 
     # async def launch_url(self, e: ft.ControlEvent):
         # await self.app.page.launch_url_async(e.data)
@@ -1801,28 +1952,22 @@ class ModInfo(UserControl):
         await self.app.local_mods.delete_mod(self.main_mod)
 
     async def update_info(self) -> None:
-        # self.mod = self.mod_item.mod
         await self.set_mod_info_column()
-        await self.update_tabs()
-        await self.set_mod_screens_row()
-        await self.update_screens()
+        await self.set_screens_group()
+        await self.set_tabs()
 
         self.release_date.current.value = self.mod.release_date
         self.release_date.current.visible = bool(self.mod.release_date)
-        await self.release_date.current.update_async()
-        self.home_url_btn.current.tooltip = f'{tr("warn_external_address")}\n{self.mod.url}'
+        self.home_url_btn.current.tooltip = self.get_url_tooltip(self.mod.url)
         self.home_url_btn.current.visible = bool(self.mod.url)
-        await self.home_url_btn.current.update_async()
-        self.trailer_btn.current.tooltip = f'{tr("warn_external_address")}\n{self.mod.trailer_url}'
+        self.trailer_btn.current.tooltip = self.get_url_tooltip(self.mod.trailer_url)
         self.trailer_btn.current.visible = bool(self.mod.trailer_url)
-        await self.trailer_btn.current.update_async()
 
         if self.mod.change_log:
             self.change_log_text.current.value = self.mod.change_log_content
-            await self.change_log_text.current.update_async()
         if self.mod.other_info_content:
             self.other_info_text.current.value = self.mod.other_info_content
-            await self.other_info_text.current.update_async()
+        self.update()
 
     async def set_mod_info_column(self) -> None:
         self.mod_info_column.current.controls = [
@@ -1848,9 +1993,10 @@ class ModInfo(UserControl):
                               and self.mod.compatible
                               and self.mod.prevalidated)
                          and self.mod.installment_compatible)),
-            Text(self.mod.commod_compatible_err,
+            Text(self.mod.commod_compatible_err.replace("**", ""),
                  color=ft.colors.ERROR,
-                 visible=bool(self.mod.commod_compatible_err) and self.mod.installment_compatible),
+                 visible=bool(self.mod.commod_compatible_err) and self.mod.installment_compatible,
+                 selectable=True),
             Text(self.mod.compatible_err,
                  color=ft.colors.ERROR,
                  visible=bool(self.mod.compatible_err) and self.mod.installment_compatible),
@@ -1858,26 +2004,76 @@ class ModInfo(UserControl):
                  color=ft.colors.ERROR,
                  visible=bool(self.mod.prevalidated_err) and self.mod.installment_compatible)
             ]
-        await self.mod_info_column.current.update_async()
+        self.mod_info_column.current.update()
 
-    async def set_mod_screens_row(self) -> None:
-        self.mod_screens_row.current.controls = [
-            Column([IconButton(ft.icons.CHEVRON_LEFT,
-                               visible=self.screen_pool.pool_size > 1,
-                               on_click=self.show_previous_screen)],
-                   col=1, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+    def get_screenshot_tip(self) -> str:
+        return tr("lmb_to_zoom") + (
+                f', {tr("rmb_to_compare")}' if self.current_screenshot.compare_path else "")
+
+    async def set_screens_selector(self) -> None:
+        screen_group_selector_data = {}
+
+        for screen in self.mod.screenshots:
+            if screen.option_name == "base":
+                screen_group_selector_data["base"] = tr("base_mod_screenshots")
+            else:
+                header = (tr("option_variant_screenshots") if "/" in screen.option_name
+                          else tr("option_screenshots"))
+                screen_group_selector_data[screen.option_name] = (
+                    f'{header} "{self.mod.screen_option_names[screen.option_name]}"')
+
+        if not screen_group_selector_data:
+            screen_group_selector_data["base"] = tr("base_mod_screenshots")
+
+        start_key = ("base" if "base" in screen_group_selector_data
+                     else next(iter(screen_group_selector_data.keys())))
+        self.screenshots_selector.current.value = start_key
+
+        self.screenshots_selector.current.options = [
+            ft.dropdown.Option(key=opt_k, text=opt_v)
+            for opt_k, opt_v in screen_group_selector_data.items()
+        ]
+
+        self.screenshots_selector.current.parent.visible = len(screen_group_selector_data) > 1
+
+        self.screenshots_selector.current.update()
+
+    async def set_mod_screens(self) -> None:
+        self.mod_screens.current.controls = [
             ft.GestureDetector(
-                Image(src=get_internal_file_path("assets/no_logo.png"),
-                      gapless_playback=True,
-                      fit=ft.ImageFit.FIT_HEIGHT,
-                      ref=self.screenshot_img),
-                on_tap=self.switch_compare_screen, col=10),
-            Column([IconButton(ft.icons.CHEVRON_RIGHT,
+                ft.Stack([
+                    ft.Container(Image(src=get_internal_file_path("assets/no_logo.png"),
+                          gapless_playback=True,
+                          fit=ft.ImageFit.FIT_WIDTH,
+                          ref=self.screenshot_img), alignment=ft.alignment.top_center),
+                    ft.Container(
+                        Text("Placeholder tip",
+                             color=ft.colors.WHITE,
+                             text_align=ft.TextAlign.CENTER,
+                             ref=self.screenshot_tip,
+                             style=ft.TextStyle(
+                                 shadow=ft.BoxShadow(3, 3))
+                             ),
+                        alignment=ft.alignment.bottom_center,
+                        margin=ft.margin.only(top=5)
+                    ),
+                ], alignment=ft.alignment.bottom_center),
+                on_tap=self.expand_screenshot_preview,
+                on_secondary_tap=self.switch_compare_screen),
+            Text("Placeholder description",
+                 ref=self.screenshot_text,
+                 text_align=ft.TextAlign.CENTER),
+            Row([
+                IconButton(ft.icons.CHEVRON_LEFT,
                                visible=self.screen_pool.pool_size > 1,
-                               on_click=self.show_next_screen)],
-                   col=1, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                               on_click=self.show_previous_screen),
+                Text("Placeholder number", ref=self.screenshot_num, weight=ft.FontWeight.W_600),
+                IconButton(ft.icons.CHEVRON_RIGHT,
+                                   visible=self.screen_pool.pool_size > 1,
+                                   on_click=self.show_next_screen)],
+                alignment=ft.MainAxisAlignment.CENTER),
             ]
-        await self.mod_screens_row.current.update_async()
+        self.mod_screens.current.update()
 
     def get_pretty_compatibility(self) -> list:
         point_list = []
@@ -2124,20 +2320,14 @@ class ModInfo(UserControl):
 
         return point_list
 
-    def build(self) -> ft.Container:
-        screen_group_selector_data = {}
-        for screen in self.mod.screenshots:
-            if screen.option_name == "base":
-                screen_group_selector_data["base"] = tr("base_mod_screenshots")
-            else:
-                screen_group_selector_data[screen.option_name] = \
-                    f'{tr("option_screenshots")} "{self.mod.screen_option_names[screen.option_name]}"'
-        if not screen_group_selector_data:
-            screen_group_selector_data["base"] = tr("base_mod_screenshots")
+    def get_url_tooltip(self, url: str) -> str:
+        if is_url_safe(url):
+            return url
+        return f'{tr("warn_external_address")}\n {url}'
 
-        start_key = "base" if "base" in screen_group_selector_data else screen_group_selector_data.values()[0]
-
-        return ft.Container(
+    def build(self) -> None:
+        self.height = 0 if not self.expanded else None
+        self.content =\
             ft.Container(
                 content=Column([
                     Tabs(
@@ -2153,64 +2343,69 @@ class ModInfo(UserControl):
                                            opacity=0.9),
                                     ft.Container(
                                         Column([
-                                            Row([ft.Container(Text(f'{tr("language").capitalize()}:'),
-                                                              padding=ft.padding.only(left=10),
-                                                              margin=0),
-                                                 Row([], ref=self.lang_list, spacing=0,
-                                                     width=130, wrap=True, run_spacing=0)]),
-                                            ft.Container(
-                                                ft.Row([
-                                                    Text(f"{tr('game').capitalize()}:  "),
-                                                    Text(tr(self.mod.installment))
-                                                ], spacing=5),
-                                                visible=bool(self.mod.release_date),
-                                                margin=ft.margin.only(left=10, top=3, bottom=10)),
-                                            ft.Container(
-                                                ft.Row([
-                                                    Text(f"{tr('release').capitalize()}:  "),
-                                                    Text(self.mod.release_date,
-                                                         self.release_date)
-                                                ], spacing=5),
-                                                visible=bool(self.mod.release_date),
-                                                margin=ft.margin.only(left=10, top=3, bottom=6)),
-                                            ft.TextButton(content=ft.Row(
-                                                [
-                                                 ft.Container(
-                                                    ft.Icon(
-                                                        name=ft.icons.HOME_ROUNDED,
-                                                        color=ft.colors.PRIMARY, size=20),
-                                                    padding=ft.padding.symmetric(horizontal=6)),
-                                                 ft.Container(
-                                                     Row([Text(tr("mod_url").replace(":", ""),
-                                                               size=14)],
-                                                         alignment=ft.MainAxisAlignment.CENTER),
-                                                     margin=ft.margin.only(bottom=2), expand=True)
+                                            ft.Row([
+                                                Column([
+                                                ft.Container(
+                                                    Row([Text(f'{tr("language").capitalize()}:'),
+                                                         Row([], ref=self.flag_buttons, spacing=0,
+                                                             wrap=True, run_spacing=0)],
+                                                             spacing=5, alignment=ft.MainAxisAlignment.CENTER),
+                                                    padding=ft.padding.only(left=10)),
+                                                ft.Container(
+                                                    ft.Row([
+                                                        Text(f"{tr('game').capitalize()}:  "),
+                                                        Text(tr(self.mod.installment))
+                                                    ], spacing=5),
+                                                    visible=bool(self.mod.release_date),
+                                                    margin=ft.margin.only(left=10, top=3, bottom=10)),
+                                                ft.Container(
+                                                    ft.Row([
+                                                        Text(f"{tr('release').capitalize()}:  "),
+                                                        Text(self.mod.release_date,
+                                                             ref=self.release_date)
+                                                    ], spacing=5),
+                                                    visible=bool(self.mod.release_date),
+                                                    margin=ft.margin.only(left=10, top=3, bottom=6)),
+                                                ], horizontal_alignment=ft.CrossAxisAlignment.START,
+                                                alignment=ft.MainAxisAlignment.START,
+                                                spacing=3)
+                                            ], alignment=ft.MainAxisAlignment.CENTER),
+                                            ft.Row([ft.TextButton(content=ft.Row([
+                                                ft.Container(
+                                                   ft.Icon(
+                                                       name=ft.icons.HOME_ROUNDED,
+                                                       color=ft.colors.PRIMARY, size=20)),
+                                                ft.Container(
+                                                    Row([Text(tr("mod_url").replace(":", ""),
+                                                              size=14, overflow=ft.TextOverflow.ELLIPSIS)],
+                                                        alignment=ft.MainAxisAlignment.CENTER),
+                                                    margin=ft.margin.only(bottom=2))
                                                 ],
-                                                alignment=ft.MainAxisAlignment.SPACE_AROUND),
+                                                alignment=ft.MainAxisAlignment.CENTER, tight=True),
                                              ref=self.home_url_btn,
                                              on_click=self.open_home_url,
                                              visible=bool(self.mod.url),
-                                             tooltip=f'{tr("warn_external_address")}\n'
-                                                     f'{self.mod.url}'),
-                                            ft.TextButton(content=ft.Row(
+                                             tooltip=self.get_url_tooltip(self.mod.url))],
+                                                   alignment=ft.MainAxisAlignment.CENTER),
+                                            ft.Row([ft.TextButton(content=ft.Row(
                                                 [
                                                  ft.Container(
                                                      ft.Icon(name=ft.icons.ONDEMAND_VIDEO_OUTLINED,
                                                              color=ft.colors.PRIMARY, size=17),
-                                                     padding=ft.padding.only(left=8, right=8, top=2)),
+                                                     padding=ft.padding.only(top=2)),
                                                  ft.Container(
                                                      Row([ft.Text(tr("trailer_watch").capitalize(),
                                                                   size=14)],
                                                          alignment=ft.MainAxisAlignment.CENTER),
-                                                     margin=ft.margin.only(bottom=2), expand=True)
+                                                     margin=ft.margin.only(bottom=2))
                                                 ],
                                                 # vertical_alignment=ft.MainAxisAlignment.CENTER,
-                                                alignment=ft.MainAxisAlignment.SPACE_AROUND),
+                                                alignment=ft.MainAxisAlignment.CENTER, tight=True),
                                              ref=self.trailer_btn,
                                              on_click=self.open_trailer_url,
                                              visible=bool(self.mod.trailer_url),
-                                             tooltip=f'{tr("warn_external_address")}\n'
-                                                     f'{self.mod.trailer_url}'),
+                                             tooltip=self.get_url_tooltip(self.mod.trailer_url))],
+                                                   alignment=ft.MainAxisAlignment.CENTER),
                                             ft.Container(ft.Row([ft.ElevatedButton(
                                                     elevation=3,
                                                     icon=ft.icons.DELETE_FOREVER_ROUNDED,
@@ -2237,27 +2432,26 @@ class ModInfo(UserControl):
                             ft.Container(
                                 Column([
                                     ft.ResponsiveRow([
-                                        ft.Text("", col=1),
                                         ft.Dropdown(
-                                                value=start_key,
+                                                value=None,
                                                 dense=True,
                                                 height=42,
                                                 text_size=13,
-                                                col=10,
-                                                options=[
-                                                    ft.dropdown.Option(key=opt_k, text=opt_v)
-                                                    for opt_k, opt_v in screen_group_selector_data.items()
-                                                ],
-                                                on_change=self.update_screens_group,
-                                                ref=self.screenshots_selector),
-                                        ft.Text("", col=1)],
+                                                col={"xs": 12, "xl": 11},
+                                                options=[],
+                                                on_change=self.set_screens_group,
+                                                border_color=ft.colors.with_opacity(0.6, ft.colors.SECONDARY),
+                                                ref=self.screenshots_selector)],
                                     alignment=ft.MainAxisAlignment.CENTER,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    visible=len(screen_group_selector_data) > 1),
-                                    ft.ResponsiveRow([], ref=self.mod_screens_row,
-                                                     alignment=ft.MainAxisAlignment.CENTER,
-                                                     vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                                    Text("Placeholder", ref=self.screenshot_text)
+                                    visible=True),
+                                    ft.ResponsiveRow([
+                                        ft.Column([], ref=self.mod_screens,
+                                                  alignment=ft.MainAxisAlignment.CENTER,
+                                                  horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                  col={"xs": 12, "xl": 11})],
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER)
                                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                 ref=self.screenshots_container,
                                 visible=False,
@@ -2303,17 +2497,14 @@ class ModInfo(UserControl):
                 margin=ft.margin.only(top=15),
                 padding=ft.padding.only(left=15, right=15, top=5, bottom=0),
                 border_radius=10,
-                bgcolor=ft.colors.SURFACE, alignment=ft.alignment.top_left),
-            height=0 if not self.expanded else None,
-            ref=self.container)
+                bgcolor=ft.colors.SURFACE, alignment=ft.alignment.top_left)
 
-
-class ModArchiveItem(UserControl):
-    def __init__(self, app: App, parent: "LocalModsScreen", archive_path: str,
-                 mod_dummy: Mod, *args, **kwargs):
-        super().__init__(self, *args, **kwargs)
+class ModArchiveItem(ft.Card):
+    def __init__(self, app: App, mods_screen: "LocalModsScreen", archive_path: str,
+                 mod_dummy: Mod, **kwargs):
+        super().__init__(**kwargs)
         self.app: App = app
-        self.parent: LocalModsScreen = parent
+        self.mods_screen: LocalModsScreen = mods_screen
         self.archive_path: str = archive_path
         self.archive_extension = Path(self.archive_path).suffix.replace(".", "").upper()
         self.mod: Mod = mod_dummy
@@ -2331,15 +2522,19 @@ class ModArchiveItem(UserControl):
         self.file_counting_text = ft.Ref[Text]()
         self.version_label = ft.Ref[ft.Container]()
 
+        self.surface_tint_color = ft.colors.SECONDARY
+        self.margin = ft.margin.symmetric(vertical=1)
+        self.elevation = 2
+
     async def progress_show(self, files_num: int, chunk_size: int = 1) -> None:
         now_time = datetime.now()
         self.file_counter += chunk_size
         if (now_time - self.callback_time).microseconds > CALLBACK_TIMEOUT:
             self.progress_ring.current.value = self.file_counter/files_num
-            await self.progress_ring.current.update_async()
+            self.progress_ring.current.update()
             self.file_counting_text.current.value = f"{self.file_counter} {tr('one_of_many')} {files_num}"
-            await self.file_counting_text.current.update_async()
-            await asyncio.sleep(0.001)
+            self.file_counting_text.current.update()
+            await asyncio.sleep(0)
             self.callback_time = now_time
 
     async def extract(self, e: ft.ControlEvent) -> None:
@@ -2350,7 +2545,7 @@ class ModArchiveItem(UserControl):
         self.progress_ring.current.visible = True
         self.file_counting_text.current.visible = True
         self.version_label.current.visible = False
-        await self.version_label.current.update_async()
+        self.version_label.current.update()
         mods_path = os.path.join(self.app.context.distribution_dir, "mods")
         await extract_archive_from_to(self.archive_path, os.path.join(mods_path, self.mod.id_str),
                               self.progress_show, loading_text)
@@ -2365,17 +2560,17 @@ class ModArchiveItem(UserControl):
         if self.expanded:
             self.about_archived_mod.current.text = tr("hide_menu").capitalize()
             self.about_info.current.height = None
-            await self.about_info.current.update_async()
-            await self.parent.mods_list_view.current.scroll_to_async(
+            self.about_info.current.update()
+            self.mods_screen.mods_list_view.current.scroll_to(
                 key=self.mod.id_str, duration=500)
         else:
             self.about_archived_mod.current.text = tr("about_mod").capitalize()
             self.about_info.current.height = 0
-            await self.about_info.current.update_async()
-        await self.about_archived_mod.current.update_async()
+            self.about_info.current.update()
+        self.about_archived_mod.current.update()
 
-    def build(self) -> ft.Card:
-        return ft.Card(
+    def build(self) -> None:
+        self.content = \
             ft.Container(
                 Column([
                     ft.ResponsiveRow([
@@ -2398,17 +2593,31 @@ class ModArchiveItem(UserControl):
                             ], col={"xs": 8, "xl": 6}, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                         ft.Container(col={"xs": 0, "xl": 1}),
                         Column([
-                            Text(f"[{self.archive_extension}] {self.mod.display_name}",
-                                 opacity=0.9,
-                                 weight=ft.FontWeight.W_500,
-                                 size=18),
                             ft.Row([
-                                Icon(ft.icons.WARNING_OUTLINED,
-                                     size=20,
-                                     color=ft.colors.SECONDARY),
+                                Icon(name=ft.icons.INFO_OUTLINED
+                                          if self.mod.commod_compatible
+                                          else ft.icons.WARNING_OUTLINED,
+                                    #  size=20,
+                                     color=ft.colors.TERTIARY
+                                           if self.mod.commod_compatible
+                                           else ft.colors.ERROR),
+                                ft.Container(
+                                    Text(f"[{self.archive_extension}] {self.mod.display_name}",
+                                         opacity=0.9,
+                                         weight=ft.FontWeight.W_500,
+                                         size=18), margin=ft.margin.only(bottom=3)),
+                                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            ft.Row([
                                 Text(tr("mod_in_archive"),
                                      color=ft.colors.SECONDARY,
-                                     weight=ft.FontWeight.W_300)]),
+                                     weight=ft.FontWeight.W_300,
+                                     visible=self.mod.commod_compatible),
+                                ft.Markdown(
+                                    str_to_md_format(self.mod.commod_compatible_err),
+                                    visible=not self.mod.commod_compatible,
+                                    auto_follow_links=True,
+                                    expand=True)
+                                    ]),
                             ],
                             col={"xs": 11, "xl": 14}),
                         Column([
@@ -2459,14 +2668,12 @@ class ModArchiveItem(UserControl):
                         padding=ft.padding.only(top=15),
                         height=None if self.expanded else 0)
                 ], spacing=0, scroll=ft.ScrollMode.HIDDEN, alignment=ft.MainAxisAlignment.START),
-                margin=15),
-            margin=ft.margin.symmetric(vertical=1), elevation=2,
-            )
+                margin=15)
 
 
-class ModFamily(UserControl):
-    def __init__(self, app: App, family_name: str, *args, **kwargs):
-        super().__init__(self, *args, **kwargs)
+class ModFamily(ft.AnimatedSwitcher):
+    def __init__(self, app: App, family_name: str, **kwargs):
+        super().__init__(**kwargs)
         self.app = app
         self.family_name = family_name
 
@@ -2476,7 +2683,11 @@ class ModFamily(UserControl):
 
         self._mod_items: dict[str, ModItem] = {}
 
-        self.mod_switcher = ft.Ref[ft.AnimatedSwitcher]()
+        # self.mod_switcher = ft.Ref[ft.AnimatedSwitcher]()
+
+        self.transition = ft.AnimatedSwitcherTransition.SCALE
+        self.duration = 0
+        self.reverse_duration=0
 
         self.key = ""
 
@@ -2625,9 +2836,9 @@ class ModFamily(UserControl):
         else:
             self._current_main_mod = mod
             self._current_mod = mod
-        self.mod_switcher.current.content = self._mod_items[mod.id_str]
+        self.content = self._mod_items[mod.id_str]
         self.key = self._current_main_mod.id_str
-        await self.mod_switcher.current.update_async()
+        self.update()
 
     async def switch_mod_variant(self, e: ft.ControlEvent | None = None,
                                  mod_variant: Mod | None = None) -> None:
@@ -2652,24 +2863,18 @@ class ModFamily(UserControl):
         self.key = self._current_main_mod.id_str
 
         if e:
-            self.mod_switcher.current.content = self._mod_items[mod.id_str]
-            await self.mod_switcher.current.update_async()
+            self.content = self._mod_items[mod.id_str]
+            self.update()
 
     def get_current_item(self) -> "ModItem":
         return self._mod_items[self.mod.id_str]
 
-    def build(self) -> ft.AnimatedSwitcher:
-        return ft.AnimatedSwitcher(
-            self.get_current_item(),
-            transition=ft.AnimatedSwitcherTransition.SCALE,
-            duration=0,
-            reverse_duration=0,
-            ref=self.mod_switcher
-        )
+    def build(self) -> None:
+        self.content = self.get_current_item()
 
-class ModItem(UserControl):
-    def __init__(self, app: App, mod_family: ModFamily, mod: Mod, main_mod: Mod, *args, **kwargs):
-        super().__init__(self, *args, **kwargs)
+class ModItem(ft.Card):
+    def __init__(self, app: App, mod_family: ModFamily, mod: Mod, main_mod: Mod, **kwargs):
+        super().__init__(**kwargs)
         self.app = app
         self.mod = mod
         self.main_mod = main_mod
@@ -2687,6 +2892,10 @@ class ModItem(UserControl):
         self.mod_name_text = ft.Ref[Text]()
         self.author_text = ft.Ref[Text]()
         self.mod_logo_img = ft.Ref[Image]()
+
+        self.surface_tint_color = ft.colors.PRIMARY
+        self.margin = ft.margin.symmetric(vertical=1)
+        self.elevation = 3
 
     async def install_mod(self, e: ft.ControlEvent) -> None:
         try:
@@ -2713,12 +2922,14 @@ class ModItem(UserControl):
                                   mod_var=self.mod.name,
                                   language=self.mod.language)
 
-            self.app.page.overlay.clear()
-            self.app.page.overlay.append(bg)
-            self.app.page.overlay.append(fg)
-            await self.app.page.update_async()
+            wizard = ft.Stack([bg, fg])
 
-    async def update_install_warnings(self) -> None:
+            self.app.page.overlay.clear()
+            self.app.page.overlay.append(wizard)
+            # self.app.page.overlay.append(fg)
+            self.app.page.update()
+
+    def update_install_warnings(self) -> None:
         has_validation_errors = (not (self.mod.commod_compatible
                               and self.mod.compatible
                               and self.mod.prevalidated
@@ -2728,19 +2939,21 @@ class ModItem(UserControl):
         self.cant_install_warning.current.visible = has_validation_errors and not cant_reinstall
         self.cant_reinstall_warning.current.visible = not has_validation_errors and cant_reinstall
 
-        await self.cant_install_warning.current.update_async()
-        await self.cant_reinstall_warning.current.update_async()
+        # self.cant_install_warning.current.update()
+        # self.cant_reinstall_warning.current.update()
+        self.update()
 
     async def toggle_info(self, e: ft.ControlEvent) -> None:
         if self.about_mod_btn.current.text == tr("about_mod").capitalize():
             self.about_mod_btn.current.text = tr("hide_menu").capitalize()
             await self.info_container.current.toggle()
-            await self.app.local_mods.mods_list_view.current.scroll_to_async(
+            self.app.local_mods.mods_list_view.current.scroll_to(
                 key=self.main_mod.id_str, duration=500)
         else:
             self.about_mod_btn.current.text = tr("about_mod").capitalize()
             await self.info_container.current.toggle()
-        await self.about_mod_btn.current.update_async()
+        # self.about_mod_btn.current.update()
+        self.update()
 
     async def change_lang(self, e: ft.ControlEvent | None = None, lang: str | None = None) -> None:
         lang_to_switch = e.control.data if e is not None else lang
@@ -2751,21 +2964,24 @@ class ModItem(UserControl):
         self.mod = self.mod_family.translations[lang_to_switch]
 
         self.version_info.current.content = self.mod_family.get_versions_selector(self.mod)
-        await self.version_info.current.update_async()
+        # self.version_info.current.update()
 
         self.variant_info.current.content = self.mod_family.get_variants_selector(self.mod)
-        await self.variant_info.current.update_async()
+        # self.variant_info.current.update()
 
-        await self.update_install_warnings()
+        self.update_install_warnings()
 
         # self.mod_name_text.current.value = self.mod.display_name
-        # await self.mod_name_text.current.update_async()
+        # self.mod_name_text.current.update()
         self.author_text.current.value = f"{tr(self.mod.developer_title)} {self.mod.authors}"
-        await self.author_text.current.update_async()
+        # self.author_text.current.update()
         self.mod_logo_img.current.src = self.mod.logo_path
-        await self.mod_logo_img.current.update_async()
+        # self.mod_logo_img.current.update()
         await self.update_install_btn()
         await self.info_container.current.update_info()
+        await self.info_container.current.select_flag_icon(lang_to_switch)
+
+        self.update()
 
     # async def switch_mod_variant(self, e: ft.ControlEvent | None = None, var: str | None = None) -> None:
     #     variant_switched = e.control.data if e is not None else var
@@ -2774,7 +2990,7 @@ class ModItem(UserControl):
     #         return
     #     if variant_switched is not None:
     #         self.switcher.content = variant_switched
-    #         await self.switcher.update_async()
+    #         self.switcher.update()
     #         if self.info_container.current.expanded:
     #             await variant_switched.info_container.current.toggle()
 
@@ -2786,7 +3002,7 @@ class ModItem(UserControl):
 
     #     if version_switched is not None:
     #         self.switcher.content = version_switched
-    #         await self.switcher.update_async()
+    #         self.switcher.update()
     #         if self.info_container.current.expanded:
     #             await version_switched.info_container.current.toggle()
 
@@ -2811,52 +3027,67 @@ class ModItem(UserControl):
                 ft.MaterialState.HOVERED: ft.colors.SECONDARY,
                 ft.MaterialState.DEFAULT: ft.colors.PRIMARY if not self.mod.is_reinstall
                 else ft.colors.PRIMARY_CONTAINER,
-                ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+                ft.MaterialState.DISABLED: ft.colors.with_opacity(
+                    0.3, ft.colors.PRIMARY if self.mod.is_reinstall else ft.colors.SECONDARY)
             })
 
         btn.disabled = (not self.mod.can_install
                         or (self.mod.is_reinstall and not self.mod.can_be_reinstalled))
 
-        if self.mod.can_be_reinstalled and self.mod.is_reinstall:
-            btn.tooltip = tr("reinstall_mod_ask")
+        if self.app.local_mods.game_is_running:
+            btn.tooltip = tr("game_is_running")
+        elif not self.mod.installment_compatible:
+            btn.tooltip = tr("incompatible_game_installment")
+        elif self.mod.is_reinstall:
+            if self.mod.can_be_reinstalled:
+                btn.tooltip = tr("reinstall_mod_ask")
+            else:
+                btn.tooltip = tr("already_installed")
+        elif not self.mod.can_install:
+            btn.tooltip = tr("cant_be_installed")
         else:
             btn.tooltip = None
 
-        await btn.update_async()
+        btn.update()
 
 
-    async def did_mount_async(self) -> None:
+    def did_mount(self) -> None:
         self.version_info.current.content = self.mod_family.get_versions_selector(self.mod)
         self.version_info.current.margin = 0
 
-        await self.version_info.current.update_async()
+        # self.version_info.current.update()
 
         self.variant_info.current.content = self.mod_family.get_variants_selector(self.mod)
         self.variant_info.current.margin = 0
 
-        await self.variant_info.current.update_async()
+        # self.variant_info.current.update()
 
-        await self.update_install_warnings()
+        self.update_install_warnings()
 
         if (self.app.config.lang != self.mod.language
            and self.app.config.lang in self.mod_family.translations):
-            await self.change_lang(lang=self.app.config.lang)
+            self.page.run_task(self.change_lang, lang=self.app.config.lang)
+        self.update()
 
-    def build(self) -> ft.Card:
+    def build(self) -> None:
         tr_tags = [tr(tag.lower()).capitalize() for tag in self.mod.tags]
         mod_cant_install = (not self.mod.can_install
                             or (self.mod.is_reinstall and not self.mod.can_be_reinstalled))
         if self.app.local_mods.game_is_running:
             install_tooltip = tr("game_is_running")
-        elif self.mod.can_be_reinstalled and self.mod.is_reinstall:
-            install_tooltip = tr("reinstall_mod_ask")
         elif not self.mod.installment_compatible:
             install_tooltip = tr("incompatible_game_installment")
+        elif self.mod.is_reinstall:
+            if self.mod.can_be_reinstalled:
+                install_tooltip = tr("reinstall_mod_ask")
+            else:
+                install_tooltip = tr("already_installed")
+        elif not self.mod.can_install:
+            install_tooltip = tr("cant_be_installed")
         else:
             install_tooltip = None
 
-        return ft.Card(
-            ft.Container(
+        self.content = ft.Container(
                 Column([
                     ft.ResponsiveRow([
                         Image(src=self.mod.logo_path,
@@ -2864,7 +3095,7 @@ class ModItem(UserControl):
                               fit=ft.ImageFit.FIT_WIDTH,
                               gapless_playback=True,
                               aspect_ratio=2,
-                              col={"xs": 8, "xl": 6},
+                              col={"xs": 9, "xl": 7},
                               border_radius=6),
                         ft.Container(col={"xs": 0, "xl": 1}),
                         ft.Container(Column([
@@ -2906,7 +3137,7 @@ class ModItem(UserControl):
                                          tooltip=", ".join(tr_tags),
                                          visible=len(self.mod.tags) > 3)],
                                 wrap=True, spacing=5, run_spacing=5)
-                            ]), clip_behavior=ft.ClipBehavior.HARD_EDGE, col={"xs": 11, "xl": 14}),
+                            ]), clip_behavior=ft.ClipBehavior.HARD_EDGE, col={"xs": 13, "xl": 16}),
                         Column([
                             Column([Row([ft.Container(
                                     self.mod_family.get_versions_selector(self.mod),
@@ -2934,7 +3165,9 @@ class ModItem(UserControl):
                                       ft.MaterialState.DEFAULT: ft.colors.PRIMARY
                                       if not self.mod.is_reinstall
                                       else ft.colors.PRIMARY_CONTAINER,
-                                      ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+                                      ft.MaterialState.DISABLED: ft.colors.with_opacity(
+                                          0.3, ft.colors.PRIMARY if self.mod.is_reinstall
+                                               else ft.colors.SECONDARY)
                                   }
                                 ),
                                 ref=self.install_btn,
@@ -2946,18 +3179,16 @@ class ModItem(UserControl):
                                                 66, ft.AnimationCurve.EASE_IN),
                                               ref=self.about_mod_btn,
                                               on_click=self.toggle_info)
-                            ], col={"xs": 7, "xl": 5}, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-                        ], spacing=7, columns=26, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            ], col={"xs": 8, "xl": 6}, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                        ], spacing=7, columns=30, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ModInfo(self.app, self.mod, self, ref=self.info_container)
                 ], spacing=0, scroll=ft.ScrollMode.HIDDEN, alignment=ft.MainAxisAlignment.START),
-                margin=10),
-            margin=ft.margin.symmetric(vertical=1), elevation=3,
-            )
+                margin=10)
 
 
-class ModInstallWizard(UserControl):
+class ModInstallWizard(ft.Container):
     def __init__(self, parent: ModItem, app: App, mod: Mod, mod_var: str, language: str, **kwargs):
-        super().__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.mod_item = parent
         self.app: App = app
         self.main_mod = mod
@@ -2966,6 +3197,8 @@ class ModInstallWizard(UserControl):
         self.current_screen = None
         self.options: list[self.ModOption] = []
         self.variant_buttons: dict[str, Mod] = {}
+
+        self.expand = True
 
         self.can_close = True
 
@@ -2988,6 +3221,8 @@ class ModInstallWizard(UserControl):
         self.install_ask = ft.Ref[Text]()
         self.no_base_content_mod_warning = ft.Ref[ft.Container]()
 
+        self.flag_buttons = ft.Ref[ft.ResponsiveRow]()
+
         self.install_status_text = ft.Ref[Text]()
         self.install_details_text = ft.Ref[Text]()
         self.install_details_number_text = ft.Ref[Text]()
@@ -3004,47 +3239,77 @@ class ModInstallWizard(UserControl):
 
         self.language_choice_required = False
 
+        self.alignment = ft.alignment.center
+        self.padding = ft.padding.symmetric(vertical=10, horizontal=10)
+
     class Steps(Enum):
         WELCOME = 0
         INSTALLING = 1
         SETTING_UP = 2
         RESULTS = 3
 
-    class ModOption(UserControl):
-        def __init__(self, parent: "ModInstallWizard", option: OptionalContent,
+    class ModOption(ft.Card):
+        def __init__(self, wizard: "ModInstallWizard", option: OptionalContent,
                      existing_content: str = "", **kwargs):
-            super().__init__(self, **kwargs)
+            super().__init__(**kwargs)
             self.option = option
-            self.parent = parent
-            self.active = True
+            self.wizard = wizard
             self.existing_content = existing_content
-            self.card = ft.Ref[ft.Card]()
-            self.warning_text = ft.Ref[Text]()
+
+            self.active = True
             self.choice = None
             self.complex_selector = False
+
+            self.warning_text = ft.Ref[Text]()
             self.checkboxes: list[ft.Checkbox] = []
 
+            self.option_screens = ft.Ref[Column]()
+            self.screen_pool = self.get_screen_pool(self.option.content_names)
+            self.screenshots_container = ft.Ref[ft.Container]()
+            self.screenshots_selector = ft.Ref[ft.Dropdown]()
+            self.screenshot_img = ft.Ref[Image]()
+            self.screenshot_num = ft.Ref[Text]()
+            self.screenshot_text = ft.Ref[Text]()
+            self.screenshot_tip = ft.Ref[Text]()
+            self.screenshot_preview = ft.Ref[ft.GestureDetector]()
+            self.screen_preview_img = ft.Ref[Image]()
+            self.screen_preview_text = ft.Ref[Text]()
+
+            self.surface_tint_color = ft.colors.PRIMARY
+
+        @property
+        def app(self) -> App:
+            return self.wizard.app
+
+        @property
+        def mod(self) -> Mod:
+            return self.wizard.mod_var_lang
+
+        @property
+        def current_screenshot(self) -> Screenshot:
+            return self.screen_pool.current_screen
+
+        def get_screen_pool(self, option_names: list[str]) -> ModInfo.ScreenPool:
+            return ModInfo.ScreenPool([screen for screen in self.mod.screenshots
+                               if screen.option_name in option_names])
+
         async def set_active(self) -> None:
-            if self.active:
-                return
-            self.card.current.elevation = 5
-            self.card.current.opacity = 1.0
-            self.card.current.scale = 1.0
+            self.elevation = 5
+            self.scale = 1.0
+            self.color = "surfaceContainer"
             self.warning_text.current.visible = False
-            await self.card.current.update_async()
+            self.update()
             self.active = True
-            await self.parent.keep_track_of_options()
+            await self.wizard.keep_track_of_options()
 
         async def set_inactive(self) -> None:
-            if not self.active:
-                return
-            self.card.current.elevation = 0
-            self.card.current.opacity = 0.8
-            self.card.current.scale = 0.99
+            self.elevation = 0
+            self.scale = 0.99
+            self.color = ft.colors.SURFACE
             self.warning_text.current.visible = True
-            await self.card.current.update_async()
+            self.update()
             self.active = False
-            await self.parent.keep_track_of_options()
+            await self.wizard.keep_track_of_options()
 
         async def update_state(self) -> None:
             if any(check.value for check in self.checkboxes):
@@ -3067,25 +3332,233 @@ class ModInstallWizard(UserControl):
                     for check in self.checkboxes:
                         if check.data != self.choice:
                             check.value = False
-                            await check.update_async()
+                            check.update()
             await self.update_state()
 
             if not self.existing_content:
                 if changed_from_default:
-                    await self.parent.change_from_default()
+                    await self.wizard.change_from_default()
                 else:
-                    await self.parent.change_to_default()
+                    await self.wizard.change_to_default()
 
-        def build(self) -> ft.Card:
+        async def update_screens(self) -> None:
+            if self.screen_pool.screens:
+                if self.current_screenshot is None:
+                    self.screen_pool.next_screen()
+
+                self.screenshot_img.current.src = self.current_screenshot.screen_path
+                self.screenshot_img.current.data = self.current_screenshot
+
+                self.screenshot_num.current.value =\
+                    f"{self.screen_pool.current_index + 1} {tr('one_of_many')} {self.screen_pool.pool_size}"
+                self.screenshot_num.current.visible = self.screen_pool.pool_size > 1
+
+                self.screenshot_text.current.value = self.current_screenshot.text
+                self.screenshot_text.current.visible = bool(self.current_screenshot.text)
+
+                self.screenshot_tip.current.value = self.get_screenshot_tip()
+            self.update()
+
+        async def show_next_screen(self, e: ft.ControlEvent) -> None:
+            if self.mod.screenshots:
+                self.screen_pool.next_screen()
+                await self.update_screens()
+
+        async def show_previous_screen(self, e: ft.ControlEvent) -> None:
+            if self.mod.screenshots:
+                self.screen_pool.previous_screen()
+                await self.update_screens()
+
+        async def switch_compare_screen(self, e: ft.ControlEvent) -> None:
+            screen_widget = self.screenshot_img.current
+            if screen_widget.data.compare_path:
+                if screen_widget.src == self.current_screenshot.screen_path:
+                    screen_widget.src = self.current_screenshot.compare_path
+                else:
+                    screen_widget.src = self.current_screenshot.screen_path
+                screen_widget.update()
+
+        async def switch_expanded_compare_screen(self, e: ft.ControlEvent) -> None:
+            if self.current_screenshot.compare_path:
+                if self.screen_preview_img.current.src == self.current_screenshot.screen_path:
+                    self.screen_preview_img.current.src = self.current_screenshot.compare_path
+                else:
+                    self.screen_preview_img.current.src = self.current_screenshot.screen_path
+                self.screen_preview_img.current.update()
+
+        def get_screen_preview_text(self) -> str:
+            return tr("lmb_to_discard") + (
+                f', {tr("rmb_to_compare")}' if self.current_screenshot.compare_path else "") + (
+                    f', {tr("arrows_to_cycle")}' if self.screen_pool.pool_size > 1 else "")
+
+        async def handle_keyboard_shortcuts(self, e: ft.KeyboardEvent) -> None:
+            # if not self.screenshot_preview.current.visible:
+            #     return
+
+            if e.key == "Arrow Right":
+                await self.show_next_screen(e=None)
+            elif e.key == "Arrow Left":
+                await self.show_previous_screen(e=None)
+            else:
+                return
+
+            self.screen_preview_img.current.src = self.current_screenshot.screen_path
+            self.screen_preview_text.current.value = self.get_screen_preview_text()
+            self.screen_preview_img.current.update()
+            self.screen_preview_text.current.update()
+
+        async def discard_screenshot_preview(self, e: ft.ControlEvent) -> None:
+            self.app.page.on_keyboard_event.unsubscribe(self.handle_keyboard_shortcuts)
+
+            self.screenshot_preview.current.visible = False
+            self.screenshot_preview.current.update()
+            self.app.page.overlay.pop()
+
+        async def expand_screenshot_preview(self, e: ft.ControlEvent) -> None:
+            self.app.page.on_keyboard_event = self.handle_keyboard_shortcuts
+
+            self.app.page.overlay.append(
+                ft.GestureDetector(
+                    ft.Container(
+                        Column([
+                            ft.Stack([
+                                ft.ResponsiveRow(
+                                    [Image(self.current_screenshot.screen_path,
+                                           ref=self.screen_preview_img,
+                                           gapless_playback=True)],
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                ft.ResponsiveRow([
+                                    ft.Container(
+                                        Text(self.get_screen_preview_text(),
+                                             color=ft.colors.WHITE70,
+                                             style=ft.TextStyle(shadow=ft.BoxShadow(3, 3)),
+                                             theme_style=ft.TextThemeStyle.BODY_LARGE,
+                                             text_align=ft.TextAlign.CENTER,
+                                             ref=self.screen_preview_text),
+                                        margin=ft.margin.only(top=5))
+                                    ])
+                                ], alignment=ft.alignment.bottom_center),
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER),
+                        bgcolor=ft.colors.BLACK87),
+                    ref=self.screenshot_preview,
+                    on_tap=self.discard_screenshot_preview,
+                    on_secondary_tap=self.switch_expanded_compare_screen,
+                ))
+            self.app.page.update()
+
+        def get_screenshot_tip(self) -> str:
+            return tr("lmb_to_zoom") + (
+                    f', {tr("rmb_to_compare")}' if self.current_screenshot.compare_path else "")
+
+        async def set_option_screens(self) -> None:
+            if not self.screen_pool.screens:
+                return
+
+            self.option_screens.current.controls = [
+                ft.GestureDetector(
+                    ft.Stack([
+                        Image(src=get_internal_file_path("assets/no_logo.png"),
+                              gapless_playback=True,
+                              fit=ft.ImageFit.FIT_HEIGHT,
+                              ref=self.screenshot_img),
+                        ft.Container(
+                            Text("Placeholder tip",
+                                 color=ft.colors.WHITE,
+                                 text_align=ft.TextAlign.CENTER,
+                                 ref=self.screenshot_tip,
+                                 style=ft.TextStyle(
+                                     shadow=ft.BoxShadow(3, 3))
+                                 ),
+                            alignment=ft.alignment.center,
+                            margin=ft.margin.only(top=5)
+                        ),
+                    ], alignment=ft.alignment.center),
+                    on_tap=self.expand_screenshot_preview,
+                    on_secondary_tap=self.switch_compare_screen),
+                Text("Placeholder description", ref=self.screenshot_text,
+                     text_align=ft.TextAlign.CENTER),
+                Row([
+                    IconButton(ft.icons.CHEVRON_LEFT,
+                                       visible=self.screen_pool.pool_size > 1,
+                                       on_click=self.show_previous_screen),
+                    Text("Placeholder number", ref=self.screenshot_num),
+                    IconButton(ft.icons.CHEVRON_RIGHT,
+                                       visible=self.screen_pool.pool_size > 1,
+                                       on_click=self.show_next_screen)],
+                    alignment=ft.MainAxisAlignment.CENTER),
+                ]
+            self.option_screens.current.update()
+
+        async def update_screens_group(self, e: ft.ControlEvent) -> None:
+            self.screens_option_name = e.data
+            self.screen_pool = self.get_screen_pool(self.screens_option_name)
+            await self.set_option_screens()
+            await self.update_screens()
+
+        def get_screenshots_container(self) -> ExpandableContainer:
+            screen_group_selector_data = {}
+            for screen in self.screen_pool.screens:
+                if screen.option_name == "base" and self.option.name == "base":
+                    screen_group_selector_data["base"] = tr("base_mod_screenshots")
+                elif screen.option_name in self.option.content_names:
+                    header = (tr("option_variant_screenshots") if "/" in screen.option_name
+                              else tr("option_screenshots"))
+                    screen_group_selector_data[screen.option_name] = (
+                        f'{header} "{self.mod.screen_option_names[screen.option_name]}"')
+            if not screen_group_selector_data:
+                screen_group_selector_data["base"] = tr("base_mod_screenshots")
+
+            start_key = "base" if "base" in screen_group_selector_data else next(iter(screen_group_selector_data.keys()))
+
+            if not self.screen_pool.screens:
+                return ft.Container()
+
+            return ExpandableContainer(
+                label_expanded=tr("screenshots").title(),
+                label_collapsed=tr("screenshots").title(),
+                min_height=38,
+                border_thickness=1,
+                color=ft.colors.PRIMARY,
+                vertical_margin=5,
+                padding=5,
+                bgcolor=ft.colors.with_opacity(0.6, ft.colors.SURFACE),
+                border=ft.border.all(1, color=ft.colors.SURFACE),
+                expanded=False,
+                content=ft.Column([
+                ft.ResponsiveRow([
+                        ft.Dropdown(
+                                value=start_key,
+                                dense=True,
+                                height=42,
+                                text_size=13,
+                                options=[
+                                    ft.dropdown.Option(key=opt_k, text=opt_v)
+                                    for opt_k, opt_v in screen_group_selector_data.items()
+                                ],
+                                on_change=self.update_screens_group,
+                                ref=self.screenshots_selector)],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    visible=len(screen_group_selector_data) > 1),
+                ft.Column([],
+                    ref=self.option_screens,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER))
+
+        def build(self) -> None:
             self.active = (self.option.default_option != "skip"
                            and self.existing_content != "skip")
+
             if self.option.install_settings:
                 selector = []
                 self.complex_selector = True
                 index = 0
                 for setting in self.option.install_settings:
                     if index != 0:
-                        selector.append(ft.Divider(color=ft.colors.PRIMARY, height=4, opacity=0.15))
+                        selector.append(ft.Divider(height=4))
                     index += 1
 
                     if self.existing_content:
@@ -3108,8 +3581,12 @@ class ModInstallWizard(UserControl):
                         selector.append(
                             Row([
                                 check,
-                                Text(setting_display_name, weight=ft.FontWeight.BOLD),
-                                Text(setting.description, no_wrap=False),
+                                Text(setting_display_name,
+                                     color=ft.colors.PRIMARY,
+                                     weight=ft.FontWeight.BOLD),
+                                Text(setting.description,
+                                     color=ft.colors.PRIMARY,
+                                     no_wrap=False),
                                 ], wrap=True, run_spacing=5)
                         )
                     else:
@@ -3117,11 +3594,14 @@ class ModInstallWizard(UserControl):
                             Row([
                                 Row([check,
                                      Text(setting_display_name,
+                                          color=ft.colors.PRIMARY,
                                           weight=ft.FontWeight.BOLD),
                                      Text(f"[{setting.name}]",
                                           opacity=0.6) if setting.display_name else Text()
                                      ]),
-                                Text(setting.description, no_wrap=False),
+                                Text(setting.description,
+                                     color=ft.colors.PRIMARY,
+                                     no_wrap=False),
                                 ], wrap=True, run_spacing=5)
                         )
             else:
@@ -3133,91 +3613,99 @@ class ModInstallWizard(UserControl):
                 selector = ft.Checkbox(data="default",
                                        disabled=bool(self.existing_content or self.option.forced_option)
                                        and self.existing_content != "skip",
-                                       value=value,
-                                       on_change=self.checkbox_action)
+                                       on_change=self.checkbox_action,
+                                       value=value)
                 self.checkboxes.append(selector)
 
             if self.complex_selector:
+
                 if not self.existing_content:
                     self.active = self.active and self.option.default_option is not None
-                return ft.Card(ft.Container(
-                    Column([
+
+                self.content = ft.Container(
+                    ft.ResponsiveRow([
                         Row([
                             Text(self.option.display_name,
-                                 color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD),
+                                 weight=ft.FontWeight.BOLD),
                             Text(f"[{self.option.name}]", opacity=0.6),
                             Text(tr("will_not_be_installed").capitalize(),
                                  color=ft.colors.TERTIARY,
                                  visible=not self.active and self.existing_content in ("skip", ""),
                                  ref=self.warning_text,
-                                 opacity=0.8),
+                                 weight=ft.FontWeight.W_500),
                             Text(tr("cant_change_choice").capitalize(),
                                  color=ft.colors.ERROR,
                                  visible=bool(self.existing_content)
                                  and self.existing_content != "skip",
-                                 opacity=0.8)
-                            ], wrap=True, run_spacing=5),
+                                 opacity=0.85)
+                            ], wrap=True, run_spacing=5, col={"xs": 12, "xl": 11, "xxl": 10},
+                            alignment=ft.MainAxisAlignment.START),
                         Column([
                             Text(self.option.description, no_wrap=False),
                             Text(f'{tr("choose_one_of_the_options").capitalize()}:',
                                  color=ft.colors.SECONDARY),
                             *selector,
-                            ], spacing=5)
-                    ]),
-                    margin=ft.margin.only(left=20, right=15, top=15, bottom=20),
-                ),
-                 animate_opacity=ft.animation.Animation(100, ft.AnimationCurve.EASE_IN),
-                 elevation=5 if self.active else 0,
-                 opacity=1 if self.active else 0.8,
-                 scale=1 if self.active else 0.99,
-                 ref=self.card)
+                            ], spacing=5, col={"xs": 12, "xl": 11, "xxl": 10},
+                            alignment=ft.MainAxisAlignment.START),
+                        Column([self.get_screenshots_container()],
+                            col={"xs": 12, "xl": 11, "xxl": 10})
+                    ], alignment=ft.MainAxisAlignment.CENTER),
+                    margin=ft.margin.only(left=20, right=15, top=15, bottom=10),
+                    alignment=ft.alignment.center
+                )
+            else:
+                self.content = ft.Container(
+                    ft.ResponsiveRow([
+                        Row([
+                            selector,
+                            Text(self.option.display_name,
+                                 weight=ft.FontWeight.BOLD),
+                            Text(f"[{self.option.name}]", opacity=0.6),
+                            Text(tr("will_not_be_installed").capitalize(),
+                                 color=ft.colors.TERTIARY,
+                                 visible=not self.active and self.existing_content != "yes",
+                                 ref=self.warning_text,
+                                 weight=ft.FontWeight.W_500),
+                            Text(tr("cant_change_choice").capitalize(),
+                                 color=ft.colors.ERROR,
+                                 visible=bool(self.existing_content) and not self.option.forced_option
+                                 and self.existing_content != "skip",
+                                 opacity=0.85),
+                            Text(tr("forced_option").capitalize(),
+                                 color=ft.colors.TERTIARY,
+                                 visible=self.option.forced_option,
+                                 opacity=0.85)
+                            ], wrap=True, run_spacing=5, col={"xs": 12, "xl": 11, "xxl": 10},
+                            alignment=ft.MainAxisAlignment.START),
+                        Row([
+                            Text(self.option.description, no_wrap=False, expand=True)
+                            ], col={"xs": 12, "xl": 11, "xxl": 10},
+                            alignment=ft.MainAxisAlignment.START),
+                        Column([self.get_screenshots_container()],
+                            col={"xs": 12, "xl": 11, "xxl": 10})
+                    ], alignment=ft.MainAxisAlignment.CENTER),
+                    margin=ft.margin.only(left=20, right=15, top=15, bottom=15),
+                    alignment=ft.alignment.center
+                )
 
-            return ft.Card(ft.Container(
-                Column([
-                    Row([
-                        selector,
-                        Text(self.option.display_name,
-                             color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD),
-                        Text(f"[{self.option.name}]", opacity=0.6),
-                        Text(tr("will_not_be_installed").capitalize(),
-                             color=ft.colors.TERTIARY,
-                             visible=not self.active and self.existing_content != "yes",
-                             ref=self.warning_text,
-                             opacity=0.8),
-                        Text(tr("cant_change_choice").capitalize(),
-                             color=ft.colors.ERROR,
-                             visible=bool(self.existing_content) and not self.option.forced_option
-                             and self.existing_content != "skip",
-                             opacity=0.8),
-                        Text(tr("forced_option").capitalize(),
-                             color=ft.colors.TERTIARY,
-                             visible=self.option.forced_option,
-                             opacity=0.8)
-                        ], wrap=True, run_spacing=5),
-                    Row([
-                        Text(self.option.description, no_wrap=False, expand=True)
-                        ]),
-                ]), margin=ft.margin.only(left=20, right=15, top=15, bottom=20)
-            ),
-             elevation=5 if self.active else 0,
-             opacity=1 if self.active else 0.8,
-             scale=1 if self.active else 0.99,
-             ref=self.card)
+        def did_mount(self) -> None:
+            self.page.run_task(self.set_active if self.active else self.set_inactive)
+            self.page.run_task(self.set_option_screens)
+            self.page.run_task(self.update_screens)
 
     async def close_wizard(self, e: ft.ControlEvent) -> None:
-        # self.visible = False
-        # await self.update_async()
         if self.can_close:
-            self.app.page.overlay.clear()
+            self.app.page.overlay.pop()
+
             if e.control.data == "close":
                 await self.app.refresh_page()
             self.app.page.floating_action_button.visible = True
-            await self.app.page.floating_action_button.update_async()
-            await self.app.page.update_async()
+            self.app.page.floating_action_button.update()
+            self.app.page.update()
 
-    async def did_mount_async(self) -> None:
+    def did_mount(self) -> None:
         self.app.page.floating_action_button.visible = False
-        await self.app.page.floating_action_button.update_async()
+        self.app.page.floating_action_button.update()
         validated_translations = []
         for mod in self.mod_var_lang.translations_loaded.values():
             if mod.can_install:
@@ -3228,7 +3716,8 @@ class ModInstallWizard(UserControl):
             # TODO: handle gracefully or remove entirely
             raise NoModsFoundError("No available for installation versions")
         # elif num_valid_translations == 1:
-        await self.show_welcome_mod_screen()
+
+        self.page.run_task(self.show_welcome_mod_screen)
 
     async def agree_to_install(self, e: ft.ControlEvent) -> None:
         if self.can_have_custom_install:
@@ -3244,18 +3733,18 @@ class ModInstallWizard(UserControl):
             description = f"{tr('copying_file').capitalize()}: {file_name} - {file_size} KB"
             self.install_details_number_text.current.value = file_counting_text
             self.install_details_text.current.value = description
-            await self.install_details_number_text.current.update_async()
-            await self.install_details_text.current.update_async()
+            self.install_details_number_text.current.update()
+            self.install_details_text.current.update()
 
             self.install_progress_bar.current.value = file_num / files_count
-            await self.install_progress_bar.current.update_async()
+            self.install_progress_bar.current.update()
             self.callback_time = now_time
 
     async def callable_for_status(self, status: str) -> None:
         now_time = datetime.now()
         if (now_time - self.callback_time).microseconds > CALLBACK_TIMEOUT:
             self.install_status_text.current.value = status
-            await self.install_status_text.current.update_async()
+            self.install_status_text.current.update()
             self.callback_time = now_time
 
     async def show_install_progress(self, e: ft.ControlEvent) -> None:
@@ -3266,14 +3755,10 @@ class ModInstallWizard(UserControl):
         is_comrem = mod.name == "community_remaster"
         is_compatch = mod.name == "community_patch"
         is_comrem_or_patch = is_comrem or is_compatch
-        # COMPATCHSPECIAL
-        # if isinstance(e.control.data, dict):
-            # is_compatch = e.control.data["is_compatch"]
-        # is_comrem = is_comrem_or_patch and not is_compatch
 
         self.screen.current.content = ft.Column([
             Text(f"{tr('install_in_progress').capitalize()}...",
-                 style=ft.TextThemeStyle.HEADLINE_SMALL),
+                 theme_style=ft.TextThemeStyle.HEADLINE_SMALL),
             ft.ResponsiveRow([
                 Image(src=mod.banner_path,
                       visible=mod.banner_path is not None,
@@ -3296,12 +3781,13 @@ class ModInstallWizard(UserControl):
                                    no_wrap=False, col=12)],
                              alignment=ft.MainAxisAlignment.CENTER),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-        await self.screen.current.update_async()
+        # self.screen.current.update()
         self.close_wizard_btn.current.disabled = True
         self.close_wizard_btn.current.selected = True
-        await self.close_wizard_btn.current.update_async()
+        # self.close_wizard_btn.current.update()
         self.close_wizard_btn_tooltip.current.message = tr("install_please_wait")
-        await self.close_wizard_btn_tooltip.current.update_async()
+        # self.close_wizard_btn_tooltip.current.update()
+        self.update()
 
         install_settings = {}
 
@@ -3463,7 +3949,7 @@ class ModInstallWizard(UserControl):
                           f"> Exception and trace:\n```py\n{ex}```\n")
 
         mod_basic_info.append(Text(mod_display_name,
-                                   style=ft.TextThemeStyle.HEADLINE_SMALL,
+                                   theme_style=ft.TextThemeStyle.HEADLINE_SMALL,
                                    no_wrap=False, color=ft.colors.PRIMARY))
         mod_basic_info.append(Text(mod_description, no_wrap=False))
         mod_basic_info.append(Text(f"{tr(mod.developer_title)} {mod.authors}",
@@ -3580,7 +4066,7 @@ class ModInstallWizard(UserControl):
 
         self.screen.current.content = ft.Column([
             ft.Text(tr("install_results").capitalize(),
-                    style=ft.TextThemeStyle.HEADLINE_SMALL),
+                    theme_style=ft.TextThemeStyle.HEADLINE_SMALL),
             mod_status_and_description,
             Column(controls=mod_info, height=0,
                    ref=mod_info_column,
@@ -3596,27 +4082,29 @@ class ModInstallWizard(UserControl):
 
         self.app.reset_session_compatibility()
 
-        await self.screen.current.update_async()
+        # self.screen.current.update()
+        self.update()
         self.can_close = False
         await asyncio.sleep(1)
         mod_status_and_description.content = c2
-        await mod_status_and_description.update_async()
+        mod_status_and_description.update()
         c2.height = None
         mod_info_column.current.height = None
         reinstall_warn_container.height = None
         close_window_btn.current.height = None
-        await c2.update_async()
-        await mod_info_column.current.update_async()
-        await reinstall_warn_container.update_async()
-        await close_window_btn.current.update_async()
+        # c2.update()
+        # mod_info_column.current.update()
+        # reinstall_warn_container.update()
+        # close_window_btn.current.update()
 
         self.close_wizard_btn.current.data = "close"
         self.close_wizard_btn.current.disabled = False
         self.close_wizard_btn.current.selected = False
-        await self.close_wizard_btn.current.update_async()
+        # self.close_wizard_btn.current.update()
 
         self.close_wizard_btn_tooltip.current.message = tr("close_window").capitalize()
-        await self.close_wizard_btn_tooltip.current.update_async()
+        # self.close_wizard_btn_tooltip.current.update()
+        self.update()
 
         self.can_close = True
 
@@ -3640,8 +4128,14 @@ class ModInstallWizard(UserControl):
                     content=icon,
                     data=lang,
                     tooltip=flag_tooltip,
-                    bgcolor=ft.colors.BLACK12,
                     aspect_ratio=1,
+                    selected=False,
+                    style=ft.ButtonStyle(
+                        bgcolor={
+                            ft.MaterialState.SELECTED: ft.colors.PRIMARY_CONTAINER,
+                            ft.MaterialState.DEFAULT: ft.colors.BLACK12,
+                        }
+                    ),
                     expand=1)
 
             if mod.can_install:
@@ -3650,11 +4144,7 @@ class ModInstallWizard(UserControl):
             flag_buttons.append(flag_btn)
 
         num_langs = len(flag_buttons)
-        return ft.ResponsiveRow([
-            ft.Row(flag_buttons, alignment=ft.MainAxisAlignment.CENTER, col=num_langs)
-            ],
-            visible=num_langs > 1,
-            alignment=ft.MainAxisAlignment.CENTER, columns=12 if num_langs <= 12 else num_langs)
+        return [ft.Row(flag_buttons, alignment=ft.MainAxisAlignment.CENTER, col=num_langs)]
 
     async def change_from_default(self) -> None:
         self.default_install_btn.current.content = Row([
@@ -3663,7 +4153,7 @@ class ModInstallWizard(UserControl):
         ], alignment=ft.MainAxisAlignment.CENTER)
         self.default_install_btn.current.disabled = False
 
-        await self.default_install_btn.current.update_async()
+        self.default_install_btn.current.update()
 
     async def change_to_default(self) -> None:
         is_default_install = True
@@ -3694,16 +4184,17 @@ class ModInstallWizard(UserControl):
                 if option_card.checkboxes[0].value != default_value:
                     changed = True
                     option_card.checkboxes[0].value = default_value
-                    await option_card.checkboxes[0].update_async()
+                    # option_card.checkboxes[0].update()
             else:
                 for check in option_card.checkboxes:
                     is_default = check.data == default_value
                     if check.value != is_default:
                         check.value = is_default
                         changed = True
-                    await check.update_async()
+                    # check.update()
             if changed:
                 await option_card.update_state()
+        self.update()
 
     async def set_to_default(self, e: ft.ControlEvent | None = None,
                              cards_are_set: bool = False) -> None:
@@ -3716,7 +4207,7 @@ class ModInstallWizard(UserControl):
         ], alignment=ft.MainAxisAlignment.CENTER)
         self.default_install_btn.current.disabled = True
 
-        await self.default_install_btn.current.update_async()
+        self.default_install_btn.current.update()
 
     async def show_variant_welcome(self, e: ft.ControlEvent) -> None:
         self.current_variant = self.main_mod.variants_loaded[e.control.data]
@@ -3853,6 +4344,8 @@ class ModInstallWizard(UserControl):
         else:
             welcome_install_prompt = tr("install_mod_ask")
 
+        flag_btns = self.get_flag_buttons() if self.current_variant.translations else []
+
         self.screen.current.content = ft.Column([
             ft.ResponsiveRow([
                 Image(src=variant_used.banner_path,
@@ -3874,18 +4367,20 @@ class ModInstallWizard(UserControl):
             ft.ResponsiveRow([ft.Container(ft.Divider(height=3), col={"xs": 12, "xl": 11, "xxl": 10})],
                              alignment=ft.MainAxisAlignment.CENTER),
             ft.Container(Column([
-                ft.Container(Row([
+                ft.Row([ft.Container(Row([
                         Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
                         Column([
                             Text(tr("check_reinstallability").capitalize(), weight=ft.FontWeight.BOLD,
                                  color=ft.colors.ERROR),
                             Text(reinstall_warning, no_wrap=False, color=ft.colors.ERROR)], spacing=5),
-                        ], expand=True, spacing=15),
-                        visible=bool(reinstall_warning), border_radius=10, padding=15,
+                        ], spacing=30, alignment=ft.MainAxisAlignment.CENTER),
+                        visible=bool(reinstall_warning), border_radius=10,
+                        padding=ft.padding.only(top=15, bottom=15, left=30, right=60),
                         margin=ft.margin.only(bottom=10),
-                        bgcolor=ft.colors.ERROR_CONTAINER),
-                self.get_flag_buttons() if bool(self.current_variant.translations)
-                else ft.Container(visible=False),
+                        bgcolor=ft.colors.ERROR_CONTAINER)], alignment=ft.MainAxisAlignment.CENTER, tight=True),
+                ft.ResponsiveRow(flag_btns, visible=bool(self.current_variant.translations),
+                                 ref=self.flag_buttons, alignment=ft.MainAxisAlignment.CENTER,
+                                 columns=12 if len(flag_btns) <= 12 else len(flag_btns)),
                 Text(welcome_install_prompt,
                      text_align=ft.TextAlign.CENTER),
                 Text(f"({tr('mod_install_language').capitalize()}: {variant_used.lang_label})",
@@ -3895,7 +4390,8 @@ class ModInstallWizard(UserControl):
                 alignment=ft.MainAxisAlignment.CENTER)
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-        await self.screen.current.update_async()
+        self.screen.current.update()
+        await self.select_flag_icon(lang)
         await self.update_status_capsules(self.Steps.WELCOME)
 
     async def keep_track_of_options(self, update: bool = True) -> None:
@@ -3916,10 +4412,11 @@ class ModInstallWizard(UserControl):
             self.ok_button.current.disabled = False
             self.no_base_content_mod_warning.current.visible = False
         if update:
-            if self.mod_var_lang.no_base_content:
-                await self.ok_button.current.update_async()
-                await self.no_base_content_mod_warning.current.update_async()
-            await self.install_ask.current.update_async()
+            # if self.mod_var_lang.no_base_content:
+                # self.ok_button.current.update()
+                # self.no_base_content_mod_warning.current.update()
+            # self.install_ask.current.update()
+            self.update()
 
     async def show_settings_screen(self, e: ft.ControlEvent | None = None) -> None:
         self.options.clear()
@@ -3998,15 +4495,16 @@ class ModInstallWizard(UserControl):
         self.screen.current.content = ft.Column([
             ft.ResponsiveRow([
                 Image(src=mod.banner_path, visible=mod.banner_path is not None,
-                      col={"xs": 6, "xl": 5, "xxl": 4})
+                      col={"xs": 5, "xl": 4, "xxl": 3})
                 ], alignment=ft.MainAxisAlignment.CENTER),
             ft.ResponsiveRow([
                 ft.Container(Column([
-                    Text(tr("default_options")),
+                    Text(tr("default_options"), text_align=ft.TextAlign.CENTER,
+                         weight=ft.FontWeight.W_500),
                     default_install_btn_row,
                     Column(controls=self.options,
                            scroll=ft.ScrollMode.AUTO, spacing=5),
-                    ]),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                     padding=ft.padding.only(top=5, bottom=10),
                     col={"xs": 12, "xl": 11, "xxl": 10})
                 ], alignment=ft.MainAxisAlignment.CENTER),
@@ -4040,7 +4538,16 @@ class ModInstallWizard(UserControl):
             horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
         await self.keep_track_of_options(update=False)
-        await self.screen.current.update_async()
+        self.screen.current.update()
+
+    async def select_flag_icon(self, lang: str) -> None:
+        if self.flag_buttons.current and self.flag_buttons.current.controls:
+            for flag in self.flag_buttons.current.controls[0].controls:
+                if flag.data == lang:
+                    flag.selected = True
+                else:
+                    flag.selected = False
+            self.flag_buttons.current.update()
 
     async def set_install_lang(self, e: ft.ControlEvent) -> None:
         self.mod_var_lang = self.current_variant.translations_loaded[e.control.data]
@@ -4147,14 +4654,14 @@ class ModInstallWizard(UserControl):
                     ]
 
         self.status_capsules.controls = capsules
-        await self.status_capsules.update_async()
+        self.status_capsules.update()
 
     async def switch_title(self, title: str) -> None:
         self.mod_title.current.value = title
-        await self.mod_title.current.update_async()
+        self.mod_title.current.update()
 
-    def build(self) -> ft.Container:
-        return ft.Container(Column([ft.ResponsiveRow([
+    def build(self) -> None:
+        self.content = Column([ft.ResponsiveRow([
             Column(controls=[
                 ft.Card(ft.Container(
                     ft.Column(
@@ -4167,6 +4674,12 @@ class ModInstallWizard(UserControl):
                                          weight=ft.FontWeight.BOLD)],
                                     alignment=ft.MainAxisAlignment.CENTER),
                                 padding=12), expand=True),
+                            ft.IconButton(ft.icons.MINIMIZE_ROUNDED,
+                                          on_click=self.app.minimize, icon_size=20,
+                                          style=title_btn_style()),
+                             ft.IconButton(ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED,
+                                           on_click=self.app.maximize, icon_size=17,
+                                           style=title_btn_style()),
                             ft.Tooltip(
                                 message=tr("cancel_install").capitalize(),
                                 wait_duration=50,
@@ -4186,16 +4699,15 @@ class ModInstallWizard(UserControl):
                          ft.Container(ref=self.screen,
                                       padding=ft.padding.only(bottom=20, left=40, right=40)),
                          ])
-                    ))
+                    ), surface_tint_color=ft.colors.SURFACE)
                 ], alignment=ft.MainAxisAlignment.CENTER,
-                col={"xs": 10, "lg": 9, "xxl": 8}),
-            ], alignment=ft.MainAxisAlignment.CENTER)], scroll=ft.ScrollMode.ADAPTIVE),
-            alignment=ft.alignment.center, padding=ft.padding.symmetric(vertical=15, horizontal=10))
+                col={"xs": 14, "lg": 13, "xxl": 12}),
+            ], alignment=ft.MainAxisAlignment.CENTER, columns=15)], scroll=ft.ScrollMode.ADAPTIVE)
 
 
-class LocalModsScreen(UserControl):
+class LocalModsScreen(Column):
     def __init__(self, app: App, **kwargs):
-        super().__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.app = app
         self.tracked_loaded_mods = set()
         self.mods_list_view = ft.Ref[ft.ListView]()
@@ -4210,24 +4722,23 @@ class LocalModsScreen(UserControl):
 
     # TODO: is not working properly when first starting with no distro and then adding it
     # shows no_local_mods_found warning
-    async def did_mount_async(self) -> None:
-        # await self.app.page.floating_action_button.update_async()
+    def did_mount(self) -> None:
+        # self.app.page.floating_action_button.update()
         try:
             self.game_is_running = self.app.game.check_is_running()
         except ExeNotFoundError:
             self.game_is_running = False
             self.add_mod_card.current.height = 10
-            await self.app.show_alert(tr("broken_game"))
+            self.page.run_task(self.app.show_alert, tr("broken_game"))
             self.app.game = self.app.config.get_game_copy()
             self.app.reset_session_compatibility()
             self.app.config.current_game = ""
 
         if self.app.context.distribution_dir:
             self.game_info.current.content = self.get_game_info()
-            await self.update_list()
+            self.page.run_task(self.update_list)
             self.add_mod_card.current.height = None
-            # await self.add_mod_card.current.update_async()
-            await self.app.page.update_async()
+            self.page.update()
 
     async def delete_mod(self, mod: Mod) -> None:
         cont_ref = ft.Ref[ft.Container]()
@@ -4243,8 +4754,8 @@ class LocalModsScreen(UserControl):
             open=True,
         )
         self.app.page.overlay.append(bs)
-        await self.app.page.update_async()
-        await bs.update_async()
+        self.app.page.update()
+        bs.update()
         await aiofiles.os.remove(os.path.join(mod.manifest_root, "manifest.yaml"))
 
         mod_path = Path(mod.manifest_root)
@@ -4280,15 +4791,16 @@ class LocalModsScreen(UserControl):
             ],
             tight=True,
         )
-        await bs.update_async()
+        bs.update()
         await asyncio.sleep(1)
         bs.open = False
-        await bs.update_async()
+        bs.update()
         self.app.page.overlay.remove(bs)
         self.app.logger.debug(f"Deleted mod {mod.name} {mod.version!r} [{mod.build}]")
         await self.app.refresh_page(index=AppSections.LOCAL_MODS.value)
 
     async def update_list(self) -> None:
+        # TODO: seems like an odd place to reload distro, investigate
         await self.app.load_distro_async()
 
         mod_items = self.mods_list_view.current.controls
@@ -4362,7 +4874,8 @@ class LocalModsScreen(UserControl):
                 await mod_family.switch_mod_variant(mod_variant=installed_variants[0])
             else:
                 can_be_installed_variants = [mod for mod in mod_family.variants.values() if mod.can_install]
-                if can_be_installed_variants and mod_family.mod not in can_be_installed_variants:
+                if (can_be_installed_variants
+                    and mod_family.mod.id_str not in [mod.id_str for mod in can_be_installed_variants]):
                     await mod_family.switch_mod_variant(mod_variant=can_be_installed_variants[0])
 
             self.mods_list_view.current.controls.append(mod_family)
@@ -4389,16 +4902,18 @@ class LocalModsScreen(UserControl):
                 self.mods_archived_list_view.current.controls.append(
                     ModArchiveItem(self.app, self, path, mod_dummy)
                 )
+                # self.mods_archived_list_view.current.update()
         for mod_obj in archived_mod_items:
             if mod_obj.mod.id_str in self.tracked_loaded_mods:
                 archived_mod_items.remove(mod_obj)
                 # self.app.logger.debug(f"Removed archived {mod_item.mod.id_str} from list, already tracked")
 
-        # self.app.logger.debug(f"{len(self.mods_list_view.current.controls)} elements in mods list view")
-        if self.tracked_loaded_mods:
-            self.app.logger.debug(f"Tracked mods: {self.tracked_loaded_mods}")
-        else:
-            self.app.logger.debug("No tracked mods")
+        self.app.logger.debug(f"{len(self.mods_list_view.current.controls)} elements in mods list view")
+        # if self.tracked_loaded_mods:
+        #     self.app.logger.debug(f"Tracked mods: {self.tracked_loaded_mods}")
+        # else:
+        #     self.app.logger.debug("No tracked mods")
+        self.update()
 
     async def load_mod_archive_result(self, e: ft.FilePickerResultEvent) -> None:
         if e.files:
@@ -4408,31 +4923,53 @@ class LocalModsScreen(UserControl):
                     file.path,
                     tr("reading_archive").capitalize())
                 await asyncio.sleep(0.1)
-                extension = Path(file.path).suffix
-                match extension:
-                    case ".7z":
-                        mod_archived, exception = await self.app.context.get_7z_manifest_async(
-                            file.path, loading_text=loading_text)
-                    case ".zip":
-                        mod_archived, exception = await self.app.context.get_zip_manifest_async(
-                            file.path, loading_text=loading_text)
-                    case _:
-                        mod_archived, exception = None, None, TypeError("Unsuported archive type")
+                manifest, manifest_root_dir, file_list, exception = \
+                    await self.app.context.get_archive_manifest(file.path, loading_text=loading_text)
+
+                if manifest:
+                    mod_archived, exception = await self.app.context.get_archived_mod(
+                        file.path, manifest, manifest_root_dir, file_list)
+                else:
+                    mod_archived = None
 
                 await self.app.close_alert()
                 await asyncio.sleep(0.1)
                 added_mods = [mod.key for mod in self.mods_archived_list_view.current.controls]
                 if mod_archived is None:
+                    file_path = file.path
+                    description = tr("issue_with_archive")
+
                     if self.app.context.dev_mode:
                         exc_info = str(exception).replace("\n", "\n\n").strip()
+                        file_path = f"{file.path}\n\n**{tr('error')}:**\n{exc_info}"
+
+                    try:
+                        name = manifest["name"]
+                        display_name = f'{manifest["display_name"]} (v{manifest["version"]})'
+                        commod_req = Mod.convert_to_parsed_version(
+                            manifest.get("patcher_version_requirement"))
+
+                        commod_compatible = Mod.is_commod_compatible(OWN_VERSION, commod_req)
+                        mod_manager_too_new = Mod.is_mod_manager_too_new(OWN_VERSION, commod_req)
+                        if commod_compatible:
+                            raise AssertionError("Can't parse manifest of compatible version") from exception
+                        description = Mod.get_commod_compatible_err(
+                            name, display_name, commod_req, commod_compatible, mod_manager_too_new)
+                    except AssertionError as exception:
+                        # refresh exception message, if a new one occurred and was handled
+                        if self.app.context.dev_mode:
+                            exc_info = str(exception).replace("\n", "\n\n").strip()
+                            file_path = f"{file.path}\n\n**{tr('error')}:**\n{exc_info}"
+                    except Exception:
+                        if self.app.context.dev_mode:
+                            self.app.logger.exception("Unhandled archive error")
+                    finally:
                         await self.app.show_alert(
-                            f"{file.path}\n\n**{tr('error')}:**\n{exc_info}",
-                            tr("issue_with_archive"),
-                            allow_copy=True)
-                    else:
-                        await self.app.show_alert(
-                            file.path,
-                            tr("issue_with_archive"))
+                            file_path,
+                            description,
+                            allow_copy=self.app.context.dev_mode,
+                            additional_as_markdown=True)
+
                 elif (mod_archived.id_str in self.app.session.tracked_mods
                       or mod_archived.id_str in added_mods):
                     self.app.logger.info(f"Archived mod id '{mod_archived.id_str}' is already tracked")
@@ -4447,7 +4984,8 @@ class LocalModsScreen(UserControl):
                     self.app.context.archived_mods[file.path] = mod_archived
 
                     self.mods_archived_list_view.current.visible = True
-                    await self.mods_archived_list_view.current.update_async()
+                    # self.mods_archived_list_view.current.update()
+            self.update()
 
     async def load_archive(self, e: ft.ControlEvent) -> None:
         await self.get_mod_archive_dialog.pick_files_async(
@@ -4458,7 +4996,7 @@ class LocalModsScreen(UserControl):
         # open game directory in Windows Explorer
         if os.path.isdir(self.app.game.game_root_path):
             os.startfile(self.app.game.game_root_path)  # noqa: S606
-        await self.update_async()
+        self.update()
 
     def get_game_info(self) -> ft.Card:
         if not self.app.game.game_root_path:
@@ -4553,13 +5091,15 @@ class LocalModsScreen(UserControl):
                 padding=ft.padding.symmetric(horizontal=15, vertical=15)
             ), elevation=5, margin=ft.margin.only(left=20, right=20, bottom=5),
             surface_tint_color=ft.colors.TERTIARY,
-            col={"md": 12, "lg": 11, "xxl": 10})
+            col={"xs": 12, "xl": 11, "xxl": 10})
 
-    def build(self) -> Column:
+    def build(self) -> None:
+        self.horizontal_alignment=ft.CrossAxisAlignment.CENTER
+
         if not self.app.context.distribution_dir:
-            return Column([
+            self.controls = [
                     Text(tr("mods_library").capitalize(),
-                         style=ft.TextThemeStyle.TITLE_MEDIUM),
+                         theme_style=ft.TextThemeStyle.TITLE_MEDIUM),
                     ft.Card(
                        ft.Container(
                            Row([
@@ -4581,70 +5121,69 @@ class LocalModsScreen(UserControl):
                            ], spacing=19),
                            padding=ft.padding.only(left=20, right=35, top=25, bottom=25)
                        ), elevation=5, margin=ft.margin.only(left=80, right=80, bottom=10))
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-
-        return ft.Container(
-            Column([
-                Row([Text(tr("mods_library").capitalize(),
-                          style=ft.TextThemeStyle.TITLE_MEDIUM)],
-                    alignment=ft.MainAxisAlignment.CENTER),
-                ft.Column([
-                    ft.Container(
-                        ft.ResponsiveRow([
-                            ft.Container(ref=self.game_info,
-                                         col={"md": 12, "lg": 11, "xxl": 10}),
-                            Text(tr("no_local_mods_found").capitalize(),
-                                 visible=False,
-                                 ref=self.no_mods_warning,
-                                 weight=ft.FontWeight.BOLD,
-                                 color=ft.colors.PRIMARY,
-                                 col={"md": 12, "lg": 11, "xxl": 10},
-                                 text_align=ft.TextAlign.CENTER),
-                            ft.ListView([], spacing=10, padding=0,
-                                        ref=self.mods_list_view,
-                                        col={"md": 12, "lg": 11, "xxl": 10}),
-                            ft.ListView([], spacing=10, padding=0,
-                                        ref=self.mods_archived_list_view,
-                                        col={"md": 12, "lg": 11, "xxl": 10}),
-                            ft.Card(ft.Container(
-                                Column([
-                                    Text(tr("archived_mods_explanation"),
-                                         weight=ft.FontWeight.W_400,
-                                         color=ft.colors.SECONDARY),
-                                    Column([],
-                                           horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                           ref=self.add_mods_column),
-                                    ft.FloatingActionButton(
-                                        tr("add_mod").capitalize(),
-                                        mini=True,
-                                        on_click=self.load_archive,
-                                        height=40,
-                                        icon=ft.icons.FILE_OPEN)
-                                    ],
-                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                border_radius=10, padding=20),
-                                height=10, ref=self.add_mod_card,
-                                col={"md": 12, "lg": 11, "xxl": 10})
-                            ],
-                            alignment=ft.MainAxisAlignment.CENTER),
-                        padding=ft.padding.only(right=22), alignment=ft.alignment.top_center),
-                    self.get_mod_archive_dialog
-                    ],
-                    expand=True, scroll=ft.ScrollMode.ALWAYS)
-            ]),
-            margin=ft.margin.only(bottom=5), expand=True)
+                    ]
+            return
+        self.controls = [
+            Row([Text(tr("mods_library").capitalize(),
+                      theme_style=ft.TextThemeStyle.TITLE_MEDIUM)],
+                alignment=ft.MainAxisAlignment.CENTER),
+            ft.Column([
+                ft.Container(
+                    ft.ResponsiveRow([
+                        ft.Container(ref=self.game_info,
+                                     col={"xs": 12, "xl": 11, "xxl": 10}),
+                        Text(tr("no_local_mods_found").capitalize(),
+                             visible=False,
+                             ref=self.no_mods_warning,
+                             weight=ft.FontWeight.BOLD,
+                             color=ft.colors.PRIMARY,
+                             col={"xs": 12, "xl": 11, "xxl": 10},
+                             text_align=ft.TextAlign.CENTER),
+                        ft.ListView([], spacing=10, padding=0,
+                                    ref=self.mods_list_view,
+                                    col={"xs": 12, "xl": 11, "xxl": 10}),
+                        ft.ListView([], spacing=10, padding=0,
+                                    ref=self.mods_archived_list_view,
+                                    col={"xs": 12, "xl": 11, "xxl": 10}),
+                        ft.Card(ft.Container(
+                            Column([
+                                Text(tr("archived_mods_explanation"),
+                                     weight=ft.FontWeight.W_400,
+                                     color=ft.colors.SECONDARY),
+                                Column([],
+                                       horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                       ref=self.add_mods_column),
+                                ft.FloatingActionButton(
+                                    tr("add_mod").capitalize(),
+                                    mini=True,
+                                    on_click=self.load_archive,
+                                    height=40,
+                                    icon=ft.icons.FILE_OPEN)
+                                ],
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            border_radius=10, padding=20),
+                            height=10, ref=self.add_mod_card,
+                            col={"xs": 12, "xl": 11, "xxl": 10})
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER),
+                    padding=ft.padding.only(right=22), alignment=ft.alignment.top_center),
+                self.get_mod_archive_dialog
+                ],
+                expand=True, scroll=ft.ScrollMode.ALWAYS)
+            ]
 
 
-class DownloadModsScreen(UserControl):
+class DownloadModsScreen(ft.Column):
     def __init__(self, app: App, **kwargs):
-        super().__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.app = app
         self.refreshing = False
 
-    def build(self) -> Column:
-        return Column([
+    def build(self) -> None:
+        self.horizontal_alignment=ft.CrossAxisAlignment.CENTER
+        self.controls = [
             Text(tr("download").capitalize(),
-                 style=ft.TextThemeStyle.TITLE_MEDIUM),
+                 theme_style=ft.TextThemeStyle.TITLE_MEDIUM),
             ft.Card(
                 ft.Container(
                     Column([
@@ -4652,11 +5191,11 @@ class DownloadModsScreen(UserControl):
                             ft.Icon(ft.icons.PUBLIC_OFF_OUTLINED,
                                     size=40,
                                     color=ft.colors.TERTIARY,
-                                    col={"xs": 1, "md": 2, "lg": 3, "xxl": 4}),
+                                    col={"xs": 1, "md": 2, "xl": 3, "xxl": 4}),
                             Text(tr("download_mods_screen_placeholder"),
                                  weight=ft.FontWeight.BOLD,
                                  no_wrap=False,
-                                 col={"xs": 11, "md": 10, "lg": 9, "xxl": 8})
+                                 col={"xs": 11, "md": 10, "xl": 9, "xxl": 8})
                         ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         ft.Divider(),
                         Text(tr("download_at_dem_gallery")),
@@ -4679,12 +5218,12 @@ class DownloadModsScreen(UserControl):
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                     padding=ft.padding.only(left=30, right=30, top=30, bottom=20)
                 ), elevation=5, margin=ft.margin.symmetric(horizontal=80))
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+            ]
 
 
-class HomeScreen(UserControl):
+class HomeScreen(ft.Container):
     def __init__(self, app: App, **kwargs):
-        super().__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.app = app
         self.markdown_content = ft.Ref[ft.Markdown]()
         self.checking_online = ft.Ref[Row]()
@@ -4702,7 +5241,10 @@ class HomeScreen(UserControl):
         self.refreshing = False
         self.game_is_running = False
 
-    async def did_mount_async(self) -> None:
+        self.margin = ft.margin.only(bottom=20)
+        self.expand = True
+
+    def did_mount(self) -> None:
         self.got_news = False
         self.offline = False
 
@@ -4710,32 +5252,32 @@ class HomeScreen(UserControl):
             game_is_now_running = self.app.game.check_is_running()
         except ExeNotFoundError:
             game_is_now_running = False
-            await self.app.show_alert(tr("broken_game"))
+            self.page.run_task(self.app.show_alert, tr("broken_game"))
             self.app.game = self.app.config.get_game_copy()
             self.app.reset_session_compatibility()
             self.app.config.current_game = ""
-            await self.app.refresh_page(AppSections.LAUNCH.value)
+            self.page.run_task(self.app.refresh_page, AppSections.LAUNCH.value)
 
         # TODO: unwind conditions like this
         if ((self.app.game.target_exe and not self.app.game.exe_version and self.app.config.current_game)
             or (game_is_now_running and not self.game_is_running)):
-            await self.select_game_from_home(path=self.app.config.current_game)
+            self.page.run_task(self.select_game_from_home, path=self.app.config.current_game)
 
         # TODO: check why needs to be reloaded after changing the game
         if self.app.game.target_exe:
-            task = asyncio.create_task(self.load_news())
-            background_tasks.add(task)
-            task.add_done_callback(background_tasks.discard)
+            self.page.run_task(self.load_news)
+            # background_tasks.add(task)
+            # task.add_done_callback(background_tasks.discard)
         else:
             self.app.logger.debug("No game found")
         if self.app.current_game_process is not None:
-            await self.synchronise_launch_btn_prompt(started=True)
+            self.page.run_task(self.synchronise_launch_btn_prompt, started=True)
 
     async def load_news(self) -> None:
         if not self.offline:
             if self.news_text is not None:
                 self.markdown_content.current.value = self.news_text
-                await self.markdown_content.current.update_async()
+                self.markdown_content.current.update()
                 return
 
             # await asyncio.sleep(1)
@@ -4779,9 +5321,9 @@ class HomeScreen(UserControl):
                     md = process_markdown(md_raw)
                     self.markdown_content.current.value = md
                     self.checking_online.current.visible = False
-                    if await self.app.is_current_page(HomeScreen):
-                        await self.checking_online.current.update_async()
-                        await self.markdown_content.current.update_async()
+                    if self.app.is_current_page(HomeScreen):
+                        self.checking_online.current.update()
+                        self.markdown_content.current.update()
                     self.news_text = md
                     self.got_news = True
                 else:
@@ -4789,8 +5331,8 @@ class HomeScreen(UserControl):
             else:
                 self.app.logger.error("Unable to get url content for news")
                 self.checking_online.current.visible = False
-                if await self.app.is_current_page(HomeScreen):
-                    await self.checking_online.current.update_async()
+                if self.app.is_current_page(HomeScreen):
+                    self.checking_online.current.update()
                 self.offline = True
 
     async def launch_url(self, e: ft.ControlEvent) -> None:
@@ -4809,10 +5351,10 @@ class HomeScreen(UserControl):
     async def switch_to_windowed(self, e: ft.ControlEvent) -> None:
         # temporarily disabling game launch
         self.launch_game_btn.current.disabled = True
-        await self.launch_game_btn.current.update_async()
+        # self.launch_game_btn.current.update()
 
         self.checkbox_windowed_game.current.checked = not self.checkbox_windowed_game.current.checked
-        await self.checkbox_windowed_game.current.update_async()
+        # self.checkbox_windowed_game.current.update()
         if self.app.game.game_root_path:
             # just an additional safeguard, all actions on game
             # are delayed by 1 second after game_change_time
@@ -4821,12 +5363,13 @@ class HomeScreen(UserControl):
                                                 enable=not self.checkbox_windowed_game.current.checked)
 
         self.launch_game_btn.current.disabled = False
-        await self.launch_game_btn.current.update_async()
+        # self.launch_game_btn.current.update()
+        self.update()
 
     async def switch_to_hidpi_aware(self, e: ft.ControlEvent) -> None:
         # temporarily disabling game launch
         self.launch_game_btn.current.disabled = True
-        await self.launch_game_btn.current.update_async()
+        # self.launch_game_btn.current.update()
 
         self.checkbox_hi_dpi_aware.current.checked = not self.checkbox_hi_dpi_aware.current.checked
         if self.app.game.game_root_path:
@@ -4838,15 +5381,16 @@ class HomeScreen(UserControl):
                 self.checkbox_hi_dpi_aware.current.checked = not self.checkbox_hi_dpi_aware.current.checked
                 await self.app.show_alert(tr("no_access_to_registry_cant_set"))
 
-        await self.checkbox_hi_dpi_aware.current.update_async()
+        # self.checkbox_hi_dpi_aware.current.update()
 
         self.launch_game_btn.current.disabled = False
-        await self.launch_game_btn.current.update_async()
+        # self.launch_game_btn.current.update()
+        self.update()
 
     async def switch_fullscreen_optimizations(self, e: ft.ControlEvent) -> None:
         # temporarily disabling game launch
         self.launch_game_btn.current.disabled = True
-        await self.launch_game_btn.current.update_async()
+        # self.launch_game_btn.current.update()
 
         self.checkbox_fullsreen_opts.current.checked = not self.checkbox_fullsreen_opts.current.checked
         if self.app.game.game_root_path:
@@ -4860,22 +5404,25 @@ class HomeScreen(UserControl):
                     not self.checkbox_fullsreen_opts.current.checked
                 await self.app.show_alert(tr("no_access_to_registry_cant_set"))
 
-        await self.checkbox_fullsreen_opts.current.update_async()
+        # self.checkbox_fullsreen_opts.current.update()
 
         self.launch_game_btn.current.disabled = False
-        await self.launch_game_btn.current.update_async()
+        # self.launch_game_btn.current.update()
+        self.update()
 
     async def enable_launch_params(self) -> None:
         self.launch_params_menu.current.disabled = False
         self.game_console_switch.current.disabled = False
-        await self.launch_params_menu.current.update_async()
-        await self.game_console_switch.current.update_async()
+        # self.launch_params_menu.current.update()
+        # self.game_console_switch.current.update()
+        self.update()
 
     async def disable_launch_params(self) -> None:
         self.launch_params_menu.current.disabled = True
         self.game_console_switch.current.disabled = True
-        await self.launch_params_menu.current.update_async()
-        await self.game_console_switch.current.update_async()
+        # self.launch_params_menu.current.update()
+        # self.game_console_switch.current.update()
+        self.update()
 
     async def show_launch_opts_instruction(self, e: ft.ControlEvent) -> None:
         await self.app.show_modal(tr("launch_options_instruction_text"),
@@ -4885,12 +5432,12 @@ class HomeScreen(UserControl):
         await self.disable_launch_params()
         current_time = datetime.now()
         self.launch_prog_ring.current.visible = True
-        await self.launch_prog_ring.current.update_async()
+        self.launch_prog_ring.current.update()
         if self.app.game_change_time is not None:  # noqa: SIM102
             if (current_time - self.app.game_change_time).seconds < 1:
                 # do not try to relaunch game immediately after a change
                 self.launch_prog_ring.current.visible = False
-                await self.launch_prog_ring.current.update_async()
+                self.launch_prog_ring.current.update()
                 return
         if self.app.current_game_process is None:
             try:
@@ -4898,7 +5445,7 @@ class HomeScreen(UserControl):
                     await self.app.show_alert(tr("game_is_already_running"))
                     self.game_is_running = True
                     self.launch_prog_ring.current.visible = False
-                    await self.launch_prog_ring.current.update_async()
+                    self.launch_prog_ring.current.update()
                     await self.enable_launch_params()
             except ExeNotFoundError:
                 self.game_is_running = False
@@ -4913,7 +5460,7 @@ class HomeScreen(UserControl):
             if other_game_running:
                 await self.app.show_alert(tr("other_game_is_already_running"))
                 self.launch_prog_ring.current.visible = False
-                await self.launch_prog_ring.current.update_async()
+                self.launch_prog_ring.current.update()
                 await self.enable_launch_params()
                 return
             self.app.logger.info(f"Launching: {self.app.game.target_exe}")
@@ -4972,18 +5519,19 @@ class HomeScreen(UserControl):
         try:
             if started:
                 self.launch_game_btn_text.current.value = tr("stop_game").capitalize()
-                await self.launch_game_btn_text.current.update_async()
+                # self.launch_game_btn_text.current.update()
             elif starting:
                 self.launch_game_btn_text.current.value = f"{tr('launching').capitalize()}..."
-                await self.launch_game_btn_text.current.update_async()
+                # self.launch_game_btn_text.current.update()
                 await asyncio.sleep(1)
                 self.launch_game_btn_text.current.value = tr("stop_game").capitalize()
-                await self.launch_game_btn_text.current.update_async()
+                # self.launch_game_btn_text.current.update()
             else:
                 self.launch_game_btn_text.current.value = tr("play").capitalize()
-                await self.launch_game_btn_text.current.update_async()
+                # self.launch_game_btn_text.current.update()
             self.launch_prog_ring.current.visible = False
-            await self.launch_prog_ring.current.update_async()
+            # self.launch_prog_ring.current.update()
+            self.update()
         except AssertionError: # double clicking buttons causes multiple attempts in sync, can safely skip
             pass
 
@@ -4993,7 +5541,7 @@ class HomeScreen(UserControl):
     def get_no_game_placeholder(self) -> Column:
         return Column([
             Text(tr("launch_full").capitalize(),
-                 style=ft.TextThemeStyle.TITLE_MEDIUM),
+                 theme_style=ft.TextThemeStyle.TITLE_MEDIUM),
             ft.Card(
                ft.Container(
                    Row([
@@ -5022,7 +5570,7 @@ class HomeScreen(UserControl):
         # open game directory in Windows Explorer
         if os.path.isdir(self.app.game.game_root_path):
             os.startfile(self.app.game.game_root_path)  # noqa: S606
-        await self.update_async()
+        self.update()
 
     async def select_game_from_home(self, e: ft.ControlEvent | None = None, path: str | None = None) -> None:
         if e is not None:
@@ -5069,7 +5617,7 @@ class HomeScreen(UserControl):
 
         await self.app.refresh_page(AppSections.LAUNCH.value)
 
-    def build(self) -> ft.Container:
+    def build(self) -> None:
         self.app.page.floating_action_button = ft.FloatingActionButton(
             icon=ft.icons.REFRESH_ROUNDED,
             on_click=self.app.upd_pressed,
@@ -5080,268 +5628,269 @@ class HomeScreen(UserControl):
             md1 = fh.read()
             md1 = process_markdown(md1)
 
-            if self.app.game.installment_id == GameInstallment.EXMACHINA.value:
-                logo_path = "assets/em_logo.png"
-            elif self.app.game.installment_id == GameInstallment.M113.value:
-                logo_path = "assets/m113_logo.png"
-            elif self.app.game.installment_id == GameInstallment.ARCADE.value:
-                logo_path = "assets/arcade_logo.png"
-            else:
-                logo_path = None
+        if self.app.game.installment_id == GameInstallment.EXMACHINA.value:
+            logo_path = "assets/em_logo.png"
+        elif self.app.game.installment_id == GameInstallment.M113.value:
+            logo_path = "assets/m113_logo.png"
+        elif self.app.game.installment_id == GameInstallment.ARCADE.value:
+            logo_path = "assets/arcade_logo.png"
+        else:
+            logo_path = None
 
-            if logo_path is not None:
-                info_msg = Row(visible=False)
-                image = Image(src=get_internal_file_path(logo_path),
-                              fit=ft.ImageFit.FILL)
-            else:
-                image = ft.Stack([Image(src=get_internal_file_path("assets/em_logo.png"),
-                                        fit=ft.ImageFit.FILL, opacity=0.4),
-                                  ft.Container(Column([
-                                        Icon(ft.icons.QUESTION_MARK_ROUNDED,
-                                             size=90,
-                                             color="red")],
-                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                        alignment=ft.alignment.center)
-                                  ])
-            try:
-                if self.app.game.check_is_running():
-                    self.game_is_running = True
-                    info_msg = Row([
-                        Icon(ft.icons.PENDING_ROUNDED,
-                             size=20,
-                             color=ft.colors.TERTIARY),
-                        Text(tr("game_is_running"), color=ft.colors.TERTIARY)])
-                elif logo_path is None:
-                    self.game_is_running = False
-                    info_msg = Row([
-                        Icon(ft.icons.WARNING_ROUNDED,
-                             size=20,
-                             color=ft.colors.ERROR),
-                        Text(tr("broken_game_short"), color=ft.colors.ERROR)])
-            except ExeNotFoundError:
-                return self.get_no_game_placeholder()
+        if logo_path is not None:
+            info_msg = Row(visible=False)
+            image = Image(src=get_internal_file_path(logo_path),
+                          fit=ft.ImageFit.FILL)
+        else:
+            image = ft.Stack([Image(src=get_internal_file_path("assets/em_logo.png"),
+                                    fit=ft.ImageFit.FILL, opacity=0.4),
+                              ft.Container(Column([
+                                    Icon(ft.icons.QUESTION_MARK_ROUNDED,
+                                         size=90,
+                                         color="red")],
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                    alignment=ft.alignment.center)
+                              ])
+        try:
+            if self.app.game.check_is_running():
+                self.game_is_running = True
+                info_msg = Row([
+                    Icon(ft.icons.PENDING_ROUNDED,
+                         size=20,
+                         color=ft.colors.TERTIARY),
+                    Text(tr("game_is_running"), color=ft.colors.TERTIARY)])
+            elif logo_path is None:
+                self.game_is_running = False
+                info_msg = Row([
+                    Icon(ft.icons.WARNING_ROUNDED,
+                         size=20,
+                         color=ft.colors.ERROR),
+                    Text(tr("broken_game_short"), color=ft.colors.ERROR)])
+        except ExeNotFoundError:
+            self.content = self.get_no_game_placeholder()
+            return
 
-            if not self.app.game.target_exe:
-                return self.get_no_game_placeholder()
+        if not self.app.game.target_exe:
+            self.content = self.get_no_game_placeholder()
+            return
 
-            mods_info = Column([])
-            if self.app.game.installed_descriptions:
-                mods_text = "\n\n".join(self.app.game.installed_descriptions.values())
-                for mod_identifier in self.app.game.installed_descriptions.values():
-                    if len(mods_info.controls) >= DISPLAY_MODS_ON_HOMESCREEN_NUM:
-                        mods_info.controls.append(
-                            ft.Container(
-                                Text(f"... {tr('and_others')}",
+        mods_info = Column([])
+        if self.app.game.installed_descriptions:
+            mods_text = "\n\n".join(self.app.game.installed_descriptions.values())
+            for mod_identifier in self.app.game.installed_descriptions.values():
+                if len(mods_info.controls) >= DISPLAY_MODS_ON_HOMESCREEN_NUM:
+                    mods_info.controls.append(
+                        ft.Container(
+                            Text(f"... {tr('and_others')}",
+                                 size=12,
+                                 color=ft.colors.ON_BACKGROUND,
+                                 tooltip=mods_text), margin=ft.margin.only(left=25)))
+                    break
+                splited = mod_identifier.split("\n")
+                if len(splited) > 1:
+                    mods_info.controls.append(
+                        ft.Container(
+                            ft.Row([
+                                Icon(ft.icons.INFO_OUTLINE_ROUNDED,
+                                     size=12,
+                                     color=ft.colors.SECONDARY,
+                                     expand=1),
+                                Text(splited[0],
+                                     size=12,
+                                     overflow=ft.TextOverflow.ELLIPSIS,
+                                     expand=10),
+                               ],
+                               tight=True,
+                               spacing=4,
+                               alignment=ft.MainAxisAlignment.START,
+                               vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            tooltip="\n".join(splited)))
+                else:
+                    mods_info.controls.append(
+                        ft.Row([
+                                Icon(ft.icons.CIRCLE,
                                      size=12,
                                      color=ft.colors.ON_BACKGROUND,
-                                     tooltip=mods_text), margin=ft.margin.only(left=25)))
-                        break
-                    splited = mod_identifier.split("\n")
-                    if len(splited) > 1:
-                        mods_info.controls.append(
-                            ft.Container(
-                                ft.Row([
-                                    Icon(ft.icons.INFO_OUTLINE_ROUNDED,
-                                         size=12,
-                                         color=ft.colors.SECONDARY,
-                                         expand=1),
-                                    Text(splited[0],
-                                         size=12,
-                                         overflow=ft.TextOverflow.ELLIPSIS,
-                                         expand=10),
-                                   ],
-                                   tight=True,
-                                   spacing=4,
-                                   alignment=ft.MainAxisAlignment.START,
-                                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                                tooltip="\n".join(splited)))
-                    else:
-                        mods_info.controls.append(
-                            ft.Row([
-                                    Icon(ft.icons.CIRCLE,
-                                         size=12,
-                                         color=ft.colors.ON_BACKGROUND,
-                                         expand=1),
-                                    Text(mod_identifier,
-                                         size=12,
-                                         overflow=ft.TextOverflow.ELLIPSIS,
-                                         expand=10),
-                                   ],
-                                   tight=True,
-                                   spacing=5,
-                                   alignment=ft.MainAxisAlignment.START,
-                                   vertical_alignment=ft.CrossAxisAlignment.CENTER))
-            else:
-                mods_text = ""
-                mods_info.visible = False
+                                     expand=1),
+                                Text(mod_identifier,
+                                     size=12,
+                                     overflow=ft.TextOverflow.ELLIPSIS,
+                                     expand=10),
+                               ],
+                               tight=True,
+                               spacing=5,
+                               alignment=ft.MainAxisAlignment.START,
+                               vertical_alignment=ft.CrossAxisAlignment.CENTER))
+        else:
+            mods_text = ""
+            mods_info.visible = False
 
-            if len(self.app.config.game_names) == 1:
-                game_selector = ft.Container(
-                    Icon(ft.icons.BADGE_ROUNDED, color=ft.colors.PRIMARY, size=20),
-                    margin=ft.margin.only(left=7, right=8))
-            else:
-                game_selector = ft.PopupMenuButton(
-                                    icon=ft.icons.BADGE_ROUNDED,
-                                    # icon_color=ft.colors.PRIMARY,
-                                    # icon_size=20,
-                                    scale=0.85,
-                                    tooltip=tr("select_other_game").capitalize(),
-                                    items=[])
-                for key, mod_identifier in self.app.config.game_names.items():
-                    game_selector.items.append(
-                        ft.PopupMenuItem(content=Text(mod_identifier), data=key,
-                                         on_click=self.select_game_from_home)
-                    )
-                game_selector = ft.Container(game_selector, margin=ft.margin.only(left=-3))
+        if len(self.app.config.game_names) == 1:
+            game_selector = ft.Container(
+                Icon(ft.icons.BADGE_ROUNDED, color=ft.colors.PRIMARY, size=20),
+                margin=ft.margin.only(left=7, right=8))
+        else:
+            game_selector = ft.PopupMenuButton(
+                                icon=ft.icons.BADGE_ROUNDED,
+                                # icon_color=ft.colors.PRIMARY,
+                                # icon_size=20,
+                                scale=0.85,
+                                tooltip=tr("select_other_game").capitalize(),
+                                items=[])
+            for key, mod_identifier in self.app.config.game_names.items():
+                game_selector.items.append(
+                    ft.PopupMenuItem(content=Text(mod_identifier), data=key,
+                                     on_click=self.select_game_from_home)
+                )
+            game_selector = ft.Container(game_selector, margin=ft.margin.only(left=-3))
 
-            try:
-                is_running_or_broken = self.app.game.check_is_running()
-            except ExeNotFoundError:
-                is_running_or_broken = True
+        try:
+            is_running_or_broken = self.app.game.check_is_running()
+        except ExeNotFoundError:
+            is_running_or_broken = True
 
-            return ft.Container(
-                ft.ResponsiveRow([
-                    Column(controls=[
-                        ft.Container(Column([
-                            ft.Container(
-                                Column([image],
-                                       horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                margin=ft.margin.only(top=10)),
-                            Row([
-                                game_selector,
-                                ft.Column([
-                                    Text(self.app.config.game_names[self.app.config.current_game],
-                                         color=ft.colors.PRIMARY,
-                                         overflow=ft.TextOverflow.ELLIPSIS,
-                                         weight=ft.FontWeight.W_400,
-                                         tooltip=self.app.config.game_names[self.app.config.current_game])],
-                                    expand=True)
-                                ], spacing=0, alignment=ft.MainAxisAlignment.START),
-                            ft.Container(Row([
-                                Icon(ft.icons.INFO_ROUNDED, color=ft.colors.PRIMARY, size=20),
-                                Text(self.app.game.exe_version_tr,
+        self.content =\
+            ft.ResponsiveRow([
+                Column(controls=[
+                    ft.Container(Column([
+                        ft.Container(
+                            Column([image],
+                                   horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            margin=ft.margin.only(top=10)),
+                        Row([
+                            game_selector,
+                            ft.Column([
+                                Text(self.app.config.game_names[self.app.config.current_game],
                                      color=ft.colors.PRIMARY,
-                                     tooltip=tr("exe_version") + "\n" + self.app.game.target_exe,
-                                     weight=ft.FontWeight.W_700),
-                                ]), margin=ft.margin.only(left=7),
-                                visible=bool(self.app.game.exe_version)),
-                            ft.Container(info_msg, margin=ft.margin.only(left=7), visible=info_msg.visible),
+                                     overflow=ft.TextOverflow.ELLIPSIS,
+                                     weight=ft.FontWeight.W_400,
+                                     tooltip=self.app.config.game_names[self.app.config.current_game])],
+                                expand=True)
+                            ], spacing=0, alignment=ft.MainAxisAlignment.START),
+                        ft.Container(Row([
+                            Icon(ft.icons.INFO_ROUNDED, color=ft.colors.PRIMARY, size=20),
+                            Text(self.app.game.exe_version_tr,
+                                 color=ft.colors.PRIMARY,
+                                 tooltip=tr("exe_version") + "\n" + self.app.game.target_exe,
+                                 weight=ft.FontWeight.W_700),
+                            ]), margin=ft.margin.only(left=7),
+                            visible=bool(self.app.game.exe_version)),
+                        ft.Container(info_msg, margin=ft.margin.only(left=7), visible=info_msg.visible),
+                        ft.Tooltip(
+                            message=mods_text,
+                            wait_duration=100,
+                            visible=bool(mods_text),
+                            content=ft.Container(Row([
+                                Text(tr("has_mods").upper(),
+                                     weight=ft.FontWeight.BOLD,
+                                     color=ft.colors.ON_BACKGROUND)
+                                ]), margin=ft.margin.only(top=10))),
+                        ft.Container(mods_info, visible=mods_info.visible),
+                        ft.Container(Column([
+                            Text(tr("actions").upper(),
+                                 weight=ft.FontWeight.BOLD),
                             ft.Tooltip(
-                                message=mods_text,
-                                wait_duration=100,
-                                visible=bool(mods_text),
-                                content=ft.Container(Row([
-                                    Text(tr("has_mods").upper(),
-                                         weight=ft.FontWeight.BOLD,
-                                         color=ft.colors.ON_BACKGROUND)
-                                    ]), margin=ft.margin.only(top=10))),
-                            ft.Container(mods_info, visible=mods_info.visible),
-                            ft.Container(Column([
-                                Text(tr("actions").upper(),
-                                     weight=ft.FontWeight.BOLD),
-                                ft.Tooltip(
-                                    message=tr("open_in_explorer"),
-                                    wait_duration=300,
-                                    content=ft.TextButton(
-                                        text=tr("open_in_explorer"),
-                                        icon=icons.FOLDER_OPEN,
-                                        on_click=self.open_clicked))
-                            ]), margin=ft.margin.only(top=10))
-                        ]), clip_behavior=ft.ClipBehavior.ANTI_ALIAS),
-                        # Text(self.app.context.distribution_dir),
-                        # Text(self.app.context.commod_version),
-                        # Text(self.app.game.game_root_path),
-                        # Text(self.app.game.display_name),
-                        Column([
-                            Row([Text(tr("launch_params").upper(),
-                                      weight=ft.FontWeight.BOLD),
-                                 ft.PopupMenuButton(items=[
-                                    ft.PopupMenuItem(
-                                        content=Row([Icon(ft.icons.FULLSCREEN_ROUNDED),
-                                                     Text(tr("windowed_mode").capitalize(),
-                                                          width=160,
-                                                          size=13)]),
-                                        checked=not self.app.game.fullscreen_game,
-                                        on_click=self.switch_to_windowed,
-                                        ref=self.checkbox_windowed_game),
-                                    ft.PopupMenuItem(
-                                        content=Row([Icon(ft.icons.FOUR_K_ROUNDED),
-                                                     Text(tr("hi_dpi_aware"),
-                                                          width=160,
-                                                          size=13)]),
-                                        checked=self.app.game.hi_dpi_aware,
-                                        on_click=self.switch_to_hidpi_aware,
-                                        ref=self.checkbox_hi_dpi_aware),
-                                    ft.PopupMenuItem(
-                                        content=Row([Icon(ft.icons.SETTINGS_APPLICATIONS_OUTLINED),
-                                                     Text(tr("fullscreen_optimizations"),
-                                                          width=160,
-                                                          size=13)]),
-                                        checked=self.app.game.fullscreen_opts_disabled,
-                                        on_click=self.switch_fullscreen_optimizations,
-                                        ref=self.checkbox_fullsreen_opts),
-                                    ft.PopupMenuItem(),
-                                    ft.PopupMenuItem(
-                                        content=ft.Container(
-                                            Row([Icon(ft.icons.QUESTION_MARK_OUTLINED,
-                                                      color=ft.colors.ON_BACKGROUND),
-                                                 Text(tr("launch_options_instructions").capitalize(),
-                                                      width=190,
+                                message=tr("open_in_explorer"),
+                                wait_duration=300,
+                                content=ft.TextButton(
+                                    text=tr("open_in_explorer"),
+                                    icon=icons.FOLDER_OPEN,
+                                    on_click=self.open_clicked))
+                        ]), margin=ft.margin.only(top=10))
+                    ]), clip_behavior=ft.ClipBehavior.ANTI_ALIAS),
+                    # Text(self.app.context.distribution_dir),
+                    # Text(self.app.context.commod_version),
+                    # Text(self.app.game.game_root_path),
+                    # Text(self.app.game.display_name),
+                    Column([
+                        Row([Text(tr("launch_params").upper(),
+                                  weight=ft.FontWeight.BOLD),
+                             ft.PopupMenuButton(items=[
+                                ft.PopupMenuItem(
+                                    content=Row([Icon(ft.icons.FULLSCREEN_ROUNDED),
+                                                 Text(tr("windowed_mode").capitalize(),
+                                                      width=160,
                                                       size=13)]),
-                                            margin=ft.margin.only(left=15)),
-                                        on_click=self.show_launch_opts_instruction)
-                                    ],
+                                    checked=not self.app.game.fullscreen_game,
+                                    on_click=self.switch_to_windowed,
+                                    ref=self.checkbox_windowed_game),
+                                ft.PopupMenuItem(
+                                    content=Row([Icon(ft.icons.FOUR_K_ROUNDED),
+                                                 Text(tr("hi_dpi_aware"),
+                                                      width=160,
+                                                      size=13)]),
+                                    checked=self.app.game.hi_dpi_aware,
+                                    on_click=self.switch_to_hidpi_aware,
+                                    ref=self.checkbox_hi_dpi_aware),
+                                ft.PopupMenuItem(
+                                    content=Row([Icon(ft.icons.SETTINGS_APPLICATIONS_OUTLINED),
+                                                 Text(tr("fullscreen_optimizations"),
+                                                      width=160,
+                                                      size=13)]),
+                                    checked=self.app.game.fullscreen_opts_disabled,
+                                    on_click=self.switch_fullscreen_optimizations,
+                                    ref=self.checkbox_fullsreen_opts),
+                                ft.PopupMenuItem(),
+                                ft.PopupMenuItem(
+                                    content=ft.Container(
+                                        Row([Icon(ft.icons.QUESTION_MARK_OUTLINED,
+                                                  color=ft.colors.ON_BACKGROUND),
+                                             Text(tr("launch_options_instructions").capitalize(),
+                                                  width=190,
+                                                  size=13)]),
+                                        margin=ft.margin.only(left=15)),
+                                    on_click=self.show_launch_opts_instruction)
+                                ],
+                                disabled=self.app.game.exe_version == "unknown"
+                                         or is_running_or_broken,
+                                ref=self.launch_params_menu,
+                                tooltip=tr("launch_params").capitalize())
+                             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ft.Container(
+                            Row([ft.Switch(
+                                    value=self.app.config.game_with_console,
+                                    scale=0.7,
                                     disabled=self.app.game.exe_version == "unknown"
                                              or is_running_or_broken,
-                                    ref=self.launch_params_menu,
-                                    tooltip=tr("launch_params").capitalize())
-                                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                            ft.Container(
-                                Row([ft.Switch(
-                                        value=self.app.config.game_with_console,
-                                        scale=0.7,
-                                        disabled=self.app.game.exe_version == "unknown"
-                                                 or is_running_or_broken,
-                                        on_change=self.change_game_console_mode,
-                                        ref=self.game_console_switch),
-                                     Text(tr("enable_console").capitalize(),
-                                          weight=ft.FontWeight.W_500)
-                                     ], spacing=0), margin=ft.margin.only(bottom=10)),
-                            ft.FloatingActionButton(
-                                content=ft.Row([
-                                    ft.ProgressRing(visible=False,
-                                                    color=ft.colors.ON_PRIMARY,
-                                                    scale=0.7,
-                                                    ref=self.launch_prog_ring),
-                                    ft.Text(tr("play").capitalize(), size=20,
-                                            weight=ft.FontWeight.W_700,
-                                            ref=self.launch_game_btn_text,
-                                            color=ft.colors.ON_PRIMARY)],
-                                    alignment="center", spacing=5
-                                ),
-                                shape=ft.RoundedRectangleBorder(radius=5),
-                                bgcolor="#FFA500",
-                                ref=self.launch_game_btn,
-                                disabled=self.app.game.exe_version == "unknown",
-                                on_click=self.launch_game,
-                                aspect_ratio=2.5,
-                            )], spacing=0)
-                        ],
-                        col={"xs": 8, "xl": 7, "xxl": 6}, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    ft.Container(Column([
-                        Row([ft.ProgressRing(scale=0.5), Text(tr("checking_online_news"))],
-                            ref=self.checking_online, visible=self.news_text is None),
-                        ft.Container(ft.Markdown(
-                            md1,
-                            expand=True,
-                            code_theme="atom-one-dark",
-                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                            auto_follow_links=True,
-                            ref=self.markdown_content,
-                        ), padding=ft.padding.only(left=10, right=22)),
-                        ],
-                        alignment=ft.MainAxisAlignment.START,
-                        spacing=20,
-                        scroll=ft.ScrollMode.ADAPTIVE), col={"xs": 16, "xl": 17, "xxl": 18})
-                    ], vertical_alignment=ft.CrossAxisAlignment.START, spacing=30, columns=24),
-                margin=ft.margin.only(bottom=20), expand=True)
+                                    on_change=self.change_game_console_mode,
+                                    ref=self.game_console_switch),
+                                 Text(tr("enable_console").capitalize(),
+                                      weight=ft.FontWeight.W_500)
+                                 ], spacing=0), margin=ft.margin.only(bottom=10)),
+                        ft.FloatingActionButton(
+                            content=ft.Row([
+                                ft.ProgressRing(visible=False,
+                                                color=ft.colors.ON_PRIMARY,
+                                                scale=0.7,
+                                                ref=self.launch_prog_ring),
+                                ft.Text(tr("play").capitalize(), size=20,
+                                        weight=ft.FontWeight.W_700,
+                                        ref=self.launch_game_btn_text,
+                                        color=ft.colors.ON_PRIMARY)],
+                                alignment="center", spacing=5
+                            ),
+                            shape=ft.RoundedRectangleBorder(radius=5),
+                            bgcolor="#FFA500",
+                            ref=self.launch_game_btn,
+                            disabled=self.app.game.exe_version == "unknown",
+                            on_click=self.launch_game,
+                            aspect_ratio=2.5,
+                        )], spacing=0)
+                    ],
+                    col={"xs": 8, "xl": 7, "xxl": 6}, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Container(Column([
+                    Row([ft.ProgressRing(scale=0.5), Text(tr("checking_online_news"))],
+                        ref=self.checking_online, visible=self.news_text is None),
+                    ft.Container(ft.Markdown(
+                        md1,
+                        expand=True,
+                        code_theme="atom-one-dark",
+                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                        auto_follow_links=True,
+                        ref=self.markdown_content,
+                    ), padding=ft.padding.only(left=10, right=22)),
+                    ],
+                    alignment=ft.MainAxisAlignment.START,
+                    spacing=20,
+                    scroll=ft.ScrollMode.ADAPTIVE), col={"xs": 16, "xl": 17, "xxl": 18})
+                ], vertical_alignment=ft.CrossAxisAlignment.START, spacing=30, columns=24)

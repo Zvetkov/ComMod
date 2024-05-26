@@ -224,13 +224,13 @@ class Mod(BaseModel):
             return KnownLangFlags(self.language).value
         return KnownLangFlags.other.value
 
-    @computed_field(repr=False)
-    @cached_property
-    def mod_manager_too_new(self) -> bool:
+    @classmethod
+    def is_mod_manager_too_new(cls, commod_version: str,
+                             version_requirements: list[ManagerVersionRequirement]) -> bool:
         result = True
-        for version_requirement in self.patcher_version_requirement:
+        for version_requirement in version_requirements:
             compare_operation = version_requirement.compare_operator
-            version_current = Version.parse_from_str(OWN_VERSION)
+            version_current = Version.parse_from_str(commod_version)
 
             # TODO: check, for some reason previously op check was only valid if comp_op is operator.eq
             if (version_requirement.version < version_current
@@ -241,33 +241,44 @@ class Mod(BaseModel):
 
     @computed_field(repr=False)
     @cached_property
-    def commod_compatible(self) -> bool:
+    def mod_manager_too_new(self) -> bool:
+        return Mod.is_mod_manager_too_new(OWN_VERSION, self.patcher_version_requirement)
+
+    @classmethod
+    def is_commod_compatible(cls, commod_version: str,
+                             version_requirements: list[ManagerVersionRequirement]) -> bool:
         compatible = True
-        for version_requirement in self.patcher_version_requirement:
+        for version_requirement in version_requirements:
             compare_operation = version_requirement.compare_operator
-            version_current = Version.parse_from_str(OWN_VERSION)
+            version_current = Version.parse_from_str(commod_version)
 
             compatible &= compare_operation(version_current, version_requirement.version)
         return compatible
 
     @computed_field(repr=False)
-    @property
-    def commod_compatible_err(self) -> str:
-        if not self.commod_compatible:
-            str_vers = [ver.version_string for ver in self.patcher_version_requirement]
-            logger.warning(f"{self.display_name} manifest asks for another mod manager version. "
+    @cached_property
+    def commod_compatible(self) -> bool:
+        return Mod.is_commod_compatible(OWN_VERSION, self.patcher_version_requirement)
+
+    @classmethod
+    def get_commod_compatible_err(
+         cls, name: str, display_name: str, version_requirement: list[ManagerVersionRequirement],
+         commod_compatible: bool, mod_manager_too_new: bool) -> str:
+        if not commod_compatible:
+            str_vers = [ver.version_string for ver in version_requirement]
+            logger.warning(f"{display_name} manifest asks for another mod manager version. "
                            f"Required: {str_vers}, "
                            f"available: {OWN_VERSION}")
             and_word = f" {tr('and')} "
 
             error_msg = (tr("usupported_patcher_version",
-                            content_name=self.display_name,
+                            content_name=display_name,
                             required_version=and_word.join(str_vers),
                             current_version=OWN_VERSION,
                             github_url=COMPATCH_GITHUB))
 
             # TODO: better to replace with showing error msg box when trying to load mod that is too new
-            if self.mod_manager_too_new and self.name == "community_remaster":
+            if mod_manager_too_new and name == "community_remaster":
                 error_msg += f"\n\n{tr('check_for_a_new_version')}\n\n"
                 error_msg += tr("demteam_links",
                                 discord_url=DEM_DISCORD,
@@ -275,6 +286,13 @@ class Mod(BaseModel):
                                 github_url=COMPATCH_GITHUB) + "\n"
             return error_msg
         return ""
+
+    @computed_field(repr=False)
+    @property
+    def commod_compatible_err(self) -> str:
+        return Mod.get_commod_compatible_err(
+            self.name, self.display_name, self.patcher_version_requirement,
+            self.commod_compatible, self.mod_manager_too_new)
 
     # @computed_field
     # @cached_property
@@ -489,10 +507,20 @@ class Mod(BaseModel):
             if archive_files:
                 if str(screen._screen_path).replace("\\", "/") not in archive_files:
                     # screen doesn't exist in archive, probably can be ignored
-                    logger.warning(f"Screen doesn't exist but specified in manifest: {screen._screen_path}")
-            elif not screen.screen_path.exists():
-                # screen doesn't exist, probably can be ignored
-                logger.warning(f"Screen doesn't exist but specified in manifest: {screen._screen_path}")
+                    logger.warning("Screen doesn't exist but specified in manifest: %s",
+                                   screen._screen_path)
+            else:
+                if not screen.screen_path.exists():
+                    # screen doesn't exist, probably can be ignored
+                    screen.failed_validation = True
+                    logger.warning("Screen doesn't exist but specified in manifest, ignoring: %s",
+                                   screen._screen_path)
+                if screen.compare_path is not None and not screen.compare_path.exists():
+                    screen.failed_validation = True
+                    logger.warning("Compare screen doesn't exist but specified in manifest, ignoring: %s",
+                                   screen._compare_path)
+
+        self.screenshots = [screen for screen in self.screenshots if not screen.failed_validation]
 
         screen_options = {screen.option_name for screen in self.screenshots}
         for screen_opt_name in screen_options:

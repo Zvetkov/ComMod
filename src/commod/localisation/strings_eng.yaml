@@ -16,7 +16,7 @@
 "mod_for_game": "mod for game"
 "local_mods": "local mods"
 "mods_library": "mods library"
-"issue_with_archive": "Issue with the archive: mod is not prepared in the supported way, archive is corrupted or doesn't contain all the necessary files."
+"issue_with_archive": "Issue with the archive: mod wasn't package to be supported by ComMod, archive is corrupted or doesn't contain all the necessary files."
 "no_local_mods_found": "Available for installation mod not found"
 "mod_already_in_library": "this mod is already in the library"
 "download": "download"
@@ -45,7 +45,12 @@
 "screenshots": "screenshots"
 "base_mod_screenshots": "Base mod screenshots"
 "option_screenshots": "Screenshots for option"
-"language": "language"
+"option_variant_screenshots": "Screenshots for option variant"
+"lmb_to_zoom": "LMB 🖰 (zoom in)"
+"lmb_to_discard": "LMB 🖰 (discard)"
+"rmb_to_compare": "RMB 🖰 (compare)"
+"arrows_to_cycle": "← → ⌨ (next/previous)"
+"language": "lang."
 "install_in_progress": "install in progress"
 "successfully": "Success"
 "error_occurred": "error occurred"
@@ -83,7 +88,7 @@
 "install_please_wait": "Installation might take some time, please do not close the installer"
 "error": "Error"
 "of_any_version": "any version"
-"click_screen_to_compare": "Click the screenshot to see comparison"
+"click_screen_to_compare": "Click RMB to see comparison"
 "play": "play"
 "launching": "launching"
 "stop_game": "close the game"
@@ -101,6 +106,7 @@
 "pl": "Polish"
 "kz": "Kazakh"
 "by": "Belarusian"
+"jp": "Japanese"
 "binary_fixes": "binary fixes"
 "spawn_freezes_fix": "Removed freeze on vehicle spawn"
 "recommended_install_chosen": "recommended options chosen"
@@ -382,9 +388,13 @@ technical_name: technical name
 ui_fixes_patched: '* 16:9 resolution options in options menu
 
   * Console font size fix'
-usupported_patcher_version: 'Mod "{content_name}" installation required other mod manager version: {required_version}, now used: {current_version}
+usupported_patcher_version: 'Mod "{content_name}" installation requires other mod manager version:
 
-  You can download a new mod manager version from: {github_url}'
+                             🠶 required: **{required_version}**, now used: **{current_version}**
+
+  You can download a new mod manager version from:
+  
+  🡇 {github_url}'
 version: Version
 version_available: installed version
 version_needed: Compatible versions

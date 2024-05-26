@@ -22,6 +22,7 @@ class KnownLangFlags(Enum):
     pl = "assets\\flags\\openmoji_pl.svg"
     kz = "assets\\flags\\openmoji_kz.svg"
     by = "assets\\flags\\openmoji_by.svg"
+    jp = "assets\\flags\\openmoji_jp.svg"
     other = "assets\\flags\\openmoji_orange.svg"
 
     @classmethod
@@ -103,18 +104,16 @@ def tr(str_name: str, **kwargs: str) -> str:
     return f"Unlocalised string '{str_name}'"
 
 def get_default_lang() -> str:
-    def_locale_tuple = locale.getdefaultlocale()
+    def_locale_tuple = locale.getlocale()
     if isinstance(def_locale_tuple[0], str):
-        def_locale = def_locale_tuple[0].replace("_", "-")
+        def_locale = def_locale_tuple[0].replace("-", "_")
     else:
         return SupportedLanguages.ENG.value
 
-    if def_locale[-3:] == "-RU":
+    if def_locale.startswith("Russian_"):
         return SupportedLanguages.RU.value
-    if def_locale[:2] == "uk" or def_locale[-3:] == "-UA":
+    if def_locale.startswith("Ukrainian_"):
         return SupportedLanguages.UA.value
-    if def_locale[:3] == "ru-":
-        return SupportedLanguages.RU.value
 
     return SupportedLanguages.ENG.value
 
@@ -127,7 +126,7 @@ def is_known_lang(lang: str) -> bool:
     return lang in (SupportedLanguages.ENG.value,
                     SupportedLanguages.RU.value,
                     SupportedLanguages.UA.value,
-                    "de", "pl", "tr")
+                    "de", "tr", "pl", "kz", "by", "jp")
 
 
 def get_known_mod_display_name(

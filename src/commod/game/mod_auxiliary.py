@@ -699,9 +699,16 @@ class OptionalContent(BaseModel):
     def install_settings_dict(self) -> dict[str, InstallSettings]:
         return {sett.name: sett for sett in self.install_settings}
 
+    @computed_field(repr=False)
+    @property
+    def content_names(self) -> list[str]:
+        return [self.name, *[f"{self.name}/{sett.name}" for sett in self.install_settings]]
+
+
     def model_post_init(self, _unused_context: Any) -> None:  # noqa: ANN401
         if not self.data_dirs:
             self.data_dirs = [Path(self.name)]
+
 
 class Screenshot(BaseModel):
     # TODO: add img extension checks previously existed in legacy Mod?
@@ -712,20 +719,12 @@ class Screenshot(BaseModel):
 
     _screen_path: FilePath | None = None
     _compare_path: FilePath | None = None
+    _failed_validation: bool = False
 
     @field_validator("text", mode="after")
     @classmethod
     def remove_lead_trail_newline_n_space(cls, value: str) -> str:
         return value.strip(" \n")
-
-    @computed_field
-    @property
-    def full_text(self) -> str:
-        if self.compare:
-            if self.text:
-                return f"{self.text}\n({tr('click_screen_to_compare')})"
-            return tr("click_screen_to_compare")
-        return self.text
 
     @computed_field
     @property
@@ -737,6 +736,13 @@ class Screenshot(BaseModel):
     def compare_path(self) -> FilePath | None:
         return self._compare_path
 
+    @property
+    def failed_validation(self) -> bool:
+        return self._failed_validation
+
+    @failed_validation.setter
+    def failed_validation(self, new_value: bool) -> None:
+        self._failed_validation = new_value
 
 def patch_memory(target_exe: str) -> list[str]:
     """Apply two memory related binary exe fixes."""

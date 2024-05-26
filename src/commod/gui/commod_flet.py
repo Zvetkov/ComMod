@@ -6,7 +6,8 @@ from flet import IconButton, Image, Page, Theme, ThemeVisualDensity
 
 from commod.game.data import get_title
 from commod.game.environment import GameCopy, InstallationContext
-from commod.gui.app_widgets import App, DownloadModsScreen, HomeScreen, LocalModsScreen, SettingsScreen
+from commod.gui.app_widgets import App
+from commod.gui.common_widgets import title_btn_style
 from commod.gui.config import AppSections, Config
 from commod.helpers.file_ops import get_internal_file_path
 from commod.helpers.parse_ops import init_input_parser
@@ -14,78 +15,11 @@ from commod.localisation.service import tr
 
 
 async def main(page: Page) -> None:
-    async def maximize(e: ft.ControlEvent) -> None:
-        page.window_maximized = not page.window_maximized
-        await page.update_async()
-
-    async def minimize(e: ft.ControlEvent) -> None:
-        page.window_minimized = True
-        await page.update_async()
-
-    async def change_theme_mode(e: ft.ControlEvent) -> None:
-        theme = page.theme_mode
-        if theme == ft.ThemeMode.SYSTEM:
-            page.theme_mode = ft.ThemeMode.DARK
-            page.theme_icon_btn.current.icon = ft.icons.WB_SUNNY_OUTLINED
-            await page.theme_icon_btn.current.update_async()
-        elif theme == ft.ThemeMode.DARK:
-            page.theme_mode = ft.ThemeMode.LIGHT
-            page.theme_icon_btn.current.icon = ft.icons.NIGHTLIGHT_OUTLINED
-            await page.theme_icon_btn.current.update_async()
-        else:
-            page.theme_mode = ft.ThemeMode.SYSTEM
-            page.theme_icon_btn.current.icon = ft.icons.BRIGHTNESS_AUTO
-            await page.theme_icon_btn.current.update_async()
-
-        await page.update_async()
-
-    def title_btn_style(hover_color: str | None = None) -> ft.ButtonStyle:
-        color_dict = {ft.MaterialState.DEFAULT: ft.colors.ON_BACKGROUND}
-        if hover_color is not None:
-            color_dict[ft.MaterialState.HOVERED] = ft.colors.RED
-        return ft.ButtonStyle(
-            color=color_dict,
-            padding={ft.MaterialState.DEFAULT: 0},
-            shape={ft.MaterialState.DEFAULT: ft.RoundedRectangleBorder(radius=2)}
-        )
-
-    def create_sections(app: App) -> None:
-        app.page.floating_action_button = ft.FloatingActionButton(
-            icon=ft.icons.REFRESH_ROUNDED,
-            on_click=app.upd_pressed,
-            mini=True
-            )
-        app.home = HomeScreen(app)
-        app.local_mods = LocalModsScreen(app)
-        app.download_mods = DownloadModsScreen(app)
-        app.settings_page = SettingsScreen(app)
-
-        app.content_pages = [app.home, app.local_mods, app.download_mods, app.settings_page]
-
-    async def wrap_on_window_event(e: ft.ControlEvent) -> None:
-        if e.data == "close":
-            await finalize(e)
-        elif e.data in ("unmaximize", "maximize"):
-            if page.window_maximized:
-                page.icon_maximize.current.icon = ft.icons.FILTER_NONE
-                page.icon_maximize.current.icon_size = 15
-            else:
-                page.icon_maximize.current.icon = ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED
-                page.icon_maximize.current.icon_size = 17
-            await page.icon_maximize.current.update_async()
-
-    async def finalize(e: ft.ControlEvent) -> None:
-        app.logger.debug("closing")
-        app.config.save_config()
-        app.logger.debug("config saved")
-        await page.window_close_async()
-
     options = init_input_parser().parse_args()
 
     page.window_title_bar_hidden = True
     page.title = "ComMod"
     page.scroll = None
-    page.on_window_event = wrap_on_window_event
     page.window_min_width = 900
     page.window_min_height = 600
     page.padding = 0
@@ -95,7 +29,7 @@ async def main(page: Page) -> None:
     page.dark_theme = Theme(color_scheme_seed="#FFA500", visual_density=ThemeVisualDensity.COMPACT)
 
     conf = Config(page)
-    # at the end of excution, commod tries to create config near itself
+    # at the end of execution, commod tries to create config near itself
     # if we can load it - we will use the data from it, except when overriden from console args
     conf.load_from_file()
 
@@ -155,6 +89,7 @@ async def main(page: Page) -> None:
               config=conf,
               page=page)
 
+    page.on_window_event = app.wrap_on_window_event
     page.window_width = app.config.init_width
     page.window_height = app.config.init_height
     page.window_left = app.config.init_pos_x
@@ -168,7 +103,7 @@ async def main(page: Page) -> None:
                         and not app.context.distribution_dir
                         and not app.game.game_root_path)
 
-    create_sections(app)
+    app.create_sections()
 
     page.theme_icon_btn = ft.Ref[IconButton]()
     theme_icon = ft.icons.BRIGHTNESS_AUTO
@@ -211,16 +146,17 @@ async def main(page: Page) -> None:
                 message=tr("theme_mode"),
                 wait_duration=500,
                 content=ft.IconButton(icon=theme_icon,
-                                      on_click=change_theme_mode,
+                                      on_click=app.change_theme_mode,
                                       ref=page.theme_icon_btn,
                                       selected_icon_color=ft.colors.ON_SURFACE_VARIANT)),
         on_change=app.change_page,
     )
     app.rail = rail
 
-    page.icon_maximize = ft.Ref[IconButton]()
+    page.minimize_btn = ft.Ref[IconButton]()
+    page.maximize_btn = ft.Ref[IconButton]()
     # title bar to replace system one
-    await page.add_async(
+    page.add(
         ft.Row(
             [ft.WindowDragArea(ft.Container(
                  ft.Row([
@@ -230,14 +166,15 @@ async def main(page: Page) -> None:
                            fit=ft.ImageFit.COVER),
                      ft.Text(get_title(), size=13, weight=ft.FontWeight.W_500)]), padding=6),
                      expand=True),
-             ft.IconButton(ft.icons.MINIMIZE_ROUNDED, on_click=minimize, icon_size=20,
-                           style=title_btn_style()),
-             ft.IconButton(ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED,
-                           on_click=maximize,
-                           icon_size=17,
+             ft.IconButton(ft.icons.MINIMIZE_ROUNDED,
+                           on_click=app.minimize, icon_size=20,
                            style=title_btn_style(),
-                           ref=page.icon_maximize),
-             ft.IconButton(ft.icons.CLOSE_ROUNDED, on_click=finalize, icon_size=22,
+                           ref=page.minimize_btn),
+             ft.IconButton(ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED,
+                           on_click=app.maximize, icon_size=17,
+                           style=title_btn_style(),
+                           ref=page.maximize_btn),
+             ft.IconButton(ft.icons.CLOSE_ROUNDED, on_click=app.finalize, icon_size=22,
                            style=title_btn_style(hover_color=ft.colors.RED))
              ],
             spacing=0,
@@ -249,7 +186,7 @@ async def main(page: Page) -> None:
                                       margin=ft.margin.only(left=0, right=0))
 
     # add application's root control to the page
-    await page.add_async(
+    page.add(
         ft.Container(ft.Row([rail, app.content_column]),
                      expand=True,
                      padding=ft.padding.only(left=10, right=10, bottom=10)
@@ -283,7 +220,7 @@ async def main(page: Page) -> None:
 
         if os.path.exists(splash_filename):
             os.unlink(splash_filename)
-    await page.update_async()
+    page.update()
 
 
 def start() -> None:
