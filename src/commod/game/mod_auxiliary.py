@@ -760,7 +760,8 @@ def patch_memory(target_exe: str) -> list[str]:
     return ["mm_inserts_patched"]
 
 
-def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | None = None) -> None:
+def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | None = None,
+                        under_windows: bool = True) -> None:
     """Apply binary exe fixes which support configuration."""
     with open(target_exe, "rb+") as f:
         # dict of values that mod configured to be patched
@@ -825,7 +826,12 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
             configured_offsets[data.configurable_offsets.get(offset_key)] = value
 
         if font_alias:
-            hd_ui.scale_fonts(Path(target_exe).parent, data.OS_SCALE_FACTOR, font_alias)
+            fonts_scaled = hd_ui.scale_fonts(
+                Path(target_exe).parent, data.OS_SCALE_FACTOR, font_alias, under_windows)
+            if fonts_scaled:
+                logger.info("Fonts scale corrected")
+            else:
+                logger.info("Can't correct fonts scale")
 
         patch_offsets(f, configured_offsets)
 
@@ -972,15 +978,12 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
                 if exe_options_config.game_font is not None:
                     configured_font = exe_options_config.game_font
 
-            if under_windows:
-                font_alias = configured_font
-                fonts_scaled = hd_ui.scale_fonts(game_root_path, data.OS_SCALE_FACTOR, font_alias)
-                if fonts_scaled:
-                    logger.info("fonts corrected")
-                else:
-                    logger.info("cant correct fonts")
+            font_alias = configured_font
+            fonts_scaled = hd_ui.scale_fonts(game_root_path, data.OS_SCALE_FACTOR, font_alias, under_windows)
+            if fonts_scaled:
+                logger.info("Fonts scale corrected")
             else:
-                logger.warning("Font scaling is unsupported under OS other then Windows")
+                logger.info("Can't correct fonts scale")
 
             width_list = []
             if width in data.PREFERED_RESOLUTIONS:
@@ -1028,7 +1031,7 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
         # increase_phys_step(game_root_path)
         logger.info("damage coeff patched")
 
-    patch_configurables(target_exe, exe_options)
+    patch_configurables(target_exe, exe_options, under_windows)
     return changes_description
 
 
@@ -1055,8 +1058,8 @@ def get_glob_props_path(root_dir: str) -> str:
     config = get_config(root_dir)
     if config.attrib.get("pathToGlobProps") is not None:
         glob_props_path = config.attrib.get("pathToGlobProps")
-    # TODO: fix this idiocity
-    return glob_props_path
+
+    return glob_props_path.lower()
 
 
 def increase_phys_step(root_dir: str, enable: bool = True) -> None:

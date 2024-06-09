@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 
@@ -33,6 +34,21 @@ async def main(page: Page) -> None:
     # if we can load it - we will use the data from it, except when overriden from console args
     conf.load_from_file()
 
+    page.window_width = conf.init_width
+    page.window_height = conf.init_height
+    page.window_left = conf.init_pos_x
+    page.window_top = conf.init_pos_y
+    page.window_visible = True
+
+    loading_ring = ft.Container(
+        ft.ProgressRing(width=300, height=300, color=ft.colors.PRIMARY_CONTAINER),
+        expand=True,
+        alignment=ft.alignment.center)
+
+    page.add(loading_ring)
+    page.update()
+    await asyncio.sleep(0.01)
+
     # loading distibution context
     # console params can override distribution_dir and target_dir early
     if options.distribution_dir:  # noqa: SIM108
@@ -67,7 +83,7 @@ async def main(page: Page) -> None:
         target_dir = conf.current_game
         # else:
         # TODO: rework for this default to work as expected, should detect the game and add to the list as current
-        # target_dir = InstallationContext.get_local_path()
+        # target_dir = InstallationContext.get_local_config_path()
 
 
     # we checked everywhere, so we can try to properly load game
@@ -90,12 +106,8 @@ async def main(page: Page) -> None:
               page=page)
 
     page.on_window_event = app.wrap_on_window_event
-    page.window_width = app.config.init_width
-    page.window_height = app.config.init_height
-    page.window_left = app.config.init_pos_x
-    page.window_top = app.config.init_pos_y
+    page.theme_mode = conf.init_theme
 
-    page.theme_mode = app.config.init_theme
 
     app.logger.info(f"Current lang: {app.config.lang}")
 
@@ -156,6 +168,7 @@ async def main(page: Page) -> None:
     page.minimize_btn = ft.Ref[IconButton]()
     page.maximize_btn = ft.Ref[IconButton]()
     # title bar to replace system one
+    page.remove(loading_ring)
     page.add(
         ft.Row(
             [ft.WindowDragArea(ft.Container(
@@ -164,7 +177,10 @@ async def main(page: Page) -> None:
                            width=20,
                            height=20,
                            fit=ft.ImageFit.COVER),
-                     ft.Text(get_title(), size=13, weight=ft.FontWeight.W_500)]), padding=6),
+                     ft.Text(get_title(), size=13, weight=ft.FontWeight.W_500),
+                     ft.Text("[dev]", size=13, color=ft.colors.ERROR, weight=ft.FontWeight.BOLD,
+                             visible=install_context.dev_mode or app.config.modder_mode),
+                     ]), padding=6),
                      expand=True),
              ft.IconButton(ft.icons.MINIMIZE_ROUNDED,
                            on_click=app.minimize, icon_size=20,
@@ -181,7 +197,9 @@ async def main(page: Page) -> None:
             height=31
         )
     )
-    app.content_column = ft.Container(expand=True,
+
+    app.content_column = ft.Container(loading_ring,
+                                      expand=True,
                                       alignment=ft.alignment.top_center,
                                       margin=ft.margin.only(left=0, right=0))
 
@@ -192,11 +210,17 @@ async def main(page: Page) -> None:
                      padding=ft.padding.only(left=10, right=10, bottom=10)
                      )
     )
+    page.update()
+    await asyncio.sleep(0.01)
 
-    app.context.current_session.load_steam_game_paths()
+    if app.context.under_windows:
+        app.context.current_session.load_steam_game_paths()
+
     if need_quick_start:
         app.logger.debug("showing quick start")
         # modern settings screen has a built-in flow for quick start
+        app.content_column.content = None
+        app.content_column.update()
         await app.show_settings()
     else:
         await app.load_distro_async()
@@ -210,6 +234,8 @@ async def main(page: Page) -> None:
                 app.logger.debug("Automatically switched to local mods page as running with generated config")
                 app.config.current_section = AppSections.LOCAL_MODS.value
         # select_game_from_home
+        app.content_column.content = None
+        app.content_column.update()
         await app.change_page(index=app.config.current_section)
 
     if "NUITKA_ONEFILE_PARENT" in os.environ:
@@ -220,8 +246,10 @@ async def main(page: Page) -> None:
 
         if os.path.exists(splash_filename):
             os.unlink(splash_filename)
+
+
     page.update()
 
 
 def start() -> None:
-    ft.app(target=main)
+    ft.app(target=main, view=ft.AppView.FLET_APP_HIDDEN)

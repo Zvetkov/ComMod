@@ -23,6 +23,10 @@
 "open": "open"
 "delete_mod_short": "delete files"
 "couldnt_delete_mod_permission_err": "Couldn't fully delete the mod, permission error, probably some file is in use!"
+"cant_use_for_distro_access_denied": "Can't use this directory to store files, access was denied!
+
+
+  This usually happens with system protected directories, choose different folder with normal user access rights."
 "delete_mod_from_library": "delete mod from the library"
 "this_will_delete_mod": "Mod will be removed from the library and it's files deleted from the disk.
 
@@ -136,6 +140,8 @@
 "windowed_mode": "windowed mode"
 "incompatible_base": "incompatible mods"
 "enable_console": "enable dev console"
+"override_incompat": "override compatibility checks (option for modders)"
+"compat_checks_disabled": "compatibility checks overriden by dev option"
 "broken_game": "Previously added game couldn't pass integrity check, you will not be able to use it right now in ComMod"
 "broken_game_short": "Incompatible copy"
 "where_is_game": "Where is the game?"
@@ -160,7 +166,7 @@
 "hi_dpi_aware": "HiDPI scaling"
 "fullscreen_optimizations": "Fullscreen optimizations OFF"
 "launch_options_instructions": "info about options"
-"launch_options_instruction_text": "HiDPI scaling: usefull to switch on when playing in windowed mode if your OS scaling is higher than 100% (125% etc.). Makes application 'HiDPI aware', that is allows it to handle it's own scaling, which can fix blurry fonts and stretching off entire window. Has no effect in fullscreen mode.\n\nFullscreen optimizations OFF: can be useful if game window doesn't close properly on your system, leading to dead window staying on top of other windows, and only closing when the process is killed in task manager."
+"launch_options_instruction_text": "HiDPI scaling: usefull to switch on when playing in windowed mode if your OS scaling is higher than 100% (125% etc.). Makes application 'HiDPI aware', that is allows it to handle it's own scaling, which can fix blurry fonts and stretching off entire window. Has no effect in fullscreen mode. (Windows only)\n\nFullscreen optimizations OFF: can be useful if game window doesn't close properly on your system, leading to dead window staying on top of other windows, and only closing when the process is killed in task manager. (Windows only)"
 "actions": "actions"
 "and_others": "and others"
 "select_other_game": "choose other game copy"
@@ -192,6 +198,7 @@
 "not_a_valid_path": "Path doesn't exist"
 "forced_option": "Required content"
 "target_dir_missing_files": "Chosen directory is missing some necessary files"
+"not_directory": "Chosen path is not a directory"
 "unsupported_exe_version": "Chosen directory doesn't contain supported game version"
 "no_base_content_mod_requires_options": "This mod consists of different options, need to choose at least one of those"
 "havent_been_chosen": "Not chosen"

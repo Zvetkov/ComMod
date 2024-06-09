@@ -1,13 +1,13 @@
 # flake8: noqa
-from ctypes import windll
 from dataclasses import dataclass
 from enum import StrEnum
 from os import system
+import platform
 
 
 OWN_VERSION = "2.2"
 
-DATE = "(May 26 2024)"
+DATE = "(Jun 09 2024)"
 # version of binary fixes
 # corresponds with the latest major.minor ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"
@@ -24,6 +24,19 @@ DEM_DISCORD_MODS_DOWNLOAD_SCREEN = "https://discord.gg/deus-ex-machina-522817939
 COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
 WIKI_COMREM = "https://deuswiki.com/w/Community_Remaster"
 
+COMMOD_USES = (
+    "[flet](https://github.com/flet-dev/flet/blob/main/LICENSE), "
+    "[pydantic](https://github.com/pydantic/pydantic/blob/main/LICENSE), "
+    "[nuitka](https://github.com/Nuitka/Nuitka/blob/develop/LICENSE.txt), "
+    "[pyyaml](https://github.com/yaml/pyyaml/blob/main/LICENSE), "
+    "[lxml](https://lxml.de/index.html#license), "
+    "[py7zr](https://github.com/miurahr/py7zr/blob/master/LICENSE), "
+    "[httpx](https://github.com/encode/httpx/blob/master/LICENSE.md), "
+    "[pathvalidate](https://github.com/thombashi/pathvalidate/blob/master/LICENSE), "
+    "[python-markdownify](https://github.com/matthewwithanm/python-markdownify/blob/develop/LICENSE), "
+    "[aiofiles](https://github.com/Tinche/aiofiles/blob/main/LICENSE), "
+    "[aiopath](https://github.com/alexdelorenzo/aiopath/blob/main/LICENSE), "
+    "[aioshutil](https://github.com/kumaraditya303/aioshutil/blob/master/LICENSE.md)")
 
 VERSION_BYTES_100_STAR = 0x005A69C2
 VERSION_BYTES_102_NOCD = 0x005906A3
@@ -44,7 +57,6 @@ ORIG_RES_Y = 768.0
 
 DEFAULT_COMREM_GRAVITY = -19.62
 
-OS_SCALE_FACTOR = windll.shcore.GetScaleFactorForDevice(0) / 100
 
 ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
 
@@ -71,6 +83,21 @@ KNOWN_RESOLUTIONS = {426: 240,
                      3840: 2160,
                      5120: 2880,
                      7680: 4320}
+
+DEFAULT_SCALE_FACTOR = 1.0
+DEFAULT_LINUX_SCALE_FACTOR = 2.0
+
+def get_system_os_scale():
+    if "Windows" in platform.system():
+        try:
+            from ctypes import windll
+            return windll.shcore.GetScaleFactorForDevice(0) / 100
+        except (ImportError, NameError):
+            return DEFAULT_SCALE_FACTOR
+    else:
+        return DEFAULT_LINUX_SCALE_FACTOR
+
+OS_SCALE_FACTOR = get_system_os_scale()
 
 @dataclass
 class BinaryPatch:

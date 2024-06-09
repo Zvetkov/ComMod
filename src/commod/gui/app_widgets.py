@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import platform
 import pprint
 import subprocess
 import traceback
@@ -15,7 +16,7 @@ from pathlib import Path
 import aiofiles.os
 import aioshutil
 import flet as ft
-from asyncio_requests.asyncio_request import request
+import httpx
 from flet import (
     Column,
     FloatingActionButton,
@@ -33,6 +34,7 @@ from flet import (
 
 import commod.game.mod_auxiliary
 from commod.game.data import (
+    COMMOD_USES,
     COMPATCH_GITHUB,
     DATE,
     DEM_DISCORD,
@@ -62,16 +64,16 @@ from commod.helpers.file_ops import (
     get_internal_file_path,
     get_proc_by_names,
     load_yaml,
+    open_dir_in_os,
 )
 from commod.helpers.parse_ops import is_url_safe, process_markdown, str_to_md_format
 from commod.localisation.service import (
-    KnownLangFlags,
     SupportedLanguages,
     is_known_lang,
     tr,
 )
 
-CALLBACK_TIMEOUT = 16000
+CALLBACK_TIMEOUT = 100000
 DISPLAY_MODS_ON_HOMESCREEN_NUM = 5
 
 background_tasks = set()
@@ -529,9 +531,7 @@ class GameCopyListItem(ft.Container):
         self.update()
 
     async def open_clicked(self, e: ft.ControlEvent) -> None:
-        # open game directory in Windows Explorer
-        if os.path.isdir(self.game_path):
-            os.startfile(self.game_path)  # noqa: S606
+        open_dir_in_os(self.game_path)
         self.update()
 
     async def display_as_current(self) -> None:
@@ -591,14 +591,17 @@ class SettingsScreen(ft.Container):
         await self.app.refresh_page(AppSections.SETTINGS.value)
 
     async def get_game_dir(self, e: ft.ControlEvent) -> None:
-        await self.get_game_dir_dialog.get_directory_path_async(
+        self.get_game_dir_dialog.get_directory_path(
             dialog_title=f'{tr("where_is_game")} ({tr("ask_to_choose_path")})'
         )
 
     async def get_distro_dir(self, e: ft.ControlEvent) -> None:
-        await self.get_distro_dir_dialog.get_directory_path_async(
+        self.get_distro_dir_dialog.get_directory_path(
             dialog_title=f'{tr("where_is_distro")} ({tr("ask_to_choose_path")})'
         )
+
+    async def toggle_override_incompat(self, e: ft.ControlEvent) -> None:
+        self.app.config.override_incompat = e.control.value
 
     def build(self) -> None:
         self.list_of_games = Column(height=None if bool(self.app.config.known_games) else 0,
@@ -733,7 +736,7 @@ class SettingsScreen(ft.Container):
             border_color=ft.colors.OUTLINE,
             focused_border_color=ft.colors.PRIMARY,
             on_change=self.check_game_fields,
-            dense=True,
+            # dense=True,
             height=42,
             text_size=13,
             expand=True)
@@ -762,7 +765,7 @@ class SettingsScreen(ft.Container):
             focused_border_color=ft.colors.PRIMARY,
             on_change=self.check_distro_field,
             on_blur=self.check_distro_field,
-            dense=True,
+            # dense=True,
             height=42,
             text_size=13,
             expand=True
@@ -833,11 +836,12 @@ class SettingsScreen(ft.Container):
             padding=10, border_radius=10, visible=False)
 
         self.distro_warning = ft.Container(
-            Row([Icon(ft.icons.WARNING, color=ft.colors.ON_ERROR_CONTAINER),
+            Row([Icon(ft.icons.WARNING, color=ft.colors.ON_ERROR_CONTAINER, expand=1),
                  Text(value=tr("target_dir_missing_files"),
                       color=ft.colors.ON_ERROR_CONTAINER,
                       weight=ft.FontWeight.W_500,
-                      ref=self.distro_warning_text)]),
+                      ref=self.distro_warning_text,
+                      expand=11)]),
             bgcolor=ft.colors.ERROR_CONTAINER, padding=10, border_radius=10, visible=False)
 
 
@@ -913,6 +917,19 @@ class SettingsScreen(ft.Container):
                          no_wrap=False)
                     ]), col={"xs": 12, "xl": 10, "xxl": 8})
 
+        self.override_incompat = ft.Container(
+            Row([
+                ft.Switch(
+                    value=self.app.config.override_incompat,
+                    scale=0.7,
+                    active_color=ft.colors.ERROR,
+                    on_change=self.toggle_override_incompat),
+                Text(tr("override_incompat").capitalize(),
+                      color=ft.colors.ERROR,
+                      weight=ft.FontWeight.W_500)
+                ], spacing=0), margin=0, padding=0,
+                visible=self.app.context.dev_mode or self.app.config.override_incompat)
+
         self.about = ft.Card(
             ft.Container(
                 Row([
@@ -931,17 +948,27 @@ class SettingsScreen(ft.Container):
                                 color=ft.colors.PRIMARY),
                         ft.Text('Aleksandr "Seel" Parfenenkov', size=12),
                         ft.Text(f'Aleksandr "ThePlain" Fateev ({tr("binary_fixes")})', size=12),
-                        ft.Markdown(f"[{tr('our_github')}]"
-                                    f"({COMPATCH_GITHUB})  • "
-                                    f"[{tr('our_discord')}]"
-                                    f"({DEM_DISCORD})  • "
-                                    f"[DeusWiki]({WIKI_COMREM})",
-                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                                    auto_follow_links=True,
-                                    scale=0.9),
-                            ],
-                           alignment=ft.MainAxisAlignment.CENTER,
-                           horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                        ft.Column([
+                            ft.Markdown(f"[{tr('our_github')}]"
+                                        f"({COMPATCH_GITHUB})  • "
+                                        f"[{tr('our_discord')}]"
+                                        f"({DEM_DISCORD})  • "
+                                        f"[DeusWiki]({WIKI_COMREM})",
+                                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                                        auto_follow_links=True,
+                                        scale=0.9),
+                            ExpandableContainer("Powered by", "Powered by",
+                                ft.Markdown(COMMOD_USES,
+                                        auto_follow_links=True,
+                                        width=300),
+                                expanded=False,
+                                scale=0.7, color=ft.colors.SECONDARY)
+                            ], spacing=5,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            alignment=ft.MainAxisAlignment.START)
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER)
                 ], spacing=25, alignment=ft.MainAxisAlignment.CENTER),
                 padding=ft.padding.only(left=35, right=75, top=15, bottom=15),
                 clip_behavior=ft.ClipBehavior.HARD_EDGE),
@@ -1065,9 +1092,11 @@ class SettingsScreen(ft.Container):
                         controls=[
                             Row([
                                 ft.Icon(ft.icons.SETTINGS, color=ft.colors.ON_BACKGROUND),
-                                Text(value=tr("other_settings").upper(), theme_style=ft.TextThemeStyle.TITLE_SMALL)
+                                Text(value=tr("other_settings").upper(),
+                                     theme_style=ft.TextThemeStyle.TITLE_SMALL)
                                  ], col={"xs": 12, "xl": 10, "xxl": 8}),
                             self.language_select,
+                            self.override_incompat,
                             ], alignment=ft.MainAxisAlignment.CENTER, run_spacing=15
                     ), border_radius=10, padding=15, margin=ft.margin.only(right=20, bottom=15),
                     border=ft.border.all(1, ft.colors.SURFACE_VARIANT)),
@@ -1085,7 +1114,7 @@ class SettingsScreen(ft.Container):
             # self.game_location_field.update()
             await self.check_game_fields(e)
             await self.expand_adding_game_manual()
-            await self.game_location_field.focus_async()
+            self.game_location_field.focus()
         self.update()
 
     async def get_distro_dir_result(self, e: ft.FilePickerResultEvent) -> None:
@@ -1093,7 +1122,7 @@ class SettingsScreen(ft.Container):
             self.distro_location_field.value = e.path
             # self.distro_location_field.update()
             await self.check_distro_field(e)
-            await self.distro_location_field.focus_async()
+            self.distro_location_field.focus()
         self.update()
 
     async def toggle_adding_game_manual(self, e: ft.ControlEvent) -> None:
@@ -1241,39 +1270,48 @@ class SettingsScreen(ft.Container):
         self.update()
 
     async def add_distro(self, e: ft.ControlEvent) -> None:
-        self.distro_display.height = None
-        self.distro_display.update()
-        self.distro_location_text.current.value = self.distro_location_field.value.strip()
-        # self.distro_location_text.current.update()
-        self.distro_locaiton_open_btn.current.visible = True
-        # self.distro_locaiton_open_btn.current.update()
-        await self.minimize_adding_distro()
-        self.no_distro_warning.height = 0
-        # self.no_distro_warning.update()
-        self.app.logger.debug("Finished updating warnings")
-
-        self.app.config.current_distro = self.distro_location_text.current.value
-        self.app.config.known_distros = set(self.app.config.current_distro)
-        self.distro_location_field.value = None
         # TODO: sort out the duplicating functions of context, session and config
         # TODO: exception handling for add_distribution_dir,
         # check that overwriting distro is working correctly
         loaded_steam_game_paths = self.app.context.current_session.steam_game_paths
-        self.app.context = InstallationContext(self.app.config.current_distro,
-                                               dev_mode=self.app.context.dev_mode)
+        try:
+            new_context = InstallationContext(self.distro_location_field.value.strip(),
+                                              dev_mode=self.app.context.dev_mode)
 
-        self.app.context.setup_logging_folder()
-        self.app.context.setup_loggers()
-        # self.app.logger = self.app.context.logger
-        self.app.context.load_system_info()
-        # self.app.session = self.app.context.current_session
-        self.app.session.steam_game_paths = loaded_steam_game_paths
-        self.update()
-        await asyncio.sleep(0)
-        if self.app.config.current_game:
-            self.page.run_task(self.app.load_distro_async)
+            new_context.setup_logging_folder()
+            new_context.setup_loggers()
+            new_context.load_system_info()
+
+            self.app.context = new_context
+            self.app.session.steam_game_paths = loaded_steam_game_paths
+        except PermissionError:
+            self.app.logger.exception(f"Unable to use '{self.distro_location_field.value.strip()}' as distro")
+            await self.app.show_alert(tr("cant_use_for_distro_access_denied"))
         else:
-            self.app.logger.debug("No current game found in config")
+            self.distro_display.height = None
+            self.distro_display.update()
+            self.distro_location_text.current.value = self.distro_location_field.value.strip()
+            # self.distro_location_text.current.update()
+            self.distro_locaiton_open_btn.current.visible = True
+            # self.distro_locaiton_open_btn.current.update()
+            await self.minimize_adding_distro()
+            self.no_distro_warning.height = 0
+            # self.no_distro_warning.update()
+            self.app.logger.debug("Finished updating warnings")
+
+            self.app.config.current_distro = self.distro_location_text.current.value
+            self.app.config.known_distros = set(self.app.config.current_distro)
+            self.distro_location_field.value = None
+
+            self.update()
+
+            self.app.context.load_system_info()
+
+            await asyncio.sleep(0)
+            if self.app.config.current_game:
+                self.page.run_task(self.app.load_distro_async)
+            else:
+                self.app.logger.debug("No current game found in config")
 
     async def handle_dropdown_onchange(self, e: ft.ControlEvent) -> None:
         if e.data:
@@ -1454,6 +1492,8 @@ class SettingsScreen(ft.Container):
             additional_info = ""
             if not os.path.exists(game_path):
                 status = GameStatus.NOT_EXISTS
+            elif not os.path.isdir(game_path):
+                status = GameStatus.NOT_DIRECTORY
             elif game_path.lower() in self.app.config.known_games:
                 status = GameStatus.ALREADY_ADDED
             else:
@@ -1513,6 +1553,9 @@ class SettingsScreen(ft.Container):
 
         if not os.path.exists(distribution_dir):
             return DistroStatus.NOT_EXISTS
+
+        if not os.path.isdir(distribution_dir):
+            return DistroStatus.NOT_DIRECTORY
 
         if distribution_dir in self.app.config.known_distros:
             return DistroStatus.ALREADY_ADDED
@@ -1599,9 +1642,7 @@ class SettingsScreen(ft.Container):
         self.update()
 
     async def open_distro_dir(self, e: ft.ControlEvent) -> None:
-        # open distro directory in Windows Explorer
-        if os.path.isdir(self.distro_location_text.current.value):
-            os.startfile(self.distro_location_text.current.value)  # noqa: S606
+        open_dir_in_os(self.distro_location_text.current.value)
         self.update()
 
     async def tabs_changed(self, e: ft.ControlEvent) -> None:
@@ -1737,6 +1778,7 @@ class ModInfo(ft.Container):
         self.expanded = not self.expanded
         self.height = 0 if not self.expanded else None
         if self.expanded:
+            self.did_mount()
             self.visible = True
         else:
             self.visible = False
@@ -1799,11 +1841,7 @@ class ModInfo(ft.Container):
         flag_buttons = []
         if self.mod_family.translations:
             for lang, mod in self.mod_family.translations.items():
-                if mod.known_language:
-                    flag = get_internal_file_path(KnownLangFlags[lang].value)
-                else:
-                    flag = get_internal_file_path(KnownLangFlags.other.value)
-
+                flag = get_internal_file_path(mod.flag)
                 icon = Image(flag, width=27)
                 flag_tooltip = mod.lang_label.capitalize()
 
@@ -1826,7 +1864,191 @@ class ModInfo(ft.Container):
                     on_click=self.mod_item.change_lang))
         return flag_buttons
 
+    def build_content(self) -> None:
+        self.content =\
+            ft.Container(
+                content=Column([
+                    Tabs(
+                        height=40,
+                        selected_index=self.tab_index,
+                        animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
+                        on_change=self.switch_tab,
+                        ref=self.tabs,
+                        tabs=[]),
+                    Column([ft.Container(
+                                ft.ResponsiveRow([
+                                    Column([], ref=self.mod_info_column, col={"xs": 11, "xl": 12},
+                                           opacity=0.9),
+                                    ft.Container(
+                                        Column([
+                                            ft.Row([
+                                                Column([
+                                                ft.Container(
+                                                    Row([Text(f'{tr("language").capitalize()}:'),
+                                                         Row([], ref=self.flag_buttons, spacing=0,
+                                                             wrap=True, run_spacing=0)],
+                                                             spacing=5,
+                                                             alignment=ft.MainAxisAlignment.CENTER),
+                                                    padding=ft.padding.only(left=10)),
+                                                ft.Container(
+                                                    ft.Row([
+                                                        Text(f"{tr('game').capitalize()}:  "),
+                                                        Text(tr(self.mod.installment))
+                                                    ], spacing=5),
+                                                    visible=bool(self.mod.release_date),
+                                                    margin=ft.margin.only(left=10, top=3, bottom=10)),
+                                                ft.Container(
+                                                    ft.Row([
+                                                        Text(f"{tr('release').capitalize()}:  "),
+                                                        Text(self.mod.release_date,
+                                                             ref=self.release_date)
+                                                    ], spacing=5),
+                                                    visible=bool(self.mod.release_date),
+                                                    margin=ft.margin.only(left=10, top=3, bottom=6)),
+                                                ], horizontal_alignment=ft.CrossAxisAlignment.START,
+                                                alignment=ft.MainAxisAlignment.START,
+                                                spacing=3)
+                                            ], alignment=ft.MainAxisAlignment.CENTER),
+                                            ft.Row([ft.TextButton(content=ft.Row([
+                                                ft.Container(
+                                                   ft.Icon(
+                                                       name=ft.icons.HOME_ROUNDED,
+                                                       color=ft.colors.PRIMARY, size=20)),
+                                                ft.Container(
+                                                    Row([Text(tr("mod_url").replace(":", ""),
+                                                              size=14,
+                                                              overflow=ft.TextOverflow.ELLIPSIS)],
+                                                        alignment=ft.MainAxisAlignment.CENTER),
+                                                    margin=ft.margin.only(bottom=2))
+                                                ],
+                                                alignment=ft.MainAxisAlignment.CENTER, tight=True),
+                                             ref=self.home_url_btn,
+                                             on_click=self.open_home_url,
+                                             visible=bool(self.mod.url),
+                                             tooltip=self.get_url_tooltip(self.mod.url))],
+                                                   alignment=ft.MainAxisAlignment.CENTER),
+                                            ft.Row([ft.TextButton(content=ft.Row(
+                                                [
+                                                 ft.Container(
+                                                     ft.Icon(name=ft.icons.ONDEMAND_VIDEO_OUTLINED,
+                                                             color=ft.colors.PRIMARY, size=17),
+                                                     padding=ft.padding.only(top=2)),
+                                                 ft.Container(
+                                                     Row([ft.Text(tr("trailer_watch").capitalize(),
+                                                                  size=14)],
+                                                         alignment=ft.MainAxisAlignment.CENTER),
+                                                     margin=ft.margin.only(bottom=2))
+                                                ],
+                                                # vertical_alignment=ft.MainAxisAlignment.CENTER,
+                                                alignment=ft.MainAxisAlignment.CENTER, tight=True),
+                                             ref=self.trailer_btn,
+                                             on_click=self.open_trailer_url,
+                                             visible=bool(self.mod.trailer_url),
+                                             tooltip=self.get_url_tooltip(self.mod.trailer_url))],
+                                                   alignment=ft.MainAxisAlignment.CENTER),
+                                            ft.Container(ft.Row([ft.ElevatedButton(
+                                                    elevation=3,
+                                                    icon=ft.icons.DELETE_FOREVER_ROUNDED,
+                                                    icon_color=ft.colors.ERROR,
+                                                    text=tr("delete_mod_short").capitalize(),
+                                                    color=ft.colors.ERROR,
+                                                    ref=self.mod_delete_btn,
+                                                    on_click=self.delete_mod_ask,
+                                                    tooltip=tr("delete_mod_from_library").capitalize())],
+                                                alignment=ft.MainAxisAlignment.CENTER),
+                                                margin=7, padding=ft.padding.only(left=3))
+                                            ],
+                                            spacing=2,
+                                            alignment=ft.MainAxisAlignment.START,
+                                            horizontal_alignment=ft.CrossAxisAlignment.START),
+                                        col={"xs": 4, "xl": 3}, padding=ft.padding.only(left=5),
+                                        clip_behavior=ft.ClipBehavior.HARD_EDGE)
+                                    ],
+                                    vertical_alignment=ft.CrossAxisAlignment.START,
+                                    spacing=0, columns=15),
+                                ref=self.main_info,
+                                padding=ft.padding.only(bottom=15),
+                                visible=self.tab_index == 0),
+                            ft.Container(
+                                Column([
+                                    ft.ResponsiveRow([
+                                        ft.Dropdown(
+                                                value=None,
+                                                dense=True,
+                                                height=42,
+                                                text_size=13,
+                                                col={"xs": 12, "xl": 11},
+                                                options=[],
+                                                on_change=self.set_screens_group,
+                                                border_color=ft.colors.with_opacity(0.6,
+                                                                                    ft.colors.SECONDARY),
+                                                ref=self.screenshots_selector)],
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    visible=True),
+                                    ft.ResponsiveRow([
+                                        ft.Column([], ref=self.mod_screens,
+                                                  alignment=ft.MainAxisAlignment.CENTER,
+                                                  horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                                  col={"xs": 12, "xl": 11})],
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                ref=self.screenshots_container,
+                                visible=False,
+                                padding=ft.padding.only(bottom=15)),
+                            ft.Container(
+                                Column([
+                                    ft.Container(
+                                        Row([ft.Markdown(
+                                                self.mod.change_log_content,
+                                                ref=self.change_log_text,
+                                                auto_follow_links=True,
+                                                code_theme="atom-one-dark",
+                                                expand=1,
+                                                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)],
+                                            expand=True),
+                                        padding=ft.padding.only(right=22))],
+                                       scroll=ft.ScrollMode.ADAPTIVE),
+                                ref=self.change_log,
+                                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                                height=400,
+                                visible=False,
+                                padding=ft.padding.only(bottom=15)),
+                            ft.Container(
+                                Column([
+                                    ft.Container(
+                                        Row([ft.Markdown(
+                                                self.mod.other_info_content,
+                                                ref=self.other_info_text,
+                                                auto_follow_links=True,
+                                                code_theme="atom-one-dark",
+                                                expand=1,
+                                                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)],
+                                            expand=True),
+                                        padding=ft.padding.only(right=22))],
+                                       scroll=ft.ScrollMode.ADAPTIVE),
+                                ref=self.other_info,
+                                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                                height=400,
+                                visible=False,
+                                padding=ft.padding.only(bottom=15))],
+                           animate_size=ft.animation.Animation(300, ft.AnimationCurve.EASE_IN_OUT)),
+                    ], alignment=ft.MainAxisAlignment.START),
+                margin=ft.margin.only(top=15),
+                padding=ft.padding.only(left=15, right=15, top=5, bottom=0),
+                border_radius=10,
+                bgcolor=ft.colors.SURFACE, alignment=ft.alignment.top_left)
+
     def did_mount(self) -> None:
+        self.height = 0 if not self.expanded else None
+
+        if not self.expanded and not self.content:
+            return
+
+        if self.expanded and not self.content:
+            self.build_content()
+
         self.page.run_task(self.update_info)
 
         self.flag_buttons.current.controls = self.get_flag_buttons()
@@ -2325,180 +2547,6 @@ class ModInfo(ft.Container):
             return url
         return f'{tr("warn_external_address")}\n {url}'
 
-    def build(self) -> None:
-        self.height = 0 if not self.expanded else None
-        self.content =\
-            ft.Container(
-                content=Column([
-                    Tabs(
-                        height=40,
-                        selected_index=self.tab_index,
-                        animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
-                        on_change=self.switch_tab,
-                        ref=self.tabs,
-                        tabs=[]),
-                    Column([ft.Container(
-                                ft.ResponsiveRow([
-                                    Column([], ref=self.mod_info_column, col={"xs": 11, "xl": 12},
-                                           opacity=0.9),
-                                    ft.Container(
-                                        Column([
-                                            ft.Row([
-                                                Column([
-                                                ft.Container(
-                                                    Row([Text(f'{tr("language").capitalize()}:'),
-                                                         Row([], ref=self.flag_buttons, spacing=0,
-                                                             wrap=True, run_spacing=0)],
-                                                             spacing=5, alignment=ft.MainAxisAlignment.CENTER),
-                                                    padding=ft.padding.only(left=10)),
-                                                ft.Container(
-                                                    ft.Row([
-                                                        Text(f"{tr('game').capitalize()}:  "),
-                                                        Text(tr(self.mod.installment))
-                                                    ], spacing=5),
-                                                    visible=bool(self.mod.release_date),
-                                                    margin=ft.margin.only(left=10, top=3, bottom=10)),
-                                                ft.Container(
-                                                    ft.Row([
-                                                        Text(f"{tr('release').capitalize()}:  "),
-                                                        Text(self.mod.release_date,
-                                                             ref=self.release_date)
-                                                    ], spacing=5),
-                                                    visible=bool(self.mod.release_date),
-                                                    margin=ft.margin.only(left=10, top=3, bottom=6)),
-                                                ], horizontal_alignment=ft.CrossAxisAlignment.START,
-                                                alignment=ft.MainAxisAlignment.START,
-                                                spacing=3)
-                                            ], alignment=ft.MainAxisAlignment.CENTER),
-                                            ft.Row([ft.TextButton(content=ft.Row([
-                                                ft.Container(
-                                                   ft.Icon(
-                                                       name=ft.icons.HOME_ROUNDED,
-                                                       color=ft.colors.PRIMARY, size=20)),
-                                                ft.Container(
-                                                    Row([Text(tr("mod_url").replace(":", ""),
-                                                              size=14, overflow=ft.TextOverflow.ELLIPSIS)],
-                                                        alignment=ft.MainAxisAlignment.CENTER),
-                                                    margin=ft.margin.only(bottom=2))
-                                                ],
-                                                alignment=ft.MainAxisAlignment.CENTER, tight=True),
-                                             ref=self.home_url_btn,
-                                             on_click=self.open_home_url,
-                                             visible=bool(self.mod.url),
-                                             tooltip=self.get_url_tooltip(self.mod.url))],
-                                                   alignment=ft.MainAxisAlignment.CENTER),
-                                            ft.Row([ft.TextButton(content=ft.Row(
-                                                [
-                                                 ft.Container(
-                                                     ft.Icon(name=ft.icons.ONDEMAND_VIDEO_OUTLINED,
-                                                             color=ft.colors.PRIMARY, size=17),
-                                                     padding=ft.padding.only(top=2)),
-                                                 ft.Container(
-                                                     Row([ft.Text(tr("trailer_watch").capitalize(),
-                                                                  size=14)],
-                                                         alignment=ft.MainAxisAlignment.CENTER),
-                                                     margin=ft.margin.only(bottom=2))
-                                                ],
-                                                # vertical_alignment=ft.MainAxisAlignment.CENTER,
-                                                alignment=ft.MainAxisAlignment.CENTER, tight=True),
-                                             ref=self.trailer_btn,
-                                             on_click=self.open_trailer_url,
-                                             visible=bool(self.mod.trailer_url),
-                                             tooltip=self.get_url_tooltip(self.mod.trailer_url))],
-                                                   alignment=ft.MainAxisAlignment.CENTER),
-                                            ft.Container(ft.Row([ft.ElevatedButton(
-                                                    elevation=3,
-                                                    icon=ft.icons.DELETE_FOREVER_ROUNDED,
-                                                    icon_color=ft.colors.ERROR,
-                                                    text=tr("delete_mod_short").capitalize(),
-                                                    color=ft.colors.ERROR,
-                                                    ref=self.mod_delete_btn,
-                                                    on_click=self.delete_mod_ask,
-                                                    tooltip=tr("delete_mod_from_library").capitalize())],
-                                                alignment=ft.MainAxisAlignment.CENTER),
-                                                margin=7, padding=ft.padding.only(left=3))
-                                            ],
-                                            spacing=2,
-                                            alignment=ft.MainAxisAlignment.START,
-                                            horizontal_alignment=ft.CrossAxisAlignment.START),
-                                        col={"xs": 4, "xl": 3}, padding=ft.padding.only(left=5),
-                                        clip_behavior=ft.ClipBehavior.HARD_EDGE)
-                                    ],
-                                    vertical_alignment=ft.CrossAxisAlignment.START,
-                                    spacing=0, columns=15),
-                                ref=self.main_info,
-                                padding=ft.padding.only(bottom=15),
-                                visible=self.tab_index == 0),
-                            ft.Container(
-                                Column([
-                                    ft.ResponsiveRow([
-                                        ft.Dropdown(
-                                                value=None,
-                                                dense=True,
-                                                height=42,
-                                                text_size=13,
-                                                col={"xs": 12, "xl": 11},
-                                                options=[],
-                                                on_change=self.set_screens_group,
-                                                border_color=ft.colors.with_opacity(0.6, ft.colors.SECONDARY),
-                                                ref=self.screenshots_selector)],
-                                    alignment=ft.MainAxisAlignment.CENTER,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    visible=True),
-                                    ft.ResponsiveRow([
-                                        ft.Column([], ref=self.mod_screens,
-                                                  alignment=ft.MainAxisAlignment.CENTER,
-                                                  horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                                  col={"xs": 12, "xl": 11})],
-                                        alignment=ft.MainAxisAlignment.CENTER,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER)
-                                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                ref=self.screenshots_container,
-                                visible=False,
-                                padding=ft.padding.only(bottom=15)),
-                            ft.Container(
-                                Column([
-                                    ft.Container(
-                                        Row([ft.Markdown(
-                                                self.mod.change_log_content,
-                                                ref=self.change_log_text,
-                                                auto_follow_links=True,
-                                                code_theme="atom-one-dark",
-                                                expand=1,
-                                                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)],
-                                            expand=True),
-                                        padding=ft.padding.only(right=22))],
-                                       scroll=ft.ScrollMode.ADAPTIVE),
-                                ref=self.change_log,
-                                clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                                height=400,
-                                visible=False,
-                                padding=ft.padding.only(bottom=15)),
-                            ft.Container(
-                                Column([
-                                    ft.Container(
-                                        Row([ft.Markdown(
-                                                self.mod.other_info_content,
-                                                ref=self.other_info_text,
-                                                auto_follow_links=True,
-                                                code_theme="atom-one-dark",
-                                                expand=1,
-                                                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)],
-                                            expand=True),
-                                        padding=ft.padding.only(right=22))],
-                                       scroll=ft.ScrollMode.ADAPTIVE),
-                                ref=self.other_info,
-                                clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                                height=400,
-                                visible=False,
-                                padding=ft.padding.only(bottom=15))],
-                           animate_size=ft.animation.Animation(300, ft.AnimationCurve.EASE_IN_OUT)),
-                    ], alignment=ft.MainAxisAlignment.START),
-                margin=ft.margin.only(top=15),
-                padding=ft.padding.only(left=15, right=15, top=5, bottom=0),
-                border_radius=10,
-                bgcolor=ft.colors.SURFACE, alignment=ft.alignment.top_left)
-
 class ModArchiveItem(ft.Card):
     def __init__(self, app: App, mods_screen: "LocalModsScreen", archive_path: str,
                  mod_dummy: Mod, **kwargs):
@@ -2605,7 +2653,10 @@ class ModArchiveItem(ft.Card):
                                     Text(f"[{self.archive_extension}] {self.mod.display_name}",
                                          opacity=0.9,
                                          weight=ft.FontWeight.W_500,
-                                         size=18), margin=ft.margin.only(bottom=3)),
+                                         expand=True,
+                                         overflow=ft.TextOverflow.ELLIPSIS,
+                                         size=18), margin=ft.margin.only(bottom=3),
+                                         expand=True, expand_loose=True),
                                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                             ft.Row([
                                 Text(tr("mod_in_archive"),
@@ -2744,41 +2795,74 @@ class ModFamily(ft.AnimatedSwitcher):
             self._mod_items[mod_vr.id_str] = ModItem(self.app, self, mod_vr, mod)
 
     def get_variants_selector(self, mod_atom: Mod) -> ft.Control:
-        long_name_len = 26
+        long_name_len = 28
         if len(self.variants.values()) > 1:
-            variants = [ft.PopupMenuItem(text=var.display_name,
+            # TODO: remove after testing new SubmenuButton approach
+            # variants = [ft.PopupMenuItem(text=var.display_name,
+            #              data=var,
+            #              on_click=self.switch_mod_variant)
+            #             for var in self.variants.values()]
+
+            variants = [ft.MenuItemButton(content=ft.Container(
+                                                    Text(var.display_name),
+                                                    margin=ft.margin.symmetric(horizontal=5)),
                          data=var,
                          on_click=self.switch_mod_variant)
-                    for var in self.variants.values()]
-            variants.sort(key=lambda item: item.text)
-            return Row([
-                ft.Container(ft.PopupMenuButton(
-                    tooltip=tr("mod_variant_name").capitalize(),
-                    content=ft.Container(
-                        Row([
-                            Row([Text(mod_atom.display_name,
+                        for var in self.variants.values()]
+
+            variants.sort(key=lambda item: item.content.content.value)
+
+            max_var_name_length = max(len(var.display_name) for var in self.variants.values())
+
+            return \
+                ft.MenuBar(controls=[ft.SubmenuButton(
+                    expand=True,
+                    content=Text(mod_atom.display_name,
+                                 tooltip=tr("mod_variant_name").capitalize(),
                                  weight=ft.FontWeight.W_700,
                                  no_wrap=False,
                                  max_lines=2,
-                                 size=18 if len(self.mod.display_name) < long_name_len else 16,
+                                 size=18 if max_var_name_length < long_name_len else 16,
                                  overflow=ft.TextOverflow.ELLIPSIS),
-                            Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
-                                 color=ft.colors.ON_BACKGROUND, size=20)], spacing=2)
-                        ]),
-                        padding=ft.padding.only(left=8, right=5, top=2, bottom=3)),
-                    items=variants),
-                    border_radius=5,
-                    bgcolor=ft.colors.BACKGROUND)
-            ], alignment=ft.MainAxisAlignment.CENTER, spacing=0)
-        return ft.Tooltip(
-                    message=self.mod.display_name,
-                    wait_duration=300,
-                    content=Text(self.mod.display_name,
+                    trailing=Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
+                                  color=ft.colors.ON_BACKGROUND, size=20),
+                    style=ft.MenuStyle(bgcolor={
+                        ft.MaterialState.HOVERED: ft.colors.PRIMARY_CONTAINER,
+                        ft.MaterialState.FOCUSED: ft.colors.BACKGROUND,
+                        ft.MaterialState.DEFAULT: ft.colors.BACKGROUND,
+                        }, shape=ft.RoundedRectangleBorder(radius=5)),
+                    controls=variants,
+                    height=32)], expand=True,
+                    style=ft.MenuStyle(elevation=0, bgcolor=ft.colors.TRANSPARENT, padding=0))
+
+            # TODO: remove after testing new SubmenuButton approach
+            # return \
+            #     ft.Container(ft.PopupMenuButton(
+            #         tooltip=tr("mod_variant_name").capitalize(),
+            #         content=ft.Container(
+            #             Row([
+            #                 Row([Text(mod_atom.display_name,
+            #                      weight=ft.FontWeight.W_700,
+            #                      no_wrap=False,
+            #                      max_lines=2,
+            #                      size=18 if len(self.mod.display_name) < long_name_len else 16,
+            #                      overflow=ft.TextOverflow.ELLIPSIS),
+            #                 Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
+            #                      color=ft.colors.ON_BACKGROUND, size=20)], spacing=2)
+            #             ]),
+            #             padding=ft.padding.only(left=8, right=5, top=2, bottom=3)),
+            #         items=variants),
+            #         border_radius=5,
+            #         bgcolor=ft.colors.BACKGROUND)
+
+        return Text(self.mod.display_name,
                                  weight=ft.FontWeight.W_700,
                                  size=18 if len(self.mod.display_name) < long_name_len else 16,
                                  no_wrap=False,
                                  max_lines=2,
-                                 overflow=ft.TextOverflow.ELLIPSIS))
+                                 expand=True,
+                                 overflow=ft.TextOverflow.ELLIPSIS)
+
 
     def get_versions_selector(self, mod_atom: Mod) -> ft.Control:
         mod_cant_install = (not mod_atom.can_install
@@ -2793,12 +2877,44 @@ class ModFamily(ft.AnimatedSwitcher):
         if len(self.main_versions) > 1:
             variant_versions = [m_mod.variants_loaded[mod_atom.name] for m_mod in self.main_versions
                                 if m_mod.variants_loaded.get(mod_atom.name) is not None]
-            versions = [ft.PopupMenuItem(
-                            text=ver.build_ver,
-                            data=ver,
-                            on_click=self.switch_mod_version)
-                            for ver in variant_versions]
-            versions.sort(key=lambda item: item.text)
+            # versions = [ft.PopupMenuItem(
+            #                 text=ver.build_ver,
+            #                 data=ver,
+            #                 on_click=self.switch_mod_version)
+            #                 for ver in variant_versions]
+            # versions.sort(key=lambda item: item.text)
+
+            versions = [ft.MenuItemButton(content=ft.Container(
+                                                    Text(ver.build_ver),
+                                                    margin=ft.margin.symmetric(horizontal=5)),
+                         data=ver,
+                         on_click=self.switch_mod_version)
+                        for ver in variant_versions]
+
+            versions.sort(key=lambda item: item.content.content.value)
+
+            return \
+                ft.MenuBar(controls=[ft.SubmenuButton(
+                    expand=True,
+                    content=Text(mod_atom.build_ver,
+                                 tooltip=tr("mod_version_and_build").capitalize(),
+                                 no_wrap=True,
+                                 weight=ft.FontWeight.W_400,
+                                 data=mod_atom,
+                                 color=name_color,
+                                 overflow=ft.TextOverflow.ELLIPSIS),
+                    trailing=ft.Container(Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
+                                  color=ft.colors.ON_BACKGROUND, size=20),
+                                  margin=ft.margin.only(left=-5, right=-3)),
+                    style=ft.MenuStyle(bgcolor={
+                        ft.MaterialState.HOVERED: ft.colors.PRIMARY_CONTAINER,
+                        ft.MaterialState.FOCUSED: ft.colors.BACKGROUND,
+                        ft.MaterialState.DEFAULT: ft.colors.BACKGROUND,
+                        }, shape=ft.RoundedRectangleBorder(radius=5)),
+                    controls=versions,
+                    height=24)], expand=True,
+                        style=ft.MenuStyle(elevation=0, bgcolor=ft.colors.TRANSPARENT, padding=0))
+
             return Row([
                 ft.Container(ft.PopupMenuButton(
                     tooltip=tr("mod_version_and_build").capitalize(),
@@ -2883,9 +2999,6 @@ class ModItem(ft.Card):
         self.version_info = ft.Ref[ft.Container]()
         self.variant_info = ft.Ref[ft.Container]()
 
-        self.cant_install_warning = ft.Ref[ft.Container]()
-        self.cant_reinstall_warning = ft.Ref[ft.Container]()
-
         self.install_btn = ft.Ref[ft.ElevatedButton]()
         self.about_mod_btn = ft.Ref[ft.OutlinedButton]()
         self.info_container = ft.Ref[ModInfo]()
@@ -2929,20 +3042,6 @@ class ModItem(ft.Card):
             # self.app.page.overlay.append(fg)
             self.app.page.update()
 
-    def update_install_warnings(self) -> None:
-        has_validation_errors = (not (self.mod.commod_compatible
-                              and self.mod.compatible
-                              and self.mod.prevalidated
-                              and self.mod.installment_compatible))
-        cant_reinstall = self.mod.is_reinstall and not self.mod.can_be_reinstalled
-
-        self.cant_install_warning.current.visible = has_validation_errors and not cant_reinstall
-        self.cant_reinstall_warning.current.visible = not has_validation_errors and cant_reinstall
-
-        # self.cant_install_warning.current.update()
-        # self.cant_reinstall_warning.current.update()
-        self.update()
-
     async def toggle_info(self, e: ft.ControlEvent) -> None:
         if self.about_mod_btn.current.text == tr("about_mod").capitalize():
             self.about_mod_btn.current.text = tr("hide_menu").capitalize()
@@ -2969,8 +3068,6 @@ class ModItem(ft.Card):
         self.variant_info.current.content = self.mod_family.get_variants_selector(self.mod)
         # self.variant_info.current.update()
 
-        self.update_install_warnings()
-
         # self.mod_name_text.current.value = self.mod.display_name
         # self.mod_name_text.current.update()
         self.author_text.current.value = f"{tr(self.mod.developer_title)} {self.mod.authors}"
@@ -2978,8 +3075,10 @@ class ModItem(ft.Card):
         self.mod_logo_img.current.src = self.mod.logo_path
         # self.mod_logo_img.current.update()
         await self.update_install_btn()
-        await self.info_container.current.update_info()
-        await self.info_container.current.select_flag_icon(lang_to_switch)
+
+        if self.info_container.current.expanded:
+            await self.info_container.current.update_info()
+            await self.info_container.current.select_flag_icon(lang_to_switch)
 
         self.update()
 
@@ -3005,6 +3104,24 @@ class ModItem(ft.Card):
     #         self.switcher.update()
     #         if self.info_container.current.expanded:
     #             await version_switched.info_container.current.toggle()
+
+    def get_install_btn_tooltip(self) -> str | None:
+        if self.app.local_mods.game_is_running:
+            install_tooltip = tr("game_is_running")
+        elif not self.app.game.target_exe:
+            install_tooltip = tr("no_game_selected").capitalize()
+        elif not self.mod.installment_compatible:
+            install_tooltip = tr("incompatible_game_installment")
+        elif self.mod.is_reinstall:
+            if self.mod.can_be_reinstalled:
+                install_tooltip = tr("reinstall_mod_ask")
+            else:
+                install_tooltip = tr("already_installed")
+        elif not self.mod.can_install:
+            install_tooltip = tr("cant_be_installed")
+        else:
+            install_tooltip = None
+        return install_tooltip
 
     async def update_install_btn(self) -> None:
         btn = self.install_btn.current
@@ -3034,19 +3151,14 @@ class ModItem(ft.Card):
         btn.disabled = (not self.mod.can_install
                         or (self.mod.is_reinstall and not self.mod.can_be_reinstalled))
 
-        if self.app.local_mods.game_is_running:
-            btn.tooltip = tr("game_is_running")
-        elif not self.mod.installment_compatible:
-            btn.tooltip = tr("incompatible_game_installment")
-        elif self.mod.is_reinstall:
-            if self.mod.can_be_reinstalled:
-                btn.tooltip = tr("reinstall_mod_ask")
-            else:
-                btn.tooltip = tr("already_installed")
-        elif not self.mod.can_install:
-            btn.tooltip = tr("cant_be_installed")
-        else:
-            btn.tooltip = None
+        btn.tooltip = self.get_install_btn_tooltip()
+
+        if (btn.disabled and self.app.config.override_incompat
+           and not self.app.local_mods.game_is_running and self.app.game.target_exe):
+            btn.color = ft.colors.ON_ERROR
+            btn.bgcolor = ft.colors.ERROR
+            btn.tooltip = tr("compat_checks_disabled").capitalize()
+            btn.disabled = False
 
         btn.update()
 
@@ -3062,8 +3174,6 @@ class ModItem(ft.Card):
 
         # self.variant_info.current.update()
 
-        self.update_install_warnings()
-
         if (self.app.config.lang != self.mod.language
            and self.app.config.lang in self.mod_family.translations):
             self.page.run_task(self.change_lang, lang=self.app.config.lang)
@@ -3073,20 +3183,6 @@ class ModItem(ft.Card):
         tr_tags = [tr(tag.lower()).capitalize() for tag in self.mod.tags]
         mod_cant_install = (not self.mod.can_install
                             or (self.mod.is_reinstall and not self.mod.can_be_reinstalled))
-        if self.app.local_mods.game_is_running:
-            install_tooltip = tr("game_is_running")
-        elif not self.mod.installment_compatible:
-            install_tooltip = tr("incompatible_game_installment")
-        elif self.mod.is_reinstall:
-            if self.mod.can_be_reinstalled:
-                install_tooltip = tr("reinstall_mod_ask")
-            else:
-                install_tooltip = tr("already_installed")
-        elif not self.mod.can_install:
-            install_tooltip = tr("cant_be_installed")
-        else:
-            install_tooltip = None
-
         self.content = ft.Container(
                 Column([
                     ft.ResponsiveRow([
@@ -3099,28 +3195,8 @@ class ModItem(ft.Card):
                               border_radius=6),
                         ft.Container(col={"xs": 0, "xl": 1}),
                         ft.Container(Column([
-                            Row([
-                                Column([self.mod_family.get_variants_selector(self.mod)],
-                                       ref=self.variant_info),
-                                 ft.Container(
-                                    Icon(ft.icons.INFO_OUTLINE_ROUNDED,
-                                         color=ft.colors.ERROR,
-                                         size=14,
-                                         tooltip=tr("cant_be_installed")),
-                                    opacity=0.9,
-                                    visible=False,
-                                    margin=ft.margin.only(top=3),
-                                    ref=self.cant_install_warning),
-                                 ft.Container(
-                                    Icon(ft.icons.INFO_OUTLINE_ROUNDED,
-                                         size=14,
-                                         tooltip=tr("cant_reinstall")),
-                                    opacity=0.9,
-                                    visible=False,
-                                    margin=ft.margin.only(top=3),
-                                    ref=self.cant_reinstall_warning)
-                                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                 alignment=ft.MainAxisAlignment.START),
+                            Row([self.mod_family.get_variants_selector(self.mod)],
+                                 ref=self.variant_info),
                             Text(f"{tr(self.mod.developer_title)} {self.mod.authors}",
                                  ref=self.author_text,
                                  max_lines=2,
@@ -3131,11 +3207,16 @@ class ModItem(ft.Card):
                                                 padding=ft.padding.only(left=4, right=3, bottom=2),
                                                 border_radius=3,
                                                 bgcolor=ft.colors.TERTIARY_CONTAINER) for tag in tr_tags[:3]],
-                                 ft.Icon(ft.icons.INFO_OUTLINE_ROUNDED,
+                                 ft.Container(
+                                     ft.Icon(ft.icons.MORE_HORIZ_ROUNDED,
                                          color=ft.colors.ON_TERTIARY_CONTAINER,
                                          size=15,
                                          tooltip=", ".join(tr_tags),
-                                         visible=len(self.mod.tags) > 3)],
+                                         ),
+                                     visible=len(self.mod.tags) > 3,
+                                     padding=ft.padding.only(left=4, right=3, bottom=1, top=1),
+                                     border_radius=3,
+                                     bgcolor=ft.colors.TERTIARY_CONTAINER)],
                                 wrap=True, spacing=5, run_spacing=5)
                             ]), clip_behavior=ft.ClipBehavior.HARD_EDGE, col={"xs": 13, "xl": 16}),
                         Column([
@@ -3172,7 +3253,7 @@ class ModItem(ft.Card):
                                 ),
                                 ref=self.install_btn,
                                 disabled=mod_cant_install or self.app.local_mods.game_is_running,
-                                tooltip=install_tooltip,
+                                tooltip=self.get_install_btn_tooltip(),
                                 on_click=self.install_mod),
                             ft.OutlinedButton(tr("about_mod").capitalize(),
                                               animate_size=ft.animation.Animation(
@@ -3184,6 +3265,12 @@ class ModItem(ft.Card):
                     ModInfo(self.app, self.mod, self, ref=self.info_container)
                 ], spacing=0, scroll=ft.ScrollMode.HIDDEN, alignment=ft.MainAxisAlignment.START),
                 margin=10)
+        if (self.app.config.override_incompat and mod_cant_install
+            and not self.app.local_mods.game_is_running and self.app.game.target_exe):
+            self.install_btn.current.bgcolor = ft.colors.ERROR
+            self.install_btn.current.color = ft.colors.ON_ERROR
+            self.install_btn.current.disabled = False
+            self.install_btn.current.tooltip = tr("compat_checks_disabled").capitalize()
 
 
 class ModInstallWizard(ft.Container):
@@ -3196,7 +3283,7 @@ class ModInstallWizard(ft.Container):
         self.current_variant = self.main_mod.variants_loaded[mod_var]
         self.current_screen = None
         self.options: list[self.ModOption] = []
-        self.variant_buttons: dict[str, Mod] = {}
+        self.variant_buttons: dict[str, ft.FloatingActionButton] = {}
 
         self.expand = True
 
@@ -3708,7 +3795,7 @@ class ModInstallWizard(ft.Container):
         self.app.page.floating_action_button.update()
         validated_translations = []
         for mod in self.mod_var_lang.translations_loaded.values():
-            if mod.can_install:
+            if mod.can_install or self.app.config.override_incompat:
                 validated_translations.append(mod)  # noqa: PERF401
 
         num_valid_translations = len(validated_translations)
@@ -3842,7 +3929,8 @@ class ModInstallWizard(ft.Container):
                                       and opt.patcher_options is not None])
 
             if (not is_comrem_or_patch and not mod.vanilla_mod and patching_settings):
-                commod.game.mod_auxiliary.patch_configurables(game.target_exe, patching_settings)
+                commod.game.mod_auxiliary.patch_configurables(game.target_exe, patching_settings,
+                                                              self.app.context.under_windows)
                 if mod.patcher_options and patching_settings:
                     configured_gravity = None
                     for exe_options_config in patching_settings:
@@ -3988,7 +4076,8 @@ class ModInstallWizard(ft.Container):
                 ExpandableContainer(with_opt_label,
                                     with_opt_label,
                                     Column(options_installed),
-                                    expanded=False))
+                                    expanded=False,
+                                    color=ft.colors.PRIMARY))
 
         if not status_ok:
             mod_info.append(Column([
@@ -4111,13 +4200,8 @@ class ModInstallWizard(ft.Container):
     def get_flag_buttons(self) -> None:
         flag_buttons = []
         for lang, mod in self.current_variant.translations_loaded.items():
-            if mod.known_language:
-                flag = get_internal_file_path(KnownLangFlags[lang].value)
-            else:
-                flag = get_internal_file_path(KnownLangFlags.other.value)
-
+            flag = get_internal_file_path(mod.flag)
             icon = Image(flag, fit=ft.ImageFit.FILL)
-
             flag_tooltip = mod.lang_label.capitalize()
 
             if not mod.can_install:
@@ -4138,7 +4222,7 @@ class ModInstallWizard(ft.Container):
                     ),
                     expand=1)
 
-            if mod.can_install:
+            if mod.can_install or self.app.config.override_incompat:
                 flag_btn.on_click = self.set_install_lang
 
             flag_buttons.append(flag_btn)
@@ -4298,6 +4382,12 @@ class ModInstallWizard(ft.Container):
                     width=btn_width,
                     height=btn_height,
                     scale=1.0 if srv_name == variant_name else 0.95)
+
+            if self.variant_buttons[srv_name].disabled and self.app.config.override_incompat:
+                self.variant_buttons[srv_name].disabled = False
+                self.variant_buttons[srv_name].bgcolor = ft.colors.ERROR
+                self.variant_buttons[srv_name].foreground_color = ft.colors.ON_ERROR
+                self.variant_buttons[srv_name].tooltip = tr("compat_checks_disabled").capitalize()
 
         if variant_used.optional_content:
             self.can_have_custom_install = True
@@ -4736,9 +4826,10 @@ class LocalModsScreen(Column):
 
         if self.app.context.distribution_dir:
             self.game_info.current.content = self.get_game_info()
-            self.page.run_task(self.update_list)
+            self.game_info.current.update()
             self.add_mod_card.current.height = None
-            self.page.update()
+            self.add_mod_card.current.update()
+            self.page.run_task(self.update_list)
 
     async def delete_mod(self, mod: Mod) -> None:
         cont_ref = ft.Ref[ft.Container]()
@@ -4800,7 +4891,8 @@ class LocalModsScreen(Column):
         await self.app.refresh_page(index=AppSections.LOCAL_MODS.value)
 
     async def update_list(self) -> None:
-        # TODO: seems like an odd place to reload distro, investigate
+        # seems like an odd place to reload distro, but this is not important as it's cached
+        # still might be good to refactor later
         await self.app.load_distro_async()
 
         mod_items = self.mods_list_view.current.controls
@@ -4993,9 +5085,7 @@ class LocalModsScreen(Column):
             allowed_extensions=["zip", "7z"])
 
     async def open_clicked(self, e: ft.ControlEvent) -> None:
-        # open game directory in Windows Explorer
-        if os.path.isdir(self.app.game.game_root_path):
-            os.startfile(self.app.game.game_root_path)  # noqa: S606
+        open_dir_in_os(self.app.game.game_root_path)
         self.update()
 
     def get_game_info(self) -> ft.Card:
@@ -5141,9 +5231,13 @@ class LocalModsScreen(Column):
                              text_align=ft.TextAlign.CENTER),
                         ft.ListView([], spacing=10, padding=0,
                                     ref=self.mods_list_view,
+                                    semantic_child_count=1,
+                                    on_scroll_interval=100,
                                     col={"xs": 12, "xl": 11, "xxl": 10}),
                         ft.ListView([], spacing=10, padding=0,
                                     ref=self.mods_archived_list_view,
+                                    semantic_child_count=1,
+                                    on_scroll_interval=100,
                                     col={"xs": 12, "xl": 11, "xxl": 10}),
                         ft.Card(ft.Container(
                             Column([
@@ -5282,58 +5376,40 @@ class HomeScreen(ft.Container):
 
             # await asyncio.sleep(1)
             mappings = "https://raw.githubusercontent.com/DeusExMachinaTeam/ComModNews/main/langs.yaml"
-            response_map = await request(
-                url=mappings,
-                protocol="HTTPS",
-                protocol_info={
-                    "request_type": "GET",
-                    "timeout": 5,
-                    "circuit_breaker_config": {
-                        "maximum_failures": 3,
-                        "timeout": 5}
-                }
-            )
-            if response_map["api_response"]["status_code"] == HTTPStatus.OK:
-                lang_mappings = load_yaml(response_map["api_response"]["text"])
-                if not isinstance(lang_mappings, dict):
-                    self.app.logger.error("Online news loading: Couldn't parse lang mappings as yaml")
-                    return
+            async with httpx.AsyncClient() as client:
+                response_map = await client.get(mappings)
+                if response_map.status_code == HTTPStatus.OK:
+                    lang_mappings = load_yaml(response_map.text)
+                    if not isinstance(lang_mappings, dict):
+                        self.app.logger.error("Online news loading: Couldn't parse lang mappings as yaml")
+                        return
 
-                dem_news_stem = lang_mappings.get(self.app.config.lang)
-                if dem_news_stem is None:
-                    self.app.logger.error("Online news loading: Couldn't get current lang from lang mappings")
+                    dem_news_stem = lang_mappings.get(self.app.config.lang)
+                    if dem_news_stem is None:
+                        self.app.logger.error("Online news loading: Couldn't get current lang from lang mappings")
 
-                response = await request(
-                    url=(f"https://raw.githubusercontent.com/DeusExMachinaTeam/ComModNews/main/"
-                         f"{dem_news_stem}"),
-                    protocol="HTTPS",
-                    protocol_info={
-                        "request_type": "GET",
-                        "timeout": 5,
-                        "circuit_breaker_config": {
-                            "maximum_failures": 3,
-                            "timeout": 5}
-                    }
-                )
+                    response = await client.get(
+                        url=(f"https://raw.githubusercontent.com/DeusExMachinaTeam/ComModNews/main/"
+                             f"{dem_news_stem}"))
 
-                if response["api_response"]["status_code"] == HTTPStatus.OK:
-                    md_raw = response["api_response"]["text"]
-                    md = process_markdown(md_raw)
-                    self.markdown_content.current.value = md
+                    if response.status_code == HTTPStatus.OK:
+                        md_raw = response.text
+                        md = process_markdown(md_raw)
+                        self.markdown_content.current.value = md
+                        self.checking_online.current.visible = False
+                        if self.app.is_current_page(HomeScreen):
+                            self.checking_online.current.update()
+                            self.markdown_content.current.update()
+                        self.news_text = md
+                        self.got_news = True
+                    else:
+                        self.app.logger.error(f"bad response '{response.status_code}'")
+                else:
+                    self.app.logger.error("Unable to get url content for news")
                     self.checking_online.current.visible = False
                     if self.app.is_current_page(HomeScreen):
                         self.checking_online.current.update()
-                        self.markdown_content.current.update()
-                    self.news_text = md
-                    self.got_news = True
-                else:
-                    self.app.logger.error(f'bad response {response["api_response"]["status_code"]}')
-            else:
-                self.app.logger.error("Unable to get url content for news")
-                self.checking_online.current.visible = False
-                if self.app.is_current_page(HomeScreen):
-                    self.checking_online.current.update()
-                self.offline = True
+                    self.offline = True
 
     async def launch_url(self, e: ft.ControlEvent) -> None:
         await self.app.page.launch_url_async(e.data)
@@ -5465,15 +5541,37 @@ class HomeScreen(ft.Container):
                 return
             self.app.logger.info(f"Launching: {self.app.game.target_exe}")
 
-            # will kill subprocess on exiting ComMod when running from Python interpretor
-            # will not when compiled with nuitka - desired in this case
-            self.app.current_game_process = \
-                await asyncio.create_subprocess_exec(
-                    self.app.game.target_exe,
-                    "-console" if self.app.config.game_with_console else "",
-                    cwd=self.app.game.game_root_path,
-                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+            # will kill subprocess on exiting ComMod when running from Python debugger (e.g. in VSCode)
+            # will not when run from console or compiled with nuitka - desired in this case
+            if self.app.context.under_windows:
+                self.app.current_game_process = \
+                    await asyncio.create_subprocess_exec(
+                        self.app.game.target_exe,
+                        "-console" if self.app.config.game_with_console else "",
+                        cwd=self.app.game.game_root_path,
+                        # this is ugly, but allows subprocess to live after commod has exited
+                        # without pipe even creationflags didn't achieve creation of independent process here
+                        # TODO: investigate further
+                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
+            else:
+                    # commented out, questionable logic to allow execution or arbitrary shell commands here
+
+                    # # code by github.com/CMiSSioN
+                    # cmd = self.app.config.linux_run_cmd.split() # or shlex.split()
+                    # ? cmd = shlex.quote(self.app.config.linux_run_cmd)
+                    # self.app.logger.debug(f"Launching game via: {cmd}")
+                    # try:
+                    #     self.app.current_game_process = \
+                    #         await asyncio.create_subprocess_exec(
+                    #             *cmd,
+                    #             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    # except FileNotFoundError:
+                    #     await self.app.show_alert(
+                    #         "Unable to run the game! "
+                    #         "You can configure run command in ~/.config/commod/commod.yaml")
+                    #     await self.synchronise_launch_btn_prompt(starting=False)
+                return
 
             self.app.game_change_time = datetime.now()
             await self.synchronise_launch_btn_prompt(starting=True)
@@ -5484,6 +5582,7 @@ class HomeScreen(ft.Container):
 
             self.game_is_running = True
             await self.app.refresh_page(AppSections.LAUNCH.value)
+
         elif self.app.current_game_process.returncode is None:
             # stopping game on a next step, needs to be explained with a changing
             # button prompt
@@ -5499,21 +5598,24 @@ class HomeScreen(ft.Container):
         self.app.game.refresh_game_launch_params(exclude_registry_params=True)
 
     async def keep_track_of_game_proc(self) -> None:
-        while True:
-            if self.app.current_game_process is None:
-                self.app.local_mods.game_is_running = False
-                await self.app.refresh_page(AppSections.LAUNCH.value)
-                break
-            if self.app.current_game_process.returncode is None:
-                pass
-            else:
-                self.app.current_game_process = None
-                self.app.local_mods.game_is_running = False
-                await self.synchronise_launch_btn_prompt(starting=False)
-                self.app.game.refresh_game_launch_params(exclude_registry_params=True)
-                await self.app.refresh_page(AppSections.LAUNCH.value)
-                break
-            await asyncio.sleep(3)
+        try:
+            while True:
+                if self.app.current_game_process is None:
+                    self.app.local_mods.game_is_running = False
+                    await self.app.refresh_page(AppSections.LAUNCH.value)
+                    break
+                if self.app.current_game_process.returncode is None:
+                    pass
+                else:
+                    self.app.current_game_process = None
+                    self.app.local_mods.game_is_running = False
+                    await self.synchronise_launch_btn_prompt(starting=False)
+                    self.app.game.refresh_game_launch_params(exclude_registry_params=True)
+                    await self.app.refresh_page(AppSections.LAUNCH.value)
+                    break
+                await asyncio.sleep(3)
+        except Exception as ex:
+            ...
 
     async def synchronise_launch_btn_prompt(self, starting: bool = True, started: bool = False) -> None:
         try:
@@ -5567,9 +5669,7 @@ class HomeScreen(ft.Container):
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     async def open_clicked(self, e: ft.ControlEvent) -> None:
-        # open game directory in Windows Explorer
-        if os.path.isdir(self.app.game.game_root_path):
-            os.startfile(self.app.game.game_root_path)  # noqa: S606
+        open_dir_in_os(self.app.game.game_root_path)
         self.update()
 
     async def select_game_from_home(self, e: ft.ControlEvent | None = None, path: str | None = None) -> None:
@@ -5760,11 +5860,11 @@ class HomeScreen(ft.Container):
                         Row([
                             game_selector,
                             ft.Column([
-                                Text(self.app.config.game_names[self.app.config.current_game],
+                                Text(self.app.config.game_names.get(self.app.config.current_game),
                                      color=ft.colors.PRIMARY,
                                      overflow=ft.TextOverflow.ELLIPSIS,
                                      weight=ft.FontWeight.W_400,
-                                     tooltip=self.app.config.game_names[self.app.config.current_game])],
+                                     tooltip=self.app.config.game_names.get(self.app.config.current_game))],
                                 expand=True)
                             ], spacing=0, alignment=ft.MainAxisAlignment.START),
                         ft.Container(Row([
@@ -5821,7 +5921,8 @@ class HomeScreen(ft.Container):
                                                       size=13)]),
                                     checked=self.app.game.hi_dpi_aware,
                                     on_click=self.switch_to_hidpi_aware,
-                                    ref=self.checkbox_hi_dpi_aware),
+                                    ref=self.checkbox_hi_dpi_aware,
+                                    disabled=not self.app.context.under_windows),
                                 ft.PopupMenuItem(
                                     content=Row([Icon(ft.icons.SETTINGS_APPLICATIONS_OUTLINED),
                                                  Text(tr("fullscreen_optimizations"),
@@ -5829,7 +5930,8 @@ class HomeScreen(ft.Container):
                                                       size=13)]),
                                     checked=self.app.game.fullscreen_opts_disabled,
                                     on_click=self.switch_fullscreen_optimizations,
-                                    ref=self.checkbox_fullsreen_opts),
+                                    ref=self.checkbox_fullsreen_opts,
+                                    disabled=not self.app.context.under_windows),
                                 ft.PopupMenuItem(),
                                 ft.PopupMenuItem(
                                     content=ft.Container(
@@ -5872,7 +5974,8 @@ class HomeScreen(ft.Container):
                             shape=ft.RoundedRectangleBorder(radius=5),
                             bgcolor="#FFA500",
                             ref=self.launch_game_btn,
-                            disabled=self.app.game.exe_version == "unknown",
+                            disabled=self.app.game.exe_version == "unknown"
+                                     or not self.app.context.under_windows,
                             on_click=self.launch_game,
                             aspect_ratio=2.5,
                         )], spacing=0)

@@ -29,6 +29,10 @@ class KnownLangFlags(Enum):
     def list_values(cls) -> list[str]:
         return [c.value for c in cls]
 
+    @classmethod
+    def list_names(cls) -> list[str]:
+        return [c.name for c in cls]
+
 class SupportedLanguages(StrEnum):
     ENG = auto()
     RU = auto()
@@ -123,11 +127,7 @@ def get_current_lang() -> SupportedLanguages:
     return stored.language
 
 def is_known_lang(lang: str) -> bool:
-    return lang in (SupportedLanguages.ENG.value,
-                    SupportedLanguages.RU.value,
-                    SupportedLanguages.UA.value,
-                    "de", "tr", "pl", "kz", "by", "jp")
-
+    return lang in KnownLangFlags.list_names()
 
 def get_known_mod_display_name(
         service_name: str, library_mods_info: dict[dict[str, str]] | None = None) -> str | None:

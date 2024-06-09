@@ -12,15 +12,31 @@ from commod.helpers.get_system_fonts import get_fonts
 logger = logging.getLogger("dem")
 
 
-def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "") -> None:
+def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "",
+                under_windows: bool = True) -> bool:
     config = file_ops.get_config(root_dir)
-    ui_schema_path = os.path.join(root_dir, config.attrib.get("ui_pathToSchema"))
+
+    config_path = os.path.join(*config.attrib.get("ui_pathToSchema").split("\\")).lower()
+    ui_schema_path = os.path.join(root_dir, config_path)
     ui_schema = parse_ops.xml_to_objfy(ui_schema_path)
 
     font_alias = custom_font if custom_font else "Arial"
 
     listed_system_fonts = []
     fonts_path = Path(Path.home().drive + "/", "Windows", "fonts")
+
+    # code by github.com/CMiSSioN
+    if not under_windows:
+        test_dir = root_dir
+        while True:
+            temp_dir = os.path.dirname(test_dir)
+            if temp_dir == test_dir:
+                break
+            test_dir = temp_dir
+            fonts_path = Path(os.path.join(test_dir, "Windows", "fonts"))
+            if fonts_path.exists():
+                break
+
     if fonts_path.exists():
         listed_system_fonts = [font.lower() for font in os.listdir(fonts_path)]
 
@@ -61,9 +77,9 @@ def toggle_16_9_UI_xmls(root_dir: str,screen_width: int, screen_height: int, ena
     config = file_ops.get_config(root_dir)
     if config.attrib.get("pathToUiWindows") is not None:
         if enable:
-            new_value = r"data\if\dialogs_16_9\UiWindows.xml"
+            new_value = r"data\if\dialogs_16_9\uiwindows.xml"
         else:
-            new_value = r"data\if\dialogs\UiWindows.xml"
+            new_value = r"data\if\dialogs\uiwindows.xml"
         config.attrib["pathToUiWindows"] = new_value
 
     if config.attrib.get("pathToCredits") is not None:
@@ -89,16 +105,16 @@ def toggle_16_9_UI_xmls(root_dir: str,screen_width: int, screen_height: int, ena
 
     if config.attrib.get("pathToUiIcons") is not None:
         if enable:
-            new_value = r"data\if\ico_hd\UiIcons.xml"
+            new_value = r"data\if\ico_hd\uiicons.xml"
         else:
-            new_value = r"data\if\ico\UiIcons.xml"
+            new_value = r"data\if\ico\uiicons.xml"
         config.attrib["pathToUiIcons"] = new_value
 
     if config.attrib.get("pathToLevelInfo") is not None:
         if enable:
-            new_value = r"data\if\diz\LevelInfo_hd.xml"
+            new_value = r"data\if\diz\levelinfo_hd.xml"
         else:
-            new_value = r"data\if\diz\LevelInfo.xml"
+            new_value = r"data\if\diz\levelinfo.xml"
         config.attrib["pathToLevelInfo"] = new_value
 
     if config.attrib.get("g_impostorThreshold") is not None:
@@ -132,7 +148,8 @@ def toggle_16_9_UI_xmls(root_dir: str,screen_width: int, screen_height: int, ena
 
 
 def toggle_16_9_glob_prop(root_dir: str, enable: bool = True) -> None:
-    glob_props_full_path = os.path.join(root_dir, commod.game.mod_auxiliary.get_glob_props_path(root_dir))
+    config_path = os.path.join(*(commod.game.mod_auxiliary.get_glob_props_path(root_dir).split("\\")))
+    glob_props_full_path = os.path.join(root_dir, config_path)
     glob_props = parse_ops.xml_to_objfy(glob_props_full_path)
     ground_repository = parse_ops.get_child_from_xml_node(glob_props, "GroundRepository")
     smart_cursor = parse_ops.get_child_from_xml_node(glob_props, "SmartCursor")

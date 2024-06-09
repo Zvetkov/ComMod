@@ -8,11 +8,9 @@ import platform
 import pprint
 import subprocess
 import sys
-import winreg
 import zipfile
 from asyncio import gather
 from collections import defaultdict
-from ctypes import windll
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -60,7 +58,6 @@ from commod.helpers.errors import (
     WrongGameDirectoryPathError,
 )
 from commod.helpers.file_ops import get_config, load_yaml, read_yaml, running_in_venv, write_xml_to_file_async
-from commod.helpers.parse_ops import shorten_path
 from commod.localisation.service import SupportedLanguages, tr
 
 
@@ -72,6 +69,7 @@ class GameStatus(Enum):
     MISSING_FILES = "target_dir_missing_files"
     LEFTOVERS = "install_leftovers"
     ALREADY_ADDED = "already_in_list"
+    NOT_DIRECTORY = "not_directory"
     GENERAL_ERROR = "error"
 
 
@@ -80,6 +78,7 @@ class DistroStatus(Enum):
     NOT_EXISTS = "not_a_valid_path"
     MISSING_FILES = "target_dir_missing_files"
     ALREADY_ADDED = "already_chosen"
+    NOT_DIRECTORY = "not_directory"
     GENERAL_ERROR = "error"
 
 # TODO: maybe implement a hashable description of installed Mod
@@ -145,8 +144,8 @@ class InstallationContext:
         return True
 
     @staticmethod
-    def get_config() -> dict | None:
-        config_path = os.path.join(InstallationContext.get_local_path(), "commod.yaml")
+    def get_commod_config() -> dict | None:
+        config_path = os.path.join(InstallationContext.get_local_config_path(), "commod.yaml")
         if os.path.exists(config_path):
             # Invalid yaml config will be returned as None, no need to handle as special case
             return read_yaml(config_path)
@@ -176,12 +175,17 @@ class InstallationContext:
             success = False
             retry_count = 10
             # sometimes can randomly fail, blame windll for need to retry
-            for _ in range(retry_count):
-                res_x = windll.user32.GetSystemMetrics(0)
-                res_y = windll.user32.GetSystemMetrics(1)
-                if res_x != 0 and res_y != 0:
-                    success = True
-                    break
+            try:
+                for _ in range(retry_count):
+                    from ctypes import windll
+                    res_x = windll.user32.GetSystemMetrics(0)
+                    res_y = windll.user32.GetSystemMetrics(1)
+                    if res_x != 0 and res_y != 0:
+                        success = True
+                        break
+            except (ImportError, NameError):
+                pass
+
             if not success:
                 res_x = 1920
                 res_y = 1080
@@ -193,35 +197,46 @@ class InstallationContext:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
             p2 = subprocess.Popen(cmd2, stdin=p.stdout, stdout=subprocess.PIPE)
             p.stdout.close()
-            resolution_string, junk = p2.communicate()
+            resolution_byte, junk = p2.communicate()
+            resolution_string = resolution_byte.decode("utf-8")
             resolution = resolution_string.split()[0]
+            self.logger.debug(f"Detected resolution: {resolution}")
             res_x, res_y = resolution.split("x")
+            if int(res_y) > int(res_x):
+                res_x, res_y = res_y, res_x
 
         monitor_res = int(res_x), int(res_y)
-        self.logger.info(f"Reported res X:Y: {res_x}:{res_y}")
+        self.logger.info(f"Reported resolution (X:Y): {res_x}:{res_y}")
 
         if self.under_windows:
             self.logger.info(f"OS scale factor: {OS_SCALE_FACTOR}")
         return monitor_res
 
     @staticmethod
-    def get_local_path() -> str:
+    def get_local_config_path() -> str:
         sys_exe = str(Path(sys.executable).resolve())
-        \
         # check if we are running as py script, compiled exe, or in venv
-        if ".exe" in sys_exe and not running_in_venv():
-            # Nuitka way
-            exe_path = Path(sys.argv[0]).resolve().parent
-            # PyInstaller compatible way
-            # distribution_dir = Path(sys.executable).resolve().parent
-        elif running_in_venv():
-            # probably running in venv
-            exe_path = Path(__file__).parent.parent
-
+        if "Windows" in platform.system():
+            if ".exe" in sys_exe and not running_in_venv():
+                # Windows Nuitka way
+                config_path = Path(sys.argv[0]).resolve().parent
+                # old PyInstaller compatible way
+                # exe_path = Path(sys.executable).resolve().parent
+            elif running_in_venv():
+                # *probably* running in venv
+                config_path = Path(__file__).parent.parent
+            else:
+                # Let's default to something instead of raising
+                config_path = Path(sys.argv[0]).resolve().parent
         else:
-            raise OSError
-
-        return str(exe_path)
+            # for Linux storing local portable config around binary is undesirable, will use XDG Base Dir Spec
+            config_root = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.environ.get("HOME"), ".config")
+            if config_root == "/.config": # valid for "nobody"
+                config_path = Path(sys.argv[0]).resolve().parent
+            else:
+                config_path = Path(config_root, "commod")
+                os.makedirs(config_path, exist_ok=True)
+        return str(config_path)
 
     async def load_mods_async(self) -> None:
         all_config_paths = []
@@ -547,7 +562,7 @@ class InstallationContext:
             stream_formatter = logging.Formatter("%(asctime)s: %(levelname)-7s - %(module)-11s"
                                                  " - line %(lineno)-4d: %(message)s")
 
-            if self.dev_mode or stream_only:
+            if self.dev_mode or (stream_only and "NUITKA_ONEFILE_PARENT" not in os.environ):
                 stream_handler = logging.StreamHandler()
                 stream_handler.setLevel(logging.DEBUG)
                 stream_handler.setFormatter(stream_formatter)
@@ -580,9 +595,12 @@ class InstallationContext:
                         if remove_num > limit_logs_remove_at_once:
                             remove_num = limit_logs_remove_at_once
                         for _ in range(remove_num + 1):
-                            oldest_file = min(log_files, key=lambda f: f.stat().st_ctime)
-                            oldest_file.unlink()
-                            log_files.remove(oldest_file)
+                            try:
+                                oldest_file = min(log_files, key=lambda f: f.stat().st_ctime)
+                                oldest_file.unlink()
+                                log_files.remove(oldest_file)
+                            except PermissionError:
+                                pass
 
             if not os.path.exists(log_path):
                 os.mkdir(log_path)
@@ -594,18 +612,14 @@ class InstallationContext:
         """Session stores information about the course of install and errors encountered."""
 
         def __init__(self) -> None:
-            self.mod_loading_errors = []
-            self.mod_installation_errors = []
-            self.steam_parsing_error = None
+            self.mod_loading_errors: list[str] = []
+            self.steam_parsing_error: str | None = None
 
-            self.content_in_processing = {}
-            self.installed_content_description = []
-            self.steam_game_paths = []
-            # self.tracked_mods = set()
-            self.tracked_mods_hashes = {}
+            self.content_in_processing: dict[str, str] = {}
+            self.steam_game_paths: list[str] = []
+            self.tracked_mods_hashes: dict[str, str] = {}
             self.mods: dict[str, Mod] = {}
             self.variants: dict[str, Mod] = {}
-            self.mods_validation_info = {}
 
         @property
         def tracked_mods(self) -> set[str]:
@@ -614,9 +628,10 @@ class InstallationContext:
         def load_steam_game_paths(self) -> tuple[str, str]:
             """Try to find the game(s) in default Steam folder, return path and error message."""
             steam_install_reg_path = r"SOFTWARE\WOW6432Node\Valve\Steam"
-            hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
             validated_dirs = []
             try:
+                import winreg
+                hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
                 # getting Steam installation folder from Reg
                 steam_install_reg_value = winreg.OpenKey(hklm, steam_install_reg_path)
                 steam_install_path = winreg.QueryValueEx(steam_install_reg_value, "InstallPath")[0]
@@ -679,6 +694,9 @@ class InstallationContext:
                             validated, _ = GameCopy.validate_game_dir(str(entry))
                             if validated:
                                 validated_dirs.append(str(entry))
+            except (ImportError, NameError):
+                self.steam_parsing_error = "WinRegUnavailable/OSNotSupportedForSteamAutodetect"
+                return False
             except FileNotFoundError:
                 self.steam_parsing_error = "FileNotFound/RegistryNotFound"
                 return False
@@ -1012,10 +1030,14 @@ class GameCopy:
     def switch_hi_dpi_aware(self, enable: bool = True) -> None:
         self.logger.debug("Setting hidpi awareness")
         compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
-        hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
         try:
+            import winreg
+            hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
             compat_settings_reg_value_hkcu = winreg.OpenKey(
                 hkcu, compat_settings_reg_path, 0, winreg.KEY_WRITE)
+        except (ImportError, NameError):
+            self.logger.debug("Unable to use WinReg, might be running under another OS")
+            return False
         except PermissionError:
             self.logger.debug("Unable to open registry - no access")
             return False
@@ -1062,14 +1084,18 @@ class GameCopy:
         try:
             self.logger.debug("Checking hidpi awareness status")
             compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
-            hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
             try:
+                import winreg
+                hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
                 compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
                 value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
                 if "HIGHDPIAWARE" in value[0]:
                     self.logger.debug("Found key in HKLM")
                     return True
                 value = None
+            except (ImportError, NameError):
+                self.logger.debug("Unable to use WinReg, might be running under another OS")
+                return False
             except FileNotFoundError:
                 value = None
                 self.logger.debug("Key not found in HKLM")
@@ -1105,10 +1131,14 @@ class GameCopy:
     # TODO: split to two functions without bool flag
     def switch_fullscreen_opts(self, disable: bool = True) -> bool:
         compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
-        hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
         try:
+            import winreg
+            hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
             compat_settings_reg_value_hkcu = winreg.OpenKey(
                 hkcu, compat_settings_reg_path, 0, winreg.KEY_WRITE)
+        except (ImportError, NameError):
+            self.logger.debug("Unable to use WinReg, might be running under another OS")
+            return False
         except PermissionError:
             self.logger.debug("Unable to open registry - no access")
             return False
@@ -1154,14 +1184,18 @@ class GameCopy:
         try:
             self.logger.debug("Checking fullscreen optimisations status")
             compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
-            hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
             try:
+                import winreg
+                hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
                 compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
                 value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
                 if "DISABLEDXMAXIMIZEDWINDOWEDMODE" in value[0]:
                     self.logger.debug("Found key in HKLM")
                     return True
                 value = None
+            except (ImportError, NameError):
+                self.logger.debug("Unable to use WinReg, might be running under another OS")
+                return False
             except FileNotFoundError:
                 value = None
                 self.logger.debug("Key not found in HKLM")

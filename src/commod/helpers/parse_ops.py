@@ -28,7 +28,7 @@ def init_input_parser() -> argparse.ArgumentParser:
 @cache
 def is_url_safe(url: str) -> bool:
     if url:
-        return urlparse(url).netloc in DOMAIN_SAFELIST
+        return urlparse(url).netloc.removeprefix("www.") in DOMAIN_SAFELIST
     return True
 
 def parse_str_from_dict(dictionary: dict[str, Any], key: str, default: str) -> str:

@@ -4,7 +4,9 @@ import asyncio
 import logging
 import math
 import os
+import platform
 import struct
+import subprocess
 import sys
 import typing
 import zipfile
@@ -66,6 +68,16 @@ async def write_xml_to_file_async(objectify_tree: objectify.ObjectifiedElement, 
         else:
             await fh.write(xml_string)
 
+def open_dir_in_os(directory_path: str | Path) -> None:
+    """Open directory in Windows Explorer or OS specific equiavalents."""
+    directory_path = Path(directory_path)
+    if os.path.isdir(directory_path):
+        sysplat = platform.system()
+        if "Windows" in sysplat:
+            os.startfile(directory_path)  # noqa: S606
+            return
+        opener = "open" if "Darwin" in sysplat else "xdg-open"
+        subprocess.call([opener, directory_path])  # noqa: S603
 
 def count_files(directory: str) -> int:
     files = []

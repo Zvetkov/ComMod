@@ -2,6 +2,7 @@
 
 import logging
 import operator
+import os
 from collections.abc import Awaitable
 from datetime import datetime
 from functools import cached_property
@@ -218,11 +219,12 @@ class Mod(BaseModel):
         return "authors" if ", " in self.authors else "author"
 
     @computed_field(repr=False)
-    @property
+    @cached_property
     def flag(self) -> str:
-        if self.language in KnownLangFlags.list_values():
-            return KnownLangFlags(self.language).value
-        return KnownLangFlags.other.value
+        if self.known_language:
+            return os.path.join(*KnownLangFlags[self.language].value.split("\\"))
+        return os.path.join(*KnownLangFlags.other.value.split("\\"))
+
 
     @classmethod
     def is_mod_manager_too_new(cls, commod_version: str,
@@ -403,12 +405,15 @@ class Mod(BaseModel):
     @computed_field(repr=False)
     @property
     def change_log_content(self) -> str:
-        if self.change_log_path and self.change_log_path.exists():
-            with open(self.change_log_path, encoding="utf-8") as fh:
-                md = fh.read()
-                return process_markdown(md)
-        else:
+        try:
+            if self.change_log_path and self.change_log_path.exists():
+                with open(self.change_log_path, encoding="utf-8") as fh:
+                    md = fh.read()
+                    return process_markdown(md)
+        except UnicodeDecodeError:
+            logger.error(f"Wasn't able to decode content of {self.change_log_path}, need to be utf-8 text")
             return ""
+        return ""
 
     @computed_field(repr=False)
     @property
@@ -421,10 +426,14 @@ class Mod(BaseModel):
     @computed_field(repr=False)
     @property
     def other_info_content(self) -> str:
-        if self.other_info_path and self.other_info_path.exists():
-            with open(self.other_info_path, encoding="utf-8") as fh:
-                md = fh.read()
-                return process_markdown(md)
+        try:
+            if self.other_info_path and self.other_info_path.exists():
+                with open(self.other_info_path, encoding="utf-8") as fh:
+                    md = fh.read()
+                    return process_markdown(md)
+        except UnicodeDecodeError:
+            logger.error(f"Wasn't able to decode content of {self.other_info_path}, need to be utf-8 text")
+            return ""
         return ""
 
     @computed_field(repr=False)
