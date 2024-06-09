@@ -39,10 +39,12 @@ class Config:
         self.known_distros: set[str] = set()
 
         self.modder_mode: bool = False
+        self.override_incompat: bool = False
 
         self.current_section: int = AppSections.SETTINGS.value
         self.current_game_filter: int = GameInstallment.ALL.value
         self.game_with_console: bool = False
+        self.linux_run_cmd = "flatpak run net.lutris.Lutris lutris:rungame/HTA"
 
         self.page: ft.Page = page
 
@@ -52,9 +54,11 @@ class Config:
             "game_names": self.game_names,
             "current_distro": self.current_distro,
             "modder_mode": self.modder_mode,
+            "override_incompat": self.override_incompat,
             "current_section": self.current_section,
             "current_game_filter": self.current_game_filter,
             "game_with_console": self.game_with_console,
+            "linux_run_cmd": self.linux_run_cmd,
             "window": {"width": self.page.window_width,
                        "height": self.page.window_height,
                        "pos_x":  self.page.window_left,
@@ -90,7 +94,7 @@ class Config:
         if abs_path is not None and os.path.exists(abs_path):
             config = read_yaml(abs_path)
         else:
-            config = InstallationContext.get_config()
+            config = InstallationContext.get_commod_config()
 
         if isinstance(config, dict):
             lang = config.get("lang")
@@ -118,6 +122,10 @@ class Config:
             if isinstance(modder_mode, bool):
                 self.modder_mode = modder_mode
 
+            override_incompat = config.get("override_incompat")
+            if isinstance(override_incompat, bool):
+                self.override_incompat = override_incompat
+
             current_section = config.get("current_section")
             if current_section in AppSections.list_values():
                 self.current_section = current_section
@@ -129,6 +137,10 @@ class Config:
             game_with_console = config.get("game_with_console")
             if isinstance(game_with_console, bool):
                 self.game_with_console = game_with_console
+
+            linux_run_cmd = config.get("linux_run_cmd")
+            if isinstance(linux_run_cmd, str):
+                self.linux_run_cmd = linux_run_cmd
 
             window_config = config.get("window")
             # ignoring broken partial configs for window
@@ -162,7 +174,7 @@ class Config:
         if abs_dir_path is not None and os.path.isdir(abs_dir_path):
             config_path = os.path.join(abs_dir_path, "commod.yaml")
         else:
-            config_path = os.path.join(InstallationContext.get_local_path(), "commod.yaml")
+            config_path = os.path.join(InstallationContext.get_local_config_path(), "commod.yaml")
 
         result = dump_yaml(self.asdict(), config_path, sort_keys=False)
         if not result:

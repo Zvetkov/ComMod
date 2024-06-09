@@ -48,6 +48,26 @@ class PatcherOptions(BaseModel):
     hq_reflections: bool | None = None
     draw_distance_limit: bool | None = None
     vanilla_fov: bool | None = None
+    default_difficulty_is_lowest: bool | None = None
+    no_money_in_player_schwarz: bool | None = None
+    calc_peace_price_from_schwarz: bool | None = None
+
+def apply_binary_patch(f: typing.BinaryIO,
+                       binary_patches: list[data.BinaryPatch],
+                       enable_flag: bool) -> None:
+    processed_patches = {}
+    processed_patches_raw = {}
+
+    for bin_patch in binary_patches:
+        new_value = bin_patch.enable_value if enable_flag else bin_patch.disable_value
+        if type(new_value) == str and not bin_patch.value_is_offset:  # noqa: E721
+            processed_patches_raw[bin_patch.offset] = new_value
+        else:
+            processed_patches[bin_patch.offset] = new_value
+
+    patch_offsets(f, processed_patches)
+    patch_offsets(f, processed_patches_raw, raw_strings=True)
+
 
 
 class ConfigOptions(BaseModel):
@@ -598,12 +618,25 @@ class Incompatibility(ModCompatConstrain):
 
 class InstallSettings(BaseModel):
     name: Annotated[str, StringConstraints(max_length=64)]
+    display_name: Annotated[str, StringConstraints(max_length=64)] = ""
     description: Annotated[str, StringConstraints(max_length=1024)] = Field(repr=False)
 
-    @field_validator("description", mode="after")
+    # file structure
+    data_dirs: list[str] = []
+
+    @field_validator("name", "display_name", "description", mode="after")
     @classmethod
     def remove_lead_trail_newline_n_space(cls, value: str) -> str:
         return value.strip(" \n")
+
+    @field_validator("data_dirs", mode="after")
+    @classmethod
+    def parse_relative_paths(cls, value: list[str]) -> list[str]:
+        return [parse_simple_relative_path(path) for path in value]
+
+    def model_post_init(self, _unused_context: Any) -> None:  # noqa: ANN401
+        if not self.data_dirs:
+            self.data_dirs = [Path(self.name) / "data"]
 
 RESERVED_CONTENT_NAMES = {"base", "name", "display_name", "build", "version", "language", "installment"}
 
@@ -625,7 +658,7 @@ class OptionalContent(BaseModel):
 
     @field_validator("name", "display_name", "description", mode="after")
     @classmethod
-    def remove_newline_space(cls, value: str) -> str:
+    def remove_lead_trail_newline_n_space(cls, value: str) -> str:
         return value.strip(" \n")
 
     @model_validator(mode="after")
@@ -635,8 +668,11 @@ class OptionalContent(BaseModel):
             valid_option_names.append("skip")
             if self.default_option and self.default_option not in valid_option_names:
                 raise ValueError("Only 'skip' or names present in install settings are allowed")
-        elif self.default_option and self.default_option not in ("skip", "install"):
-            raise ValueError("Only 'skip' or 'install' is allowed for simple options")
+        elif self.default_option:
+            if self.default_option not in ("skip", "install"):
+                raise ValueError("Only 'skip' or 'install' is allowed for simple options")
+            if self.default_option == "install":
+                self.default_option = None # None is default and signals that option needs to be installed
         return self
 
     @field_validator("data_dirs", mode="after")
@@ -658,18 +694,32 @@ class OptionalContent(BaseModel):
             raise ValueError("Multiple install settings need to exists for complex optional content")
         return value
 
+    @computed_field(repr=False)
+    @property
+    def install_settings_dict(self) -> dict[str, InstallSettings]:
+        return {sett.name: sett for sett in self.install_settings}
+
+    @computed_field(repr=False)
+    @property
+    def content_names(self) -> list[str]:
+        return [self.name, *[f"{self.name}/{sett.name}" for sett in self.install_settings]]
+
+
     def model_post_init(self, _unused_context: Any) -> None:  # noqa: ANN401
         if not self.data_dirs:
             self.data_dirs = [Path(self.name)]
+
 
 class Screenshot(BaseModel):
     # TODO: add img extension checks previously existed in legacy Mod?
     img: str = Field(repr=False)
     text: Annotated[str, StringConstraints(max_length=256)] = ""
     compare: str = Field(default="", repr=False)
+    option_name: str = "base"
 
     _screen_path: FilePath | None = None
     _compare_path: FilePath | None = None
+    _failed_validation: bool = False
 
     @field_validator("text", mode="after")
     @classmethod
@@ -686,6 +736,13 @@ class Screenshot(BaseModel):
     def compare_path(self) -> FilePath | None:
         return self._compare_path
 
+    @property
+    def failed_validation(self) -> bool:
+        return self._failed_validation
+
+    @failed_validation.setter
+    def failed_validation(self, new_value: bool) -> None:
+        self._failed_validation = new_value
 
 def patch_memory(target_exe: str) -> list[str]:
     """Apply two memory related binary exe fixes."""
@@ -703,7 +760,8 @@ def patch_memory(target_exe: str) -> list[str]:
     return ["mm_inserts_patched"]
 
 
-def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | None = None) -> None:
+def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | None = None,
+                        under_windows: bool = True) -> None:
     """Apply binary exe fixes which support configuration."""
     with open(target_exe, "rb+") as f:
         # dict of values that mod configured to be patched
@@ -726,38 +784,32 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
                 font_alias = exe_options_config.game_font
 
             if exe_options_config.draw_distance_limit is not None:
-                limit_draw_dist = exe_options_config.draw_distance_limit
+                apply_binary_patch(f, data.draw_distance_patches,
+                                   enable_flag=exe_options_config.draw_distance_limit)
 
-                if limit_draw_dist:
-                    patch_offsets(f, data.offsets_draw_dist_vanilla, raw_strings=True)
-                    patch_offsets(f, data.offset_draw_dist_numerics_vanilla)
-                else:
-                    patch_offsets(f, data.offsets_draw_dist, raw_strings=True)
-                    patch_offsets(f, data.offset_draw_dist_numerics)
+            if exe_options_config.default_difficulty_is_lowest is not None:
+                apply_binary_patch(f, data.default_difficulty_lowest_patches,
+                                   enable_flag=exe_options_config.default_difficulty_is_lowest)
+
+            if exe_options_config.calc_peace_price_from_schwarz is not None:
+                apply_binary_patch(f, data.peace_price_from_schwarz_patches,
+                                   enable_flag=exe_options_config.calc_peace_price_from_schwarz)
+
+            if exe_options_config.no_money_in_player_schwarz is not None:
+                apply_binary_patch(f, data.no_money_in_player_schwarz_patches,
+                                   enable_flag=exe_options_config.no_money_in_player_schwarz)
 
             if exe_options_config.hq_reflections is not None:
-                hq_reflections = exe_options_config.hq_reflections
-
-                if hq_reflections:
-                    patch_offsets(f, data.offset_hq_reflections)
-                else:
-                    patch_offsets(f, data.offset_hq_reflections_vanilla)
+                apply_binary_patch(f, data.hq_reflections_patches,
+                                   enable_flag=exe_options_config.hq_reflections)
 
             if exe_options_config.vanilla_fov is not None:
-                vanilla_fov = exe_options_config.vanilla_fov
-
-                if vanilla_fov:
-                    patch_offsets(f, data.projection_matrix_vanilla, raw_strings=True)
-                else:
-                    patch_offsets(f, data.projection_matrix_fix, raw_strings=True)
+                apply_binary_patch(f, data.projection_matrix_patches,
+                                   enable_flag=exe_options_config.vanilla_fov)
 
             if exe_options_config.slow_brake is not None:
-                slow_brake = exe_options_config.slow_brake
-
-                if slow_brake:
-                    patch_offsets(f, data.offsets_slow_brake)
-                else:
-                    patch_offsets(f, data.offsets_slow_brake_vanilla)
+                apply_binary_patch(f, data.slow_brake_patches,
+                                   enable_flag=exe_options_config.slow_brake)
 
             if exe_options_config.sell_price_coeff is not None:
                 new_coeff = exe_options_config.sell_price_coeff
@@ -774,7 +826,12 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
             configured_offsets[data.configurable_offsets.get(offset_key)] = value
 
         if font_alias:
-            hd_ui.scale_fonts(Path(target_exe).parent, data.OS_SCALE_FACTOR, font_alias)
+            fonts_scaled = hd_ui.scale_fonts(
+                Path(target_exe).parent, data.OS_SCALE_FACTOR, font_alias, under_windows)
+            if fonts_scaled:
+                logger.info("Fonts scale corrected")
+            else:
+                logger.info("Can't correct fonts scale")
 
         patch_offsets(f, configured_offsets)
 
@@ -894,6 +951,9 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
         patch_offsets(f, data.binary_inserts, raw_strings=True)
         changes_description.append("binary_inserts_patched")
         changes_description.append("spawn_freezes_fix")
+
+        apply_binary_patch(f, data.projection_matrix_patches,
+                           enable_flag=True)
         changes_description.append("camera_patched")
 
         patch_offsets(f, data.minimal_mm_inserts, raw_strings=True)
@@ -904,8 +964,10 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
 
         changes_description.append("numeric_fixes_patched")
 
-        patch_offsets(f, data.offsets_draw_dist, raw_strings=True)
-        patch_offsets(f, data.offset_draw_dist_numerics)
+        apply_binary_patch(f, data.draw_distance_patches,
+                           enable_flag=True)
+        # patch_offsets(f, data.offsets_draw_dist, raw_strings=True)
+        # patch_offsets(f, data.offset_draw_dist_numerics)
         changes_description.append("draw_distance_patched")
 
         if version_choice == "remaster":
@@ -916,15 +978,12 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
                 if exe_options_config.game_font is not None:
                     configured_font = exe_options_config.game_font
 
-            if under_windows:
-                font_alias = configured_font
-                fonts_scaled = hd_ui.scale_fonts(game_root_path, data.OS_SCALE_FACTOR, font_alias)
-                if fonts_scaled:
-                    logger.info("fonts corrected")
-                else:
-                    logger.info("cant correct fonts")
+            font_alias = configured_font
+            fonts_scaled = hd_ui.scale_fonts(game_root_path, data.OS_SCALE_FACTOR, font_alias, under_windows)
+            if fonts_scaled:
+                logger.info("Fonts scale corrected")
             else:
-                logger.warning("Font scaling is unsupported under OS other then Windows")
+                logger.info("Can't correct fonts scale")
 
             width_list = []
             if width in data.PREFERED_RESOLUTIONS:
@@ -972,7 +1031,7 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
         # increase_phys_step(game_root_path)
         logger.info("damage coeff patched")
 
-    patch_configurables(target_exe, exe_options)
+    patch_configurables(target_exe, exe_options, under_windows)
     return changes_description
 
 
@@ -999,8 +1058,8 @@ def get_glob_props_path(root_dir: str) -> str:
     config = get_config(root_dir)
     if config.attrib.get("pathToGlobProps") is not None:
         glob_props_path = config.attrib.get("pathToGlobProps")
-    # TODO: fix this idiocity
-    return glob_props_path
+
+    return glob_props_path.lower()
 
 
 def increase_phys_step(root_dir: str, enable: bool = True) -> None:

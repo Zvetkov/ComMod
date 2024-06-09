@@ -16,13 +16,17 @@
 "mod_for_game": "mod for game"
 "local_mods": "local mods"
 "mods_library": "mods library"
-"issue_with_archive": "Issue with the archive: mod is not prepared in the supported way, archive is corrupted or doesn't contain all the necessary files."
+"issue_with_archive": "Issue with the archive: mod wasn't package to be supported by ComMod, archive is corrupted or doesn't contain all the necessary files."
 "no_local_mods_found": "Available for installation mod not found"
 "mod_already_in_library": "this mod is already in the library"
 "download": "download"
 "open": "open"
 "delete_mod_short": "delete files"
 "couldnt_delete_mod_permission_err": "Couldn't fully delete the mod, permission error, probably some file is in use!"
+"cant_use_for_distro_access_denied": "Can't use this directory to store files, access was denied!
+
+
+  This usually happens with system protected directories, choose different folder with normal user access rights."
 "delete_mod_from_library": "delete mod from the library"
 "this_will_delete_mod": "Mod will be removed from the library and it's files deleted from the disk.
 
@@ -43,7 +47,14 @@
 "was_reinstall": "mod was reinstalled"
 "main_info": "main information"
 "screenshots": "screenshots"
-"language": "language"
+"base_mod_screenshots": "Base mod screenshots"
+"option_screenshots": "Screenshots for option"
+"option_variant_screenshots": "Screenshots for option variant"
+"lmb_to_zoom": "LMB 🖰 (zoom in)"
+"lmb_to_discard": "LMB 🖰 (discard)"
+"rmb_to_compare": "RMB 🖰 (compare)"
+"arrows_to_cycle": "← → ⌨ (next/previous)"
+"language": "lang."
 "install_in_progress": "install in progress"
 "successfully": "Success"
 "error_occurred": "error occurred"
@@ -81,7 +92,7 @@
 "install_please_wait": "Installation might take some time, please do not close the installer"
 "error": "Error"
 "of_any_version": "any version"
-"click_screen_to_compare": "Click the screenshot to see comparison"
+"click_screen_to_compare": "Click RMB to see comparison"
 "play": "play"
 "launching": "launching"
 "stop_game": "close the game"
@@ -99,6 +110,7 @@
 "pl": "Polish"
 "kz": "Kazakh"
 "by": "Belarusian"
+"jp": "Japanese"
 "binary_fixes": "binary fixes"
 "spawn_freezes_fix": "Removed freeze on vehicle spawn"
 "recommended_install_chosen": "recommended options chosen"
@@ -128,6 +140,8 @@
 "windowed_mode": "windowed mode"
 "incompatible_base": "incompatible mods"
 "enable_console": "enable dev console"
+"override_incompat": "override compatibility checks (option for modders)"
+"compat_checks_disabled": "compatibility checks overriden by dev option"
 "broken_game": "Previously added game couldn't pass integrity check, you will not be able to use it right now in ComMod"
 "broken_game_short": "Incompatible copy"
 "where_is_game": "Where is the game?"
@@ -152,7 +166,7 @@
 "hi_dpi_aware": "HiDPI scaling"
 "fullscreen_optimizations": "Fullscreen optimizations OFF"
 "launch_options_instructions": "info about options"
-"launch_options_instruction_text": "HiDPI scaling: usefull to switch on when playing in windowed mode if your OS scaling is higher than 100% (125% etc.). Makes application 'HiDPI aware', that is allows it to handle it's own scaling, which can fix blurry fonts and stretching off entire window. Has no effect in fullscreen mode.\n\nFullscreen optimizations OFF: can be useful if game window doesn't close properly on your system, leading to dead window staying on top of other windows, and only closing when the process is killed in task manager."
+"launch_options_instruction_text": "HiDPI scaling: usefull to switch on when playing in windowed mode if your OS scaling is higher than 100% (125% etc.). Makes application 'HiDPI aware', that is allows it to handle it's own scaling, which can fix blurry fonts and stretching off entire window. Has no effect in fullscreen mode. (Windows only)\n\nFullscreen optimizations OFF: can be useful if game window doesn't close properly on your system, leading to dead window staying on top of other windows, and only closing when the process is killed in task manager. (Windows only)"
 "actions": "actions"
 "and_others": "and others"
 "select_other_game": "choose other game copy"
@@ -184,6 +198,7 @@
 "not_a_valid_path": "Path doesn't exist"
 "forced_option": "Required content"
 "target_dir_missing_files": "Chosen directory is missing some necessary files"
+"not_directory": "Chosen path is not a directory"
 "unsupported_exe_version": "Chosen directory doesn't contain supported game version"
 "no_base_content_mod_requires_options": "This mod consists of different options, need to choose at least one of those"
 "havent_been_chosen": "Not chosen"
@@ -380,9 +395,13 @@ technical_name: technical name
 ui_fixes_patched: '* 16:9 resolution options in options menu
 
   * Console font size fix'
-usupported_patcher_version: 'Mod "{content_name}" installation required other mod manager version: {required_version}, now used: {current_version}
+usupported_patcher_version: 'Mod "{content_name}" installation requires other mod manager version:
 
-  You can download a new mod manager version from: {github_url}'
+                             🠶 required: **{required_version}**, now used: **{current_version}**
+
+  You can download a new mod manager version from:
+  
+  🡇 {github_url}'
 version: Version
 version_available: installed version
 version_needed: Compatible versions

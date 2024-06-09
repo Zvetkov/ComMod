@@ -4,7 +4,9 @@ import asyncio
 import logging
 import math
 import os
+import platform
 import struct
+import subprocess
 import sys
 import typing
 import zipfile
@@ -66,6 +68,16 @@ async def write_xml_to_file_async(objectify_tree: objectify.ObjectifiedElement, 
         else:
             await fh.write(xml_string)
 
+def open_dir_in_os(directory_path: str | Path) -> None:
+    """Open directory in Windows Explorer or OS specific equiavalents."""
+    directory_path = Path(directory_path)
+    if os.path.isdir(directory_path):
+        sysplat = platform.system()
+        if "Windows" in sysplat:
+            os.startfile(directory_path)  # noqa: S606
+            return
+        opener = "open" if "Darwin" in sysplat else "xdg-open"
+        subprocess.call([opener, directory_path])  # noqa: S603
 
 def count_files(directory: str) -> int:
     files = []
@@ -110,7 +122,7 @@ async def copy_file_and_call_async(path: str, file_num: list[int],
     await aioshutil.copy2(os.path.join(path, single_file), dest_file)
     # TODO: describe interface for this type of callback
     await callback_progbar(file_num[0], files_count, single_file, file_size)
-    await asyncio.sleep(0.001)
+    await asyncio.sleep(0)
     file_num[0] += 1
 
 
@@ -170,7 +182,7 @@ async def extract_files_from_7z(
     archive.extract(path, targets=file_names)
     if callable is not None:
         await callback(files_num, chunksize)
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0)
 
 
 async def extract_archive_from_to(archive_path: str, to_path: str, callback: Coroutine | None = None,
@@ -230,8 +242,8 @@ async def extract_zip_from_to(archive_path: str | Path, to_path: str | Path,
             loading_text.value = (f"[{compression_label}] "
                                   f"{total_compressed_size/1024/1024:.1f}MB -> "
                                   f"{total_size/1024/1024:.1f}MB")
-            await loading_text.update_async()
-            await asyncio.sleep(0.01)
+            loading_text.update()
+            await asyncio.sleep(0)
 
         files_num = len(only_files)
         for i in range(0, files_num, chunksize):
@@ -250,8 +262,8 @@ async def extract_7z_from_to(archive_path: str | Path, to_path: str | Path,
             loading_text.value = (f"[{info.method_names[0]}] "
                                   f"{info.size/1024/1024:.1f}MB -> "
                                   f"{info.uncompressed/1024/1024:.1f}MB")
-            await loading_text.update_async()
-            await asyncio.sleep(0.01)
+            loading_text.update()
+            await asyncio.sleep(0)
         all_files = archive.files
         dirs = []
         files = []
