@@ -112,15 +112,15 @@ class App:
         return self.context.current_session
 
     def is_current_page(
-            self, page_type: "HomeScreen | LocalModsScreen | DownloadModsScreen | SettingsScreen") -> bool:
+            self, page_type: type["HomeScreen | LocalModsScreen | DownloadModsScreen | SettingsScreen"]) -> bool:
         return isinstance(self.content_column.content, page_type)
 
     async def maximize(self, e: ft.ControlEvent) -> None:
-        self.page.window_maximized = not self.page.window_maximized
+        self.page.window.maximized = not self.page.window.maximized
         self.page.update()
 
     async def minimize(self, e: ft.ControlEvent) -> None:
-        self.page.window_minimized = True
+        self.page.window.minimized = True
         self.page.update()
 
     async def change_theme_mode(self, e: ft.ControlEvent) -> None:
@@ -154,11 +154,11 @@ class App:
 
         self.content_pages = [self.home, self.local_mods, self.download_mods, self.settings_page]
 
-    async def wrap_on_window_event(self, e: ft.ControlEvent) -> None:
+    async def wrapped_on_window_event(self, e: ft.ControlEvent) -> None:
         if e.data == "close":
             await self.finalize(e)
         elif e.data in ("unmaximize", "maximize"):
-            if self.page.window_maximized:
+            if self.page.window.maximized:
                 self.page.maximize_btn.current.icon = ft.icons.FILTER_NONE
                 self.page.maximize_btn.current.icon_size = 15
             else:
@@ -169,7 +169,7 @@ class App:
     async def finalize(self, e: ft.ControlEvent) -> None:
         self.config.save_config()
         self.logger.debug("Config saved, closing")
-        self.page.window_close()
+        self.page.window.close()
 
     async def refresh_page(self, index: int | None = None) -> None:
         if index is not None and (self.rail is None or index != self.rail.selected_index):
@@ -409,55 +409,55 @@ class GameCopyListItem(ft.Container):
 
     def get_current_game_badges(self) -> Row:
         return Row([
-            ft.Tooltip(
-                message=tr("use_this_game"),
-                wait_duration=500,
-                content=IconButton(
+            IconButton(
                     icon=ft.icons.DONE_OUTLINE_ROUNDED if self.current else ft.icons.DONE_OUTLINE,
                     icon_color=colors.GREEN if self.current else ft.colors.SURFACE_VARIANT,
                     on_click=self.make_current,
                     width=45, height=45,
                     ref=self.current_icon,
+                    tooltip=ft.Tooltip(
+                        message=tr("use_this_game"),
+                        wait_duration=500)
+                    ),
+            Row([ft.Container(
+                    Column([
+                        ft.Container(
+                            Text(self.version,
+                                 weight=ft.FontWeight.W_600,
+                                 color=ft.colors.PRIMARY,
+                                 text_align=ft.TextAlign.CENTER),
+                            width=130,
+                            bgcolor=ft.colors.BACKGROUND,
+                            border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
+                            border_radius=16, padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
+                            tooltip=ft.Tooltip(message=tr("exe_version"),
+                                               wait_duration=300)
+                            ),
+                        ft.Container(
+                            Text(tr("dirty_copy") if not self.game_is_running else tr("game_is_running"),
+                                 weight=ft.FontWeight.W_600,
+                                 color=ft.colors.ON_ERROR_CONTAINER,
+                                 text_align=ft.TextAlign.CENTER),
+                            bgcolor=ft.colors.ERROR_CONTAINER,
+                            border_radius=15, padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
+                            visible=bool(self.warning),
+                            tooltip=ft.Tooltip(
+                                message=f"{self.warning}".replace("**", "").strip(),
+                                wait_duration=300)
+                            ),
+                        ], spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                        padding=ft.padding.symmetric(vertical=5)
+                    ),
+                ft.Container(
+                    Text(self.game_name,
+                            weight=ft.FontWeight.W_500,
+                            ref=self.game_name_label, width=300),
+                    margin=ft.margin.symmetric(vertical=10),
+                    tooltip=ft.Tooltip(message=self.game_path,
+                                       wait_duration=300)
                     )
-            ),
-            Row([ft.Container(Column([
-                ft.Tooltip(
-                    message=tr("exe_version"),
-                    wait_duration=300,
-                    content=ft.Container(
-                        Text(self.version,
-                             weight=ft.FontWeight.W_600,
-                             color=ft.colors.PRIMARY,
-                             text_align=ft.TextAlign.CENTER),
-                        width=130,
-                        bgcolor=ft.colors.BACKGROUND,
-                        border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
-                        border_radius=16, padding=ft.padding.only(left=10, right=10, top=5, bottom=5))
-                ),
-                ft.Tooltip(
-                    visible=bool(self.warning),
-                    message=f"{self.warning}".replace("**", "").strip(),
-                    wait_duration=300,
-                    content=ft.Container(
-                        Text(tr("dirty_copy") if not self.game_is_running else tr("game_is_running"),
-                             weight=ft.FontWeight.W_600,
-                             color=ft.colors.ON_ERROR_CONTAINER,
-                             text_align=ft.TextAlign.CENTER),
-                        bgcolor=ft.colors.ERROR_CONTAINER,
-                        border_radius=15, padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
-                        visible=bool(self.warning)),
-                )], spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    padding=ft.padding.symmetric(vertical=5)),
-                ft.Tooltip(
-                    message=self.game_path,
-                    content=ft.Container(
-                        Text(self.game_name,
-                             weight=ft.FontWeight.W_500,
-                             ref=self.game_name_label, width=300),
-                        margin=ft.margin.symmetric(vertical=10)),
-                    wait_duration=300)
                 ])
-                ], spacing=5, expand=True)
+            ], spacing=5, expand=True)
 
     def build(self) -> None:
         self.current_game_badges = self.get_current_game_badges()
@@ -479,31 +479,29 @@ class GameCopyListItem(ft.Container):
 
         self.display_view = Row(
             alignment=ft.MainAxisAlignment.END,
-            vertical_alignment="center",
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
                 self.current_game_badges,
                 Row(controls=[
-                        ft.Tooltip(
-                            message=tr("open_in_explorer"),
-                            wait_duration=300,
-                            content=IconButton(
-                                icon=icons.FOLDER_OPEN,
-                                on_click=self.open_clicked)),
-                        ft.Tooltip(
-                            message=tr("remove_from_list"),
-                            wait_duration=300,
-                            content=IconButton(
-                                icons.DELETE_OUTLINE,
-                                on_click=self.delete_clicked)),
-                        ft.Tooltip(
-                            message=tr("edit_name"),
-                            wait_duration=300,
-                            content=IconButton(
-                                icon=icons.CREATE_OUTLINED,
-                                on_click=self.edit_clicked))
-                        ], spacing=5
-                    )]
-                )
+                    IconButton(icon=icons.FOLDER_OPEN,
+                               on_click=self.open_clicked,
+                               tooltip=ft.Tooltip(
+                                   message=tr("open_in_explorer"),
+                                   wait_duration=300)),
+                    IconButton(icon=icons.DELETE_OUTLINE,
+                               on_click=self.delete_clicked,
+                               tooltip=ft.Tooltip(
+                                   message=tr("remove_from_list"),
+                                   wait_duration=300)),
+                    IconButton(icon=icons.CREATE_OUTLINED,
+                               on_click=self.edit_clicked,
+                               tooltip=ft.Tooltip(
+                                   message=tr("edit_name"),
+                                   wait_duration=300))
+                    ], spacing=5
+                    )
+                ]
+            )
 
         self.edit_view = Row(
             visible=False,
@@ -959,8 +957,8 @@ class SettingsScreen(ft.Container):
                                         scale=0.9),
                             ExpandableContainer("Powered by", "Powered by",
                                 ft.Markdown(COMMOD_USES,
-                                        auto_follow_links=True,
-                                        width=300),
+                                            auto_follow_links=True,
+                                            width=300),
                                 expanded=False,
                                 scale=0.7, color=ft.colors.SECONDARY)
                             ], spacing=5,
@@ -1856,8 +1854,8 @@ class ModInfo(ft.Container):
                     selected=self.mod.language==lang,
                     style=ft.ButtonStyle(
                         bgcolor={
-                            ft.MaterialState.SELECTED: ft.colors.SECONDARY_CONTAINER,
-                            ft.MaterialState.DEFAULT: ft.colors.TRANSPARENT,
+                            ft.ControlState.SELECTED: ft.colors.SECONDARY_CONTAINER,
+                            ft.ControlState.DEFAULT: ft.colors.TRANSPARENT,
                         }
                     ),
                     col=4,
@@ -2004,7 +2002,7 @@ class ModInfo(ft.Container):
                                                 self.mod.change_log_content,
                                                 ref=self.change_log_text,
                                                 auto_follow_links=True,
-                                                code_theme="atom-one-dark",
+                                                code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
                                                 expand=1,
                                                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)],
                                             expand=True),
@@ -2022,7 +2020,7 @@ class ModInfo(ft.Container):
                                                 self.mod.other_info_content,
                                                 ref=self.other_info_text,
                                                 auto_follow_links=True,
-                                                code_theme="atom-one-dark",
+                                                code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
                                                 expand=1,
                                                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)],
                                             expand=True),
@@ -2116,7 +2114,7 @@ class ModInfo(ft.Container):
         self.app.page.floating_action_button.visible = True
         self.app.page.floating_action_button.update()
 
-        self.app.page.on_keyboard_event.unsubscribe(self.handle_keyboard_shortcuts)
+        self.app.page.on_keyboard_event = None
 
         self.screenshot_preview.current.visible = False
         self.screenshot_preview.current.update()
@@ -2680,14 +2678,14 @@ class ModArchiveItem(ft.Card):
                                     disabled=self.extracting,
                                     style=ft.ButtonStyle(
                                         color={
-                                            ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
-                                            ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY,
-                                            ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                            ft.ControlState.HOVERED: ft.colors.ON_SECONDARY,
+                                            ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY,
+                                            ft.ControlState.DISABLED: ft.colors.ON_SURFACE_VARIANT
                                             },
                                         bgcolor={
-                                            ft.MaterialState.HOVERED: ft.colors.SECONDARY,
-                                            ft.MaterialState.DEFAULT: ft.colors.PRIMARY,
-                                            ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+                                            ft.ControlState.HOVERED: ft.colors.SECONDARY,
+                                            ft.ControlState.DEFAULT: ft.colors.PRIMARY,
+                                            ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
                                         }
                                     ),
                                     tooltip=tr("extract_mod").capitalize(),
@@ -2724,7 +2722,7 @@ class ModArchiveItem(ft.Card):
 
 class ModFamily(ft.AnimatedSwitcher):
     def __init__(self, app: App, family_name: str, **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(content=ft.Placeholder(), **kwargs)
         self.app = app
         self.family_name = family_name
 
@@ -2733,8 +2731,6 @@ class ModFamily(ft.AnimatedSwitcher):
         self._current_mod: Mod | None       = None
 
         self._mod_items: dict[str, ModItem] = {}
-
-        # self.mod_switcher = ft.Ref[ft.AnimatedSwitcher]()
 
         self.transition = ft.AnimatedSwitcherTransition.SCALE
         self.duration = 0
@@ -2781,13 +2777,13 @@ class ModFamily(ft.AnimatedSwitcher):
         self.key = self._current_main_mod.id_str
         return self._current_mod
 
-    @property
-    def variant(self) -> str:
-        return self.current_mod.name
+    # @property
+    # def variant(self) -> str:
+    #     return self._current_mod.name
 
-    @property
-    def version(self) -> str:
-        return self.current_mod.version
+    # @property
+    # def version(self) -> str:
+    #     return self._current_mod.version
 
     def add_main_mod(self, mod: Mod) -> None:
         self._main_mods.append(mod)
@@ -2797,71 +2793,53 @@ class ModFamily(ft.AnimatedSwitcher):
     def get_variants_selector(self, mod_atom: Mod) -> ft.Control:
         long_name_len = 28
         if len(self.variants.values()) > 1:
-            # TODO: remove after testing new SubmenuButton approach
-            # variants = [ft.PopupMenuItem(text=var.display_name,
-            #              data=var,
-            #              on_click=self.switch_mod_variant)
-            #             for var in self.variants.values()]
-
-            variants = [ft.MenuItemButton(content=ft.Container(
-                                                    Text(var.display_name),
-                                                    margin=ft.margin.symmetric(horizontal=5)),
-                         data=var,
-                         on_click=self.switch_mod_variant)
+            variants = [ft.MenuItemButton(
+                            content=ft.Container(
+                                Text(var.display_name),
+                                margin=ft.margin.symmetric(horizontal=5)),
+                            data=var,
+                            on_click=self.switch_mod_variant)
                         for var in self.variants.values()]
-
-            variants.sort(key=lambda item: item.content.content.value)
+            variants.sort(key=lambda item: item.content.content.value) # display name of the variant
 
             max_var_name_length = max(len(var.display_name) for var in self.variants.values())
 
             return \
-                ft.MenuBar(controls=[ft.SubmenuButton(
+                ft.MenuBar(controls=[
+                    ft.SubmenuButton(
+                        expand=True,
+                        content=Text(mod_atom.display_name,
+                                     tooltip=tr("mod_variant_name").capitalize(),
+                                     weight=ft.FontWeight.W_700,
+                                     no_wrap=False,
+                                     max_lines=2,
+                                     size=18 if max_var_name_length < long_name_len else 16,
+                                     overflow=ft.TextOverflow.ELLIPSIS),
+                        trailing=Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
+                                    color=ft.colors.ON_BACKGROUND, size=20),
+                        style=ft.ButtonStyle(bgcolor={
+                            ft.ControlState.HOVERED: ft.colors.PRIMARY_CONTAINER,
+                            ft.ControlState.FOCUSED: ft.colors.BACKGROUND,
+                            ft.ControlState.DEFAULT: ft.colors.BACKGROUND,
+                            }, shape=ft.RoundedRectangleBorder(radius=5)),
+                        controls=variants,
+                        height=32)],
                     expand=True,
-                    content=Text(mod_atom.display_name,
-                                 tooltip=tr("mod_variant_name").capitalize(),
-                                 weight=ft.FontWeight.W_700,
-                                 no_wrap=False,
-                                 max_lines=2,
-                                 size=18 if max_var_name_length < long_name_len else 16,
-                                 overflow=ft.TextOverflow.ELLIPSIS),
-                    trailing=Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
-                                  color=ft.colors.ON_BACKGROUND, size=20),
-                    style=ft.MenuStyle(bgcolor={
-                        ft.MaterialState.HOVERED: ft.colors.PRIMARY_CONTAINER,
-                        ft.MaterialState.FOCUSED: ft.colors.BACKGROUND,
-                        ft.MaterialState.DEFAULT: ft.colors.BACKGROUND,
-                        }, shape=ft.RoundedRectangleBorder(radius=5)),
-                    controls=variants,
-                    height=32)], expand=True,
-                    style=ft.MenuStyle(elevation=0, bgcolor=ft.colors.TRANSPARENT, padding=0))
-
-            # TODO: remove after testing new SubmenuButton approach
-            # return \
-            #     ft.Container(ft.PopupMenuButton(
-            #         tooltip=tr("mod_variant_name").capitalize(),
-            #         content=ft.Container(
-            #             Row([
-            #                 Row([Text(mod_atom.display_name,
-            #                      weight=ft.FontWeight.W_700,
-            #                      no_wrap=False,
-            #                      max_lines=2,
-            #                      size=18 if len(self.mod.display_name) < long_name_len else 16,
-            #                      overflow=ft.TextOverflow.ELLIPSIS),
-            #                 Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
-            #                      color=ft.colors.ON_BACKGROUND, size=20)], spacing=2)
-            #             ]),
-            #             padding=ft.padding.only(left=8, right=5, top=2, bottom=3)),
-            #         items=variants),
-            #         border_radius=5,
-            #         bgcolor=ft.colors.BACKGROUND)
+                    style=ft.MenuStyle(
+                        alignment=ft.alignment.top_left,
+                        bgcolor=ft.colors.TRANSPARENT,
+                        elevation=0,
+                        padding=0
+                        ),
+                    )
 
         return Text(self.mod.display_name,
-                                 weight=ft.FontWeight.W_700,
-                                 size=18 if len(self.mod.display_name) < long_name_len else 16,
-                                 no_wrap=False,
-                                 max_lines=2,
-                                 expand=True,
-                                 overflow=ft.TextOverflow.ELLIPSIS)
+                    weight=ft.FontWeight.W_700,
+                    size=18 if len(self.mod.display_name) < long_name_len else 16,
+                    no_wrap=False,
+                    max_lines=2,
+                    expand=True,
+                    overflow=ft.TextOverflow.ELLIPSIS)
 
 
     def get_versions_selector(self, mod_atom: Mod) -> ft.Control:
@@ -2877,13 +2855,6 @@ class ModFamily(ft.AnimatedSwitcher):
         if len(self.main_versions) > 1:
             variant_versions = [m_mod.variants_loaded[mod_atom.name] for m_mod in self.main_versions
                                 if m_mod.variants_loaded.get(mod_atom.name) is not None]
-            # versions = [ft.PopupMenuItem(
-            #                 text=ver.build_ver,
-            #                 data=ver,
-            #                 on_click=self.switch_mod_version)
-            #                 for ver in variant_versions]
-            # versions.sort(key=lambda item: item.text)
-
             versions = [ft.MenuItemButton(content=ft.Container(
                                                     Text(ver.build_ver),
                                                     margin=ft.margin.symmetric(horizontal=5)),
@@ -2906,33 +2877,33 @@ class ModFamily(ft.AnimatedSwitcher):
                     trailing=ft.Container(Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
                                   color=ft.colors.ON_BACKGROUND, size=20),
                                   margin=ft.margin.only(left=-5, right=-3)),
-                    style=ft.MenuStyle(bgcolor={
-                        ft.MaterialState.HOVERED: ft.colors.PRIMARY_CONTAINER,
-                        ft.MaterialState.FOCUSED: ft.colors.BACKGROUND,
-                        ft.MaterialState.DEFAULT: ft.colors.BACKGROUND,
+                    style=ft.ButtonStyle(bgcolor={
+                        ft.ControlState.HOVERED: ft.colors.PRIMARY_CONTAINER,
+                        ft.ControlState.FOCUSED: ft.colors.BACKGROUND,
+                        ft.ControlState.DEFAULT: ft.colors.BACKGROUND,
                         }, shape=ft.RoundedRectangleBorder(radius=5)),
                     controls=versions,
                     height=24)], expand=True,
                         style=ft.MenuStyle(elevation=0, bgcolor=ft.colors.TRANSPARENT, padding=0))
 
-            return Row([
-                ft.Container(ft.PopupMenuButton(
-                    tooltip=tr("mod_version_and_build").capitalize(),
-                    content=ft.Container(
-                        Row([
-                            Text(mod_atom.build_ver,
-                                 no_wrap=True,
-                                 data=mod_atom,
-                                 color=name_color,
-                                 overflow=ft.TextOverflow.ELLIPSIS),
-                            Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
-                                 color=ft.colors.ON_BACKGROUND, size=20)
-                        ], spacing=2),
-                        padding=ft.padding.only(left=7, right=5, top=2, bottom=2)),
-                    items=versions),
-                    border_radius=5,
-                    bgcolor=ft.colors.BACKGROUND)
-            ], alignment=ft.MainAxisAlignment.CENTER, spacing=0)
+            # return Row([
+            #     ft.Container(ft.PopupMenuButton(
+            #         tooltip=tr("mod_version_and_build").capitalize(),
+            #         content=ft.Container(
+            #             Row([
+            #                 Text(mod_atom.build_ver,
+            #                      no_wrap=True,
+            #                      data=mod_atom,
+            #                      color=name_color,
+            #                      overflow=ft.TextOverflow.ELLIPSIS),
+            #                 Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
+            #                      color=ft.colors.ON_BACKGROUND, size=20)
+            #             ], spacing=2),
+            #             padding=ft.padding.only(left=7, right=5, top=2, bottom=2)),
+            #         items=versions),
+            #         border_radius=5,
+            #         bgcolor=ft.colors.BACKGROUND)
+            # ], alignment=ft.MainAxisAlignment.CENTER, spacing=0)
 
         return Text(
             mod_atom.build_ver,
@@ -3135,16 +3106,16 @@ class ModItem(ft.Card):
 
         btn.style = ft.ButtonStyle(
             color={
-                ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
-                ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY if not self.mod.is_reinstall
+                ft.ControlState.HOVERED: ft.colors.ON_SECONDARY,
+                ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY if not self.mod.is_reinstall
                 else ft.colors.ON_PRIMARY_CONTAINER,
-                ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                ft.ControlState.DISABLED: ft.colors.ON_SURFACE_VARIANT
                 },
             bgcolor={
-                ft.MaterialState.HOVERED: ft.colors.SECONDARY,
-                ft.MaterialState.DEFAULT: ft.colors.PRIMARY if not self.mod.is_reinstall
+                ft.ControlState.HOVERED: ft.colors.SECONDARY,
+                ft.ControlState.DEFAULT: ft.colors.PRIMARY if not self.mod.is_reinstall
                 else ft.colors.PRIMARY_CONTAINER,
-                ft.MaterialState.DISABLED: ft.colors.with_opacity(
+                ft.ControlState.DISABLED: ft.colors.with_opacity(
                     0.3, ft.colors.PRIMARY if self.mod.is_reinstall else ft.colors.SECONDARY)
             })
 
@@ -3235,18 +3206,18 @@ class ModItem(ft.Card):
                                 icon=ft.icons.CHECK_ROUNDED if self.mod.is_reinstall else None,
                                 style=ft.ButtonStyle(
                                   color={
-                                      ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
-                                      ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY
+                                      ft.ControlState.HOVERED: ft.colors.ON_SECONDARY,
+                                      ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY
                                       if not self.mod.is_reinstall
                                       else ft.colors.ON_PRIMARY_CONTAINER,
-                                      ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                      ft.ControlState.DISABLED: ft.colors.ON_SURFACE_VARIANT
                                       },
                                   bgcolor={
-                                      ft.MaterialState.HOVERED: ft.colors.SECONDARY,
-                                      ft.MaterialState.DEFAULT: ft.colors.PRIMARY
+                                      ft.ControlState.HOVERED: ft.colors.SECONDARY,
+                                      ft.ControlState.DEFAULT: ft.colors.PRIMARY
                                       if not self.mod.is_reinstall
                                       else ft.colors.PRIMARY_CONTAINER,
-                                      ft.MaterialState.DISABLED: ft.colors.with_opacity(
+                                      ft.ControlState.DISABLED: ft.colors.with_opacity(
                                           0.3, ft.colors.PRIMARY if self.mod.is_reinstall
                                                else ft.colors.SECONDARY)
                                   }
@@ -3292,7 +3263,6 @@ class ModInstallWizard(ft.Container):
         self.callback_time = datetime.now()
 
         self.close_wizard_btn = ft.Ref[IconButton]()
-        self.close_wizard_btn_tooltip = ft.Ref[ft.Tooltip]()
         self.ok_button = ft.Ref[ft.ElevatedButton]()
 
         self.mod_title = ft.Ref[Text]()
@@ -3872,8 +3842,7 @@ class ModInstallWizard(ft.Container):
         self.close_wizard_btn.current.disabled = True
         self.close_wizard_btn.current.selected = True
         # self.close_wizard_btn.current.update()
-        self.close_wizard_btn_tooltip.current.message = tr("install_please_wait")
-        # self.close_wizard_btn_tooltip.current.update()
+        self.close_wizard_btn.current.tooltip.message = tr("install_please_wait")
         self.update()
 
         install_settings = {}
@@ -4171,7 +4140,6 @@ class ModInstallWizard(ft.Container):
 
         self.app.reset_session_compatibility()
 
-        # self.screen.current.update()
         self.update()
         self.can_close = False
         await asyncio.sleep(1)
@@ -4181,27 +4149,21 @@ class ModInstallWizard(ft.Container):
         mod_info_column.current.height = None
         reinstall_warn_container.height = None
         close_window_btn.current.height = None
-        # c2.update()
-        # mod_info_column.current.update()
-        # reinstall_warn_container.update()
-        # close_window_btn.current.update()
 
         self.close_wizard_btn.current.data = "close"
         self.close_wizard_btn.current.disabled = False
         self.close_wizard_btn.current.selected = False
-        # self.close_wizard_btn.current.update()
 
-        self.close_wizard_btn_tooltip.current.message = tr("close_window").capitalize()
-        # self.close_wizard_btn_tooltip.current.update()
+        self.close_wizard_btn.current.tooltip.message = tr("close_window").capitalize()
         self.update()
 
         self.can_close = True
 
-    def get_flag_buttons(self) -> None:
+    def get_flag_buttons(self) -> list[ft.Row]:
         flag_buttons = []
         for lang, mod in self.current_variant.translations_loaded.items():
             flag = get_internal_file_path(mod.flag)
-            icon = Image(flag, fit=ft.ImageFit.FILL)
+            icon = Image(str(flag), fit=ft.ImageFit.FILL)
             flag_tooltip = mod.lang_label.capitalize()
 
             if not mod.can_install:
@@ -4216,8 +4178,8 @@ class ModInstallWizard(ft.Container):
                     selected=False,
                     style=ft.ButtonStyle(
                         bgcolor={
-                            ft.MaterialState.SELECTED: ft.colors.PRIMARY_CONTAINER,
-                            ft.MaterialState.DEFAULT: ft.colors.BLACK12,
+                            ft.ControlState.SELECTED: ft.colors.PRIMARY_CONTAINER,
+                            ft.ControlState.DEFAULT: ft.colors.BLACK12,
                         }
                     ),
                     expand=1)
@@ -4413,14 +4375,14 @@ class ModInstallWizard(ft.Container):
                               data={"variant_name": variant_name},
                               style=ft.ButtonStyle(
                                  color={
-                                     ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
-                                     ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY,
-                                     ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                     ft.ControlState.HOVERED: ft.colors.ON_SECONDARY,
+                                     ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY,
+                                     ft.ControlState.DISABLED: ft.colors.ON_SURFACE_VARIANT
                                      },
                                  bgcolor={
-                                     ft.MaterialState.HOVERED: ft.colors.SECONDARY,
-                                     ft.MaterialState.DEFAULT: ft.colors.PRIMARY,
-                                     ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+                                     ft.ControlState.HOVERED: ft.colors.SECONDARY,
+                                     ft.ControlState.DEFAULT: ft.colors.PRIMARY,
+                                     ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
                                  })),
             ft.FilledTonalButton(tr("no").capitalize(),
                                  width=100,
@@ -4529,14 +4491,14 @@ class ModInstallWizard(ft.Container):
                               on_click=self.show_install_progress,
                               style=ft.ButtonStyle(
                                  color={
-                                     ft.MaterialState.HOVERED: ft.colors.ON_SECONDARY,
-                                     ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY,
-                                     ft.MaterialState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                     ft.ControlState.HOVERED: ft.colors.ON_SECONDARY,
+                                     ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY,
+                                     ft.ControlState.DISABLED: ft.colors.ON_SURFACE_VARIANT
                                      },
                                  bgcolor={
-                                     ft.MaterialState.HOVERED: ft.colors.SECONDARY,
-                                     ft.MaterialState.DEFAULT: ft.colors.PRIMARY,
-                                     ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+                                     ft.ControlState.HOVERED: ft.colors.SECONDARY,
+                                     ft.ControlState.DEFAULT: ft.colors.PRIMARY,
+                                     ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
                                  }),
                               ref=self.ok_button,
                               ),
@@ -4569,16 +4531,16 @@ class ModInstallWizard(ft.Container):
             visible=not self.requires_custom_install or mod.is_reinstall,
             style=ft.ButtonStyle(
                              side={
-                                 ft.MaterialState.DISABLED: ft.BorderSide(width=1,
+                                 ft.ControlState.DISABLED: ft.BorderSide(width=1,
                                                                           color=ft.colors.TERTIARY)
                              },
                              color={
-                                 ft.MaterialState.DEFAULT: ft.colors.ON_PRIMARY,
-                                 ft.MaterialState.DISABLED: ft.colors.TERTIARY
+                                 ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY,
+                                 ft.ControlState.DISABLED: ft.colors.TERTIARY
                                  },
                              bgcolor={
-                                 ft.MaterialState.DEFAULT: ft.colors.PRIMARY,
-                                 ft.MaterialState.DISABLED: ft.colors.SURFACE_VARIANT
+                                 ft.ControlState.DEFAULT: ft.colors.PRIMARY,
+                                 ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
                              }),
             ref=self.default_install_btn))
 
@@ -4767,21 +4729,20 @@ class ModInstallWizard(ft.Container):
                             ft.IconButton(ft.icons.MINIMIZE_ROUNDED,
                                           on_click=self.app.minimize, icon_size=20,
                                           style=title_btn_style()),
-                             ft.IconButton(ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED,
-                                           on_click=self.app.maximize, icon_size=17,
-                                           style=title_btn_style()),
-                            ft.Tooltip(
-                                message=tr("cancel_install").capitalize(),
-                                wait_duration=50,
-                                ref=self.close_wizard_btn_tooltip,
-                                content=ft.IconButton(ft.icons.CLOSE_ROUNDED,
-                                                      on_click=self.close_wizard,
-                                                      ref=self.close_wizard_btn,
-                                                      data="cancel",
-                                                      icon_color=ft.colors.RED,
-                                                      selected_icon=ft.icons.HOURGLASS_BOTTOM_ROUNDED,
-                                                      selected_icon_color=ft.colors.ON_BACKGROUND,
-                                                      icon_size=22))
+                            ft.IconButton(ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED,
+                                          on_click=self.app.maximize, icon_size=17,
+                                          style=title_btn_style()),
+                            ft.IconButton(ft.icons.CLOSE_ROUNDED,
+                                          on_click=self.close_wizard,
+                                          ref=self.close_wizard_btn,
+                                          data="cancel",
+                                          icon_color=ft.colors.RED,
+                                          selected_icon=ft.icons.HOURGLASS_BOTTOM_ROUNDED,
+                                          selected_icon_color=ft.colors.ON_BACKGROUND,
+                                          icon_size=22,
+                                          tooltip=ft.Tooltip(
+                                              message=tr("cancel_install").capitalize(),
+                                              wait_duration=50))
                               ],
                              alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                              vertical_alignment=ft.CrossAxisAlignment.START),
@@ -4795,7 +4756,7 @@ class ModInstallWizard(ft.Container):
             ], alignment=ft.MainAxisAlignment.CENTER, columns=15)], scroll=ft.ScrollMode.ADAPTIVE)
 
 
-class LocalModsScreen(Column):
+class LocalModsScreen(ft.Column):
     def __init__(self, app: App, **kwargs):
         super().__init__(**kwargs)
         self.app = app
@@ -5140,33 +5101,32 @@ class LocalModsScreen(Column):
                                  no_wrap=False),
                             Text(f"[{self.app.game.exe_version_tr}]",
                                  weight=ft.FontWeight.W_500),
-                            ft.Tooltip(
-                                message=mods_text,
-                                visible=bool(mods_text),
-                                content=Row([
-                                    Icon(ft.icons.BUILD_ROUNDED, size=14, color=ft.colors.PRIMARY),
-                                    Text(tr("has_mods").capitalize(),
-                                         weight=ft.FontWeight.W_500,
-                                         color=ft.colors.PRIMARY),
-                                    ft.Tooltip(
-                                        message=tr("open_in_explorer"),
-                                        wait_duration=300,
+                            ft.Container(
+                                Row([Icon(ft.icons.BUILD_ROUNDED, size=14, color=ft.colors.PRIMARY),
+                                     Text(tr("has_mods").capitalize(),
+                                          weight=ft.FontWeight.W_500,
+                                          color=ft.colors.PRIMARY),
+                                     ft.IconButton(
+                                        icon=icons.FOLDER_OPEN,
+                                        icon_color=ft.colors.PRIMARY,
+                                        on_click=self.open_clicked,
+                                        scale=0.7,
                                         visible=bool(self.app.game.game_root_path),
-                                        content=IconButton(
-                                            icon=icons.FOLDER_OPEN,
-                                            icon_color=ft.colors.PRIMARY,
-                                            on_click=self.open_clicked,
-                                            scale=0.7))
-                                    ], spacing=5)),
-                            ft.Tooltip(
-                                message=self.app.game.target_exe,
-                                visible=self.game_is_running,
-                                content=Row([
-                                    Icon(ft.icons.PENDING_ROUNDED, size=14, color=ft.colors.TERTIARY),
-                                    Text(tr("game_is_running"),
-                                         weight=ft.FontWeight.W_500,
-                                         color=ft.colors.TERTIARY)
-                                    ], spacing=5))
+                                        tooltip=ft.Tooltip(
+                                            message=tr("open_in_explorer"),
+                                            wait_duration=300))
+                                     ],
+                                    spacing=5),
+                                 tooltip=ft.Tooltip(message=mods_text),
+                                 visible=bool(mods_text)),
+                            ft.Container(
+                                Row([Icon(ft.icons.PENDING_ROUNDED, size=14, color=ft.colors.TERTIARY),
+                                     Text(tr("game_is_running"),
+                                          weight=ft.FontWeight.W_500,
+                                          color=ft.colors.TERTIARY)
+                                     ], spacing=5),
+                                tooltip=ft.Tooltip(message=self.app.game.target_exe),
+                                visible=self.game_is_running)
                             ]),
                         Text(self.app.config.game_names[self.app.config.current_game],
                              tooltip=self.app.game.game_root_path),
@@ -5374,42 +5334,49 @@ class HomeScreen(ft.Container):
                 self.markdown_content.current.update()
                 return
 
-            # await asyncio.sleep(1)
-            mappings = "https://raw.githubusercontent.com/DeusExMachinaTeam/ComModNews/main/langs.yaml"
-            async with httpx.AsyncClient() as client:
-                response_map = await client.get(mappings)
-                if response_map.status_code == HTTPStatus.OK:
-                    lang_mappings = load_yaml(response_map.text)
-                    if not isinstance(lang_mappings, dict):
-                        self.app.logger.error("Online news loading: Couldn't parse lang mappings as yaml")
-                        return
+            try:
+                # await asyncio.sleep(1)
+                mappings = "https://raw.githubusercontent.com/DeusExMachinaTeam/ComModNews/main/langs.yaml"
+                async with httpx.AsyncClient() as client:
+                    response_map = await client.get(mappings)
+                    if response_map.status_code == HTTPStatus.OK:
+                        lang_mappings = load_yaml(response_map.text)
+                        if not isinstance(lang_mappings, dict):
+                            self.app.logger.error("Online news loading: Couldn't parse lang mappings as yaml")
+                            return
 
-                    dem_news_stem = lang_mappings.get(self.app.config.lang)
-                    if dem_news_stem is None:
-                        self.app.logger.error("Online news loading: Couldn't get current lang from lang mappings")
+                        dem_news_stem = lang_mappings.get(self.app.config.lang)
+                        if dem_news_stem is None:
+                            self.app.logger.error("Online news loading: Couldn't get current lang from lang mappings")
 
-                    response = await client.get(
-                        url=(f"https://raw.githubusercontent.com/DeusExMachinaTeam/ComModNews/main/"
-                             f"{dem_news_stem}"))
+                        response = await client.get(
+                            url=(f"https://raw.githubusercontent.com/DeusExMachinaTeam/ComModNews/main/"
+                                f"{dem_news_stem}"))
 
-                    if response.status_code == HTTPStatus.OK:
-                        md_raw = response.text
-                        md = process_markdown(md_raw)
-                        self.markdown_content.current.value = md
+                        if response.status_code == HTTPStatus.OK:
+                            md_raw = response.text
+                            md = process_markdown(md_raw)
+                            self.markdown_content.current.value = md
+                            self.checking_online.current.visible = False
+                            if self.app.is_current_page(HomeScreen):
+                                self.checking_online.current.update()
+                                self.markdown_content.current.update()
+                            self.news_text = md
+                            self.got_news = True
+                        else:
+                            self.app.logger.error(f"bad response '{response.status_code}'")
+                    else:
+                        self.app.logger.error("Unable to get url content for news")
                         self.checking_online.current.visible = False
                         if self.app.is_current_page(HomeScreen):
                             self.checking_online.current.update()
-                            self.markdown_content.current.update()
-                        self.news_text = md
-                        self.got_news = True
-                    else:
-                        self.app.logger.error(f"bad response '{response.status_code}'")
-                else:
-                    self.app.logger.error("Unable to get url content for news")
-                    self.checking_online.current.visible = False
-                    if self.app.is_current_page(HomeScreen):
-                        self.checking_online.current.update()
-                    self.offline = True
+                        self.offline = True
+            except httpx.ConnectError:
+                self.app.logger.error("Unable to get online news")
+                self.checking_online.current.visible = False
+                if self.app.is_current_page(HomeScreen):
+                    self.checking_online.current.update()
+                self.offline = True
 
     async def launch_url(self, e: ft.ControlEvent) -> None:
         await self.app.page.launch_url_async(e.data)
@@ -5876,26 +5843,26 @@ class HomeScreen(ft.Container):
                             ]), margin=ft.margin.only(left=7),
                             visible=bool(self.app.game.exe_version)),
                         ft.Container(info_msg, margin=ft.margin.only(left=7), visible=info_msg.visible),
-                        ft.Tooltip(
-                            message=mods_text,
-                            wait_duration=100,
-                            visible=bool(mods_text),
-                            content=ft.Container(Row([
+                        ft.Container(Row([
                                 Text(tr("has_mods").upper(),
                                      weight=ft.FontWeight.BOLD,
                                      color=ft.colors.ON_BACKGROUND)
-                                ]), margin=ft.margin.only(top=10))),
+                                ]), margin=ft.margin.only(top=10),
+                                visible=bool(mods_text),
+                                tooltip=ft.Tooltip(
+                                    message=mods_text,
+                                    wait_duration=100)),
                         ft.Container(mods_info, visible=mods_info.visible),
                         ft.Container(Column([
                             Text(tr("actions").upper(),
                                  weight=ft.FontWeight.BOLD),
-                            ft.Tooltip(
-                                message=tr("open_in_explorer"),
-                                wait_duration=300,
-                                content=ft.TextButton(
+                            ft.TextButton(
                                     text=tr("open_in_explorer"),
                                     icon=icons.FOLDER_OPEN,
-                                    on_click=self.open_clicked))
+                                    on_click=self.open_clicked,
+                                    tooltip=ft.Tooltip(
+                                        message=tr("open_in_explorer"),
+                                        wait_duration=300))
                         ]), margin=ft.margin.only(top=10))
                     ]), clip_behavior=ft.ClipBehavior.ANTI_ALIAS),
                     # Text(self.app.context.distribution_dir),
@@ -5987,7 +5954,7 @@ class HomeScreen(ft.Container):
                     ft.Container(ft.Markdown(
                         md1,
                         expand=True,
-                        code_theme="atom-one-dark",
+                        code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
                         extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                         auto_follow_links=True,
                         ref=self.markdown_content,

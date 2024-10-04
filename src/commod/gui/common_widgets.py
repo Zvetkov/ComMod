@@ -3,13 +3,13 @@ from flet import Column, Icon, Row, Text
 
 
 def title_btn_style(hover_color: str | None = None) -> ft.ButtonStyle:
-    color_dict = {ft.MaterialState.DEFAULT: ft.colors.ON_BACKGROUND}
+    color_dict = {ft.ControlState.DEFAULT: ft.colors.ON_BACKGROUND}
     if hover_color is not None:
-        color_dict[ft.MaterialState.HOVERED] = ft.colors.RED
+        color_dict[ft.ControlState.HOVERED] = ft.colors.RED
     return ft.ButtonStyle(
         color=color_dict,
-        padding={ft.MaterialState.DEFAULT: 0},
-        shape={ft.MaterialState.DEFAULT: ft.RoundedRectangleBorder(radius=2)}
+        padding={ft.ControlState.DEFAULT: 0},
+        shape={ft.ControlState.DEFAULT: ft.RoundedRectangleBorder(radius=2)}
     )
 
 class ExpandableContainer(ft.Container):

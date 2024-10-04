@@ -3,7 +3,7 @@ import os
 import tempfile
 
 import flet as ft
-from flet import IconButton, Image, Page, Theme, ThemeVisualDensity
+from flet import IconButton, Image, Page, Theme, VisualDensity
 
 from commod.game.data import get_title
 from commod.game.environment import GameCopy, InstallationContext
@@ -18,27 +18,27 @@ from commod.localisation.service import tr
 async def main(page: Page) -> None:
     options = init_input_parser().parse_args()
 
-    page.window_title_bar_hidden = True
+    page.window.title_bar_hidden = True
     page.title = "ComMod"
     page.scroll = None
-    page.window_min_width = 900
-    page.window_min_height = 600
+    page.window.min_width = 900
+    page.window.min_height = 600
     page.padding = 0
 
     page.theme_mode = ft.ThemeMode.SYSTEM
-    page.theme = Theme(color_scheme_seed="#FFA500", visual_density=ThemeVisualDensity.COMPACT)
-    page.dark_theme = Theme(color_scheme_seed="#FFA500", visual_density=ThemeVisualDensity.COMPACT)
+    page.theme = Theme(color_scheme_seed="#FFA500", visual_density=VisualDensity.COMPACT)
+    page.dark_theme = Theme(color_scheme_seed="#FFA500", visual_density=VisualDensity.COMPACT)
 
     conf = Config(page)
     # at the end of execution, commod tries to create config near itself
     # if we can load it - we will use the data from it, except when overriden from console args
     conf.load_from_file()
 
-    page.window_width = conf.init_width
-    page.window_height = conf.init_height
-    page.window_left = conf.init_pos_x
-    page.window_top = conf.init_pos_y
-    page.window_visible = True
+    page.window.width = conf.init_width
+    page.window.height = conf.init_height
+    page.window.left = conf.init_pos_x
+    page.window.top = conf.init_pos_y
+    page.window.visible = True
 
     loading_ring = ft.Container(
         ft.ProgressRing(width=300, height=300, color=ft.colors.PRIMARY_CONTAINER),
@@ -105,7 +105,7 @@ async def main(page: Page) -> None:
               config=conf,
               page=page)
 
-    page.on_window_event = app.wrap_on_window_event
+    page.window.on_event = app.wrapped_on_window_event
     page.theme_mode = conf.init_theme
 
 
@@ -154,13 +154,14 @@ async def main(page: Page) -> None:
                 label=tr("settings").capitalize()
             )
         ],
-        trailing=ft.Tooltip(
+        trailing=ft.IconButton(
+            icon=theme_icon,
+            on_click=app.change_theme_mode,
+            ref=page.theme_icon_btn,
+            selected_icon_color=ft.colors.ON_SURFACE_VARIANT,
+            tooltip=ft.Tooltip(
                 message=tr("theme_mode"),
-                wait_duration=500,
-                content=ft.IconButton(icon=theme_icon,
-                                      on_click=app.change_theme_mode,
-                                      ref=page.theme_icon_btn,
-                                      selected_icon_color=ft.colors.ON_SURFACE_VARIANT)),
+                wait_duration=500)),
         on_change=app.change_page,
     )
     app.rail = rail

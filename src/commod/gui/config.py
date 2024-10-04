@@ -59,10 +59,10 @@ class Config:
             "current_game_filter": self.current_game_filter,
             "game_with_console": self.game_with_console,
             "linux_run_cmd": self.linux_run_cmd,
-            "window": {"width": self.page.window_width,
-                       "height": self.page.window_height,
-                       "pos_x":  self.page.window_left,
-                       "pos_y": self.page.window_top},
+            "window": {"width": self.page.window.width,
+                       "height": self.page.window.height,
+                       "pos_x":  self.page.window.left,
+                       "pos_y": self.page.window.top},
             "theme": self.page.theme_mode.value,
             "lang": self.lang
         }

@@ -13,7 +13,7 @@ import zipfile
 from collections.abc import Coroutine
 from math import ceil
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import aiofiles
 import aioshutil
@@ -369,7 +369,7 @@ def running_in_venv() -> bool:
             sys.base_prefix != sys.prefix))
 
 
-def get_proc_by_names(proc_names: list[str]) -> psutil.Process | None:
+def get_proc_by_names(proc_names: Iterable[str]) -> psutil.Process | None:
     """Return one proccess matching given list of names or None."""
     for p in psutil.process_iter():
         name = ""
