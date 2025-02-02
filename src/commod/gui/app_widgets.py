@@ -2182,13 +2182,13 @@ class ModInfo(ft.Container):
         self.app.page.update()
 
     # async def launch_url(self, e: ft.ControlEvent):
-        # await self.app.page.launch_url_async(e.data)
+        # self.app.page.launch_url(e.data)
 
     async def open_home_url(self, e: ft.ControlEvent) -> None:
-        await self.app.page.launch_url_async(self.mod.url)
+        self.app.page.launch_url(self.mod.url)
 
     async def open_trailer_url(self, e: ft.ControlEvent) -> None:
-        await self.app.page.launch_url_async(self.mod.trailer_url)
+        self.app.page.launch_url(self.mod.trailer_url)
 
     async def delete_mod_ask(self, e: ft.ControlEvent) -> None:
         await self.app.show_modal(tr("this_will_delete_mod"),
@@ -5075,7 +5075,7 @@ class LocalModsScreen(ft.Column):
             self.update()
 
     async def load_archive(self, e: ft.ControlEvent) -> None:
-        await self.get_mod_archive_dialog.pick_files_async(
+        self.get_mod_archive_dialog.pick_files(
             dialog_title=f'{tr("where_is_archive")} ({tr("ask_to_choose_path")})',
             allowed_extensions=["zip", "7z"])
 
@@ -5413,7 +5413,7 @@ class HomeScreen(ft.Container):
                 self.offline = True
 
     async def launch_url(self, e: ft.ControlEvent) -> None:
-        await self.app.page.launch_url_async(e.data)
+        self.app.page.launch_url(e.data)
 
     # TODO: maybe simplify to only return bool
     async def check_for_game(self) -> bool | None:
