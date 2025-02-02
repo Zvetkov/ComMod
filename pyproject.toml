@@ -1,7 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [project]
 name = "commod"
 dynamic = ["version"]
-requires-python = "~=3.11"
+requires-python = "~=3.12"
+dependencies = [
+    "flet==0.24.*",
+    "aiofiles==23.2.1",
+    "aiopath==0.7.7",
+    "aioshutil==1.3",
+    "httpx==0.24.1",
+    "lxml==5.2.2",
+    "markdownify==0.12.1",
+    "pathvalidate==3.2.0",
+    "py7zr==0.21.0",
+    "pydantic==2.7.2",
+    "PyYAML==6.0.1"
+]
+
+[project.scripts]
+commod = "commod.__main__:main_gui"
+
+[tool.setuptools.dynamic]
+version = {attr = "commod.__version__"}
+
+
+[project.optional-dependencies]
+dev = [
+    "nuitka>=2.3",
+    "ruff>=0.1.8"
+]
 
 [tool.ruff]
 line-length = 110
@@ -49,6 +82,6 @@ convention = "pep257"
 # extend-select = ["E501"]
 
 [tool.pyright]
-pythonVersion = "3.11"
-include = "./src/"
+pythonVersion = "3.12"
+include = ["./src/"]
 exclude = ["venv", "C:\\Users\\**\\*.py"]

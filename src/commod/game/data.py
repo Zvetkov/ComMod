@@ -4,8 +4,9 @@ from enum import StrEnum
 from os import system
 import platform
 
+from commod import __version__
 
-OWN_VERSION = "2.3-dev1"
+OWN_VERSION = __version__
 
 DATE = "(Oct 04 2024)"
 # version of binary fixes

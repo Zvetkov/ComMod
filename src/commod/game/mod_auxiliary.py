@@ -30,7 +30,7 @@ from commod.helpers.file_ops import (
     write_xml_to_file,
 )
 from commod.helpers.parse_ops import (
-    get_child_from_xml_node,
+    find_element,
     parse_simple_relative_path,
     remove_substrings,
     xml_to_objfy,
@@ -1065,7 +1065,7 @@ def get_glob_props_path(root_dir: str) -> str:
 def increase_phys_step(root_dir: str, enable: bool = True) -> None:
     glob_props_full_path = os.path.join(root_dir, get_glob_props_path(root_dir))
     glob_props = xml_to_objfy(glob_props_full_path)
-    physics = get_child_from_xml_node(glob_props, "Physics")
+    physics = find_element(glob_props, "Physics")
     if physics is not None:
         if enable:
             physics.attrib["PhysicStepTime"] = "0.0166"

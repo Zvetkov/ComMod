@@ -151,8 +151,8 @@ def toggle_16_9_glob_prop(root_dir: str, enable: bool = True) -> None:
     config_path = os.path.join(*(commod.game.mod_auxiliary.get_glob_props_path(root_dir).split("\\")))
     glob_props_full_path = os.path.join(root_dir, config_path)
     glob_props = parse_ops.xml_to_objfy(glob_props_full_path)
-    ground_repository = parse_ops.get_child_from_xml_node(glob_props, "GroundRepository")
-    smart_cursor = parse_ops.get_child_from_xml_node(glob_props, "SmartCursor")
+    ground_repository = parse_ops.find_element(glob_props, "GroundRepository")
+    smart_cursor = parse_ops.find_element(glob_props, "SmartCursor")
     if ground_repository is not None:
         if enable:
             ground_repository.attrib["Size"] = "18 300"

@@ -1,5 +1,7 @@
 import argparse
 import html
+import xml.etree.ElementTree as ET
+
 from collections.abc import Iterable
 from functools import cache
 from pathlib import Path
@@ -96,7 +98,7 @@ def parse_simple_relative_path(path: str | Path) -> str:
     return parsed_path
 
 
-def get_child_from_xml_node(
+def find_element(
         xml_node: objectify.ObjectifiedElement,
         child_name: str, do_not_warn: bool = False) -> objectify.ObjectifiedElement | None:
     """Get child from ObjectifiedElement by name."""
@@ -104,10 +106,47 @@ def get_child_from_xml_node(
         return xml_node[child_name]
     except AttributeError:
         if not do_not_warn:
-            print(f"There is no child with name {child_name} for xml node "
-                  f"{xml_node.tag} in {xml_node.base}")
+            print(f"No child with name '{child_name}' for xml node "
+                  f"'{xml_node.tag}' in '{xml_node.base}'")
         return None
 
+def find_node(
+        xml_node: ET.Element | None,
+        child_name: str, do_not_warn: bool = False) -> ET.Element | None:
+    """Get the first child from ElementTree by the name."""
+    if not isinstance(xml_node, ET.Element):
+        if not do_not_warn:
+            print(f"Can't find child node, as parent element is invalid: '{xml_node}'")
+        return None
+    child = xml_node.find(child_name)
+    if child is None and not do_not_warn:
+        print(f"No child with name '{child_name}' for xml node '{xml_node.tag}'")
+    return child
+
+def find_nodes(
+        xml_node: ET.Element | None,
+        children_name: str, do_not_warn: bool = False) -> list[ET.Element]:
+    """Get all matching children from ElementTree by their name."""
+    if not isinstance(xml_node, ET.Element):
+        if not do_not_warn:
+            print(f"Can't find child node, as parent element is invalid: '{xml_node}'")
+        return []
+    childs = xml_node.findall(children_name)
+    if not childs and not do_not_warn:
+        print(f"No children with name '{children_name}' for xml node '{xml_node.tag}'")
+    return childs
+
+def get_attrib(
+        xml_node: ET.Element | None,
+        attrib_name: str, do_not_warn: bool = False) -> str | None:
+    if not isinstance(xml_node, ET.Element):
+        if not do_not_warn:
+            print(f"Can't get attribute '{attrib_name}', node is invalid: '{xml_node}'")
+        return None
+    attrib = xml_node.get(attrib_name)
+    if attrib is None and not do_not_warn:
+        print(f"No attribute with name '{attrib_name}' for xml node '{xml_node.tag}'")
+    return attrib
 
 def beautify_machina_xml(xml_string: str) -> str:
     """Format and beautify xml string in the style similar to original Ex Machina dynamicscene.xml files."""
@@ -168,3 +207,7 @@ def xml_to_objfy(full_path: str) -> objectify.ObjectifiedElement:
         objectify.enable_recursive_str()
         objfy = objectify.parse(f, parser_recovery)
     return objfy.getroot()
+
+def xml_to_etree(full_path: str | Path) -> ET.Element:
+    tree = ET.parse(full_path)
+    return tree.getroot()
