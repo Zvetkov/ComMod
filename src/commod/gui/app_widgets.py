@@ -102,6 +102,7 @@ class App:
 
     rail: ft.NavigationRail | None = None
     content_column: ft.Container | None = None
+    dialog: ft.AlertDialog | None = None
 
     @property
     def logger(self) -> logging.Logger:
@@ -219,12 +220,13 @@ class App:
         self.content_column.update()
 
     async def close_alert(self, e: ft.ControlEvent | None = None) -> None:
-        self.page.dialog.open = False
-        self.page.update()
+        # TODO: potentially shaky logic, that will fail if we have multiple modals at the same time...?
+        if self.dialog:
+            self.page.close(self.dialog)
 
     async def show_modal(self, text: str, additional_text: str = "", title: str | None = None,
                          on_yes: Awaitable | None = None, on_no: Awaitable | None = None) -> None:
-        if self.page.dialog is not None and self.page.dialog.open:
+        if self.dialog is not None and self.dialog.open:
             return
 
         no_options = on_yes is None and on_no is None
@@ -251,18 +253,18 @@ class App:
                 ],
             actions_padding=ft.padding.only(left=20, bottom=20, right=20)
             )
-        self.page.dialog = dlg
+        self.dialog = dlg
         dlg.open = True
-        self.page.update()
+        self.page.open(dlg)
 
     async def set_clip(self, e: ft.ControlEvent | None = None) -> None:
         if e:
-            await self.page.set_clipboard_async(e.control.data)
+            self.page.set_clipboard(e.control.data)
 
     async def show_alert(self, text: str, additional_text: str = "",
                          allow_copy: bool = False,
                          additional_as_markdown: bool = False) -> None:
-        if self.page.dialog is not None and self.page.dialog.open:
+        if self.dialog is not None and self.dialog.open:
             return
         dlg = ft.AlertDialog(
             title=Row([Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
@@ -288,13 +290,13 @@ class App:
                 ft.TextButton("Ok", on_click=self.close_alert)],
             actions_padding=ft.padding.only(left=20, bottom=20, right=20)
             )
-        self.page.dialog = dlg
+        self.dialog = dlg
         dlg.open = True
-        self.page.update()
+        self.page.open(dlg)
 
     # TODO: why this returns Text?
     async def show_loading(self, text: str, additional_text: str = "") -> Text:
-        if self.page.dialog is not None and self.page.dialog.open:
+        if self.dialog is not None and self.dialog.open:
             return None
 
         loading_text = Text()
@@ -316,9 +318,9 @@ class App:
                        spacing=5,
                        tight=True)]
             ))
-        self.page.dialog = dlg
+        self.dialog = dlg
         dlg.open = True
-        self.page.update()
+        self.page.open(dlg)
         return loading_text
 
     async def load_distro_async(self) -> None:
@@ -462,20 +464,22 @@ class GameCopyListItem(ft.Container):
     def build(self) -> None:
         self.current_game_badges = self.get_current_game_badges()
 
-        self.edit_name = TextField(prefix_text=f'{tr("new_name")}:  ',
-                                   expand=True,
-                                   dense=True,
-                                   border_radius=20,
-                                   border_width=2,
-                                   focused_border_width=3,
-                                   border_color=ft.colors.ON_SECONDARY_CONTAINER,
-                                   text_style=ft.TextStyle(size=13,
-                                                           color=ft.colors.ON_SECONDARY_CONTAINER,
-                                                           weight=ft.FontWeight.W_500),
-                                   focused_border_color=ft.colors.PRIMARY,
-                                   text_size=13,
-                                   max_length=256,
-                                   on_submit=self.save_clicked)
+        self.edit_name = TextField(
+            prefix_text=f'{tr("new_name")}:  ',
+            expand=True,
+            dense=True,
+            border_radius=20,
+            border_width=2,
+            focused_border_width=3,
+            border_color=ft.colors.ON_SECONDARY_CONTAINER,
+            text_style=ft.TextStyle(size=13,
+                                    color=ft.colors.ON_SECONDARY_CONTAINER,
+                                    weight=ft.FontWeight.W_500),
+            focused_border_color=ft.colors.PRIMARY,
+            text_size=13,
+            max_length=256,
+            on_submit=self.save_clicked,
+            counter_text="{value_length} / {max_length}")
 
         self.display_view = Row(
             alignment=ft.MainAxisAlignment.END,
@@ -503,22 +507,33 @@ class GameCopyListItem(ft.Container):
                 ]
             )
 
-        self.edit_view = Row(
-            visible=False,
-            alignment=ft.MainAxisAlignment.SPACE_AROUND,
-            vertical_alignment=ft.CrossAxisAlignment.START,
-            spacing=20,
-            controls=[
-                self.edit_name,
-                IconButton(
-                    icon=ft.icons.SAVE,
-                    icon_color=colors.GREEN,
-                    tooltip=tr("update_name"),
-                    on_click=self.save_clicked,
-                    width=40, height=40,
-                    icon_size=24
-                ),
-            ],
+        self.edit_view = ft.Container(
+            Row(alignment=ft.MainAxisAlignment.SPACE_AROUND,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+                spacing=20,
+                controls=[
+                    self.edit_name,
+                    ft.Row([
+                        IconButton(
+                            icon=ft.icons.SAVE,
+                            icon_color=colors.GREEN,
+                            tooltip=tr("update_name"),
+                            on_click=self.save_clicked,
+                            width=40, height=40,
+                            icon_size=24
+                        ),
+                        IconButton(
+                            icon=ft.icons.CLEAR,
+                            icon_color=colors.RED,
+                            tooltip=tr("cancel"),
+                            on_click=self.cancel_clicked,
+                            width=40, height=40,
+                            icon_size=24
+                        ),
+                    ], spacing=0)
+                ],
+            ),
+            visible=False, padding=2
         )
         self.bgcolor = ft.colors.SECONDARY_CONTAINER if self.current else ft.colors.TRANSPARENT
         self.content = ft.Column(controls=[self.display_view, self.edit_view])
@@ -559,16 +574,20 @@ class GameCopyListItem(ft.Container):
         self.update()
 
     async def save_clicked(self, e: ft.ControlEvent) -> None:
-        self.game_name_label.current.value = self.edit_name.value
-        self.game_name = self.edit_name.value
+        new_name = self.edit_name.value
+
+        if new_name:
+            self.game_name_label.current.value = new_name
+            self.game_name = new_name
+            self.config.game_names[self.game_path] = self.game_name
+
         self.display_view.visible = True
         self.edit_view.visible = False
-        self.config.game_names[self.game_path] = self.game_name
         self.update()
 
-    async def status_changed(self, e: ft.ControlEvent) -> None:
-        self.completed = self.current_game_badges.value
-        self.task_status_change(self)
+    async def cancel_clicked(self, e: ft.ControlEvent) -> None:
+        self.display_view.visible = True
+        self.edit_view.visible = False
         self.update()
 
     async def delete_clicked(self, e: ft.ControlEvent) -> None:
@@ -742,14 +761,16 @@ class SettingsScreen(ft.Container):
         self.steam_locations_dropdown = ft.Dropdown(
             height=42,
             text_size=13,
+            visible=False,
             dense=True,
             border_color=ft.colors.OUTLINE,
-            hint_text=tr("steam_add_hint"),
+            # hint_text=,
             on_change=self.handle_dropdown_onchange,
             label=tr("steam_game_found"),
             label_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
             text_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
             hint_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
+            on_blur=self.add_steam_hint,
             options=[
                 ft.dropdown.Option(path) for path in self.app.context.current_session.steam_game_paths
             ],
@@ -773,6 +794,7 @@ class SettingsScreen(ft.Container):
             tr("add_to_list").capitalize(),
             icon=icons.ADD,
             on_click=self.add_steam,
+            style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=20)),
             visible=False,
             disabled=True,
             )
@@ -781,6 +803,7 @@ class SettingsScreen(ft.Container):
             tr("add_to_list").capitalize(),
             icon=ft.icons.ADD,
             on_click=self.add_game_manual,
+            style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=20)),
             visible=False,
             disabled=True,
             )
@@ -789,6 +812,7 @@ class SettingsScreen(ft.Container):
             tr("confirm_choice").capitalize(),
             icon=ft.icons.CHECK_ROUNDED,
             on_click=self.add_distro,
+            style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=20)),
             visible=False,
             disabled=True,
             )
@@ -953,6 +977,7 @@ class SettingsScreen(ft.Container):
                                         f"[{tr('our_discord')}]"
                                         f"({DEM_DISCORD})  • "
                                         f"[DeusWiki]({WIKI_COMREM})",
+                                        code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
                                         extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                                         auto_follow_links=True,
                                         scale=0.9),
@@ -1105,6 +1130,10 @@ class SettingsScreen(ft.Container):
             scroll=ft.ScrollMode.ADAPTIVE,
             alignment=ft.MainAxisAlignment.START
         )
+
+    async def add_steam_hint(self, e: ft.ControlEvent) -> None:
+        self.steam_locations_dropdown.hint_text = tr("steam_add_hint")
+        self.steam_locations_dropdown.update()
 
     # Open directory dialog
     async def get_game_dir_result(self, e: ft.FilePickerResultEvent) -> None:
@@ -1952,6 +1981,7 @@ class ModInfo(ft.Container):
                                                     text=tr("delete_mod_short").capitalize(),
                                                     color=ft.colors.ERROR,
                                                     ref=self.mod_delete_btn,
+                                                    style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=20)),
                                                     on_click=self.delete_mod_ask,
                                                     tooltip=tr("delete_mod_from_library").capitalize())],
                                                 alignment=ft.MainAxisAlignment.CENTER),
@@ -2004,7 +2034,7 @@ class ModInfo(ft.Container):
                                                 ref=self.change_log_text,
                                                 auto_follow_links=True,
                                                 code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
-                                                expand=1,
+                                                expand=True,
                                                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)],
                                             expand=True),
                                         padding=ft.padding.only(right=22))],
@@ -2022,7 +2052,7 @@ class ModInfo(ft.Container):
                                                 ref=self.other_info_text,
                                                 auto_follow_links=True,
                                                 code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
-                                                expand=1,
+                                                expand=True,
                                                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)],
                                             expand=True),
                                         padding=ft.padding.only(right=22))],
@@ -2687,7 +2717,8 @@ class ModArchiveItem(ft.Card):
                                             ft.ControlState.HOVERED: ft.colors.SECONDARY,
                                             ft.ControlState.DEFAULT: ft.colors.PRIMARY,
                                             ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
-                                        }
+                                        },
+                                        padding=ft.padding.symmetric(horizontal=20),
                                     ),
                                     tooltip=tr("extract_mod").capitalize(),
                                     on_click=self.extract), alignment=ft.alignment.center)
@@ -3226,7 +3257,8 @@ class ModItem(ft.Card):
                                       ft.ControlState.DISABLED: ft.colors.with_opacity(
                                           0.3, ft.colors.PRIMARY if self.mod.is_reinstall
                                                else ft.colors.SECONDARY)
-                                  }
+                                  },
+                                  padding=ft.padding.symmetric(horizontal=20)
                                 ),
                                 ref=self.install_btn,
                                 disabled=mod_cant_install or self.app.local_mods.game_is_running,
@@ -3972,7 +4004,7 @@ class ModInstallWizard(ft.Container):
 
     async def set_clip(self, e: ft.ControlEvent | None = None) -> None:
         if e:
-            await self.page.set_clipboard_async(e.control.data)
+            self.page.set_clipboard(e.control.data)
 
     async def show_install_results(self, status_ok: bool, changes_description: list[str],
                                    ex: Exception | None = None) -> None:
@@ -4389,7 +4421,8 @@ class ModInstallWizard(ft.Container):
                                      ft.ControlState.HOVERED: ft.colors.SECONDARY,
                                      ft.ControlState.DEFAULT: ft.colors.PRIMARY,
                                      ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
-                                 })),
+                                 },
+                                 padding=ft.padding.symmetric(horizontal=20))),
             ft.FilledTonalButton(tr("no").capitalize(),
                                  width=100,
                                  on_click=self.close_wizard)
@@ -4505,7 +4538,8 @@ class ModInstallWizard(ft.Container):
                                      ft.ControlState.HOVERED: ft.colors.SECONDARY,
                                      ft.ControlState.DEFAULT: ft.colors.PRIMARY,
                                      ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
-                                 }),
+                                 },
+                                 padding=ft.padding.symmetric(horizontal=20)),
                               ref=self.ok_button,
                               ),
             ft.FilledTonalButton(tr("no").capitalize(),
@@ -4547,7 +4581,8 @@ class ModInstallWizard(ft.Container):
                              bgcolor={
                                  ft.ControlState.DEFAULT: ft.colors.PRIMARY,
                                  ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
-                             }),
+                             },
+                             padding=ft.padding.symmetric(horizontal=20)),
             ref=self.default_install_btn))
 
         self.screen.current.content = ft.Column([

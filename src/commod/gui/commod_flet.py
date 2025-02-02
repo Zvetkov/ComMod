@@ -1,5 +1,6 @@
 import asyncio
 import os
+from pathlib import Path
 import tempfile
 
 import flet as ft
@@ -234,6 +235,10 @@ async def main(page: Page) -> None:
             if app.config.current_distro and app.config.current_game:
                 app.logger.debug("Automatically switched to local mods page as running with generated config")
                 app.config.current_section = AppSections.LOCAL_MODS.value
+        elif app.game.game_root_path and app.config.current_game != app.game.game_root_path:
+            app.logger.debug(f"Added game to empty config: {app.game.game_root_path}")
+            app.config.add_game_to_config(app.game.game_root_path, Path(app.game.game_root_path).stem)
+            app.logger.debug(f"Added game passed to args to the config: {app.game.game_root_path}")
         # select_game_from_home
         app.content_column.content = None
         app.content_column.update()
