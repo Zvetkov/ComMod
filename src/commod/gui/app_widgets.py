@@ -254,7 +254,6 @@ class App:
             actions_padding=ft.padding.only(left=20, bottom=20, right=20)
             )
         self.dialog = dlg
-        dlg.open = True
         self.page.open(dlg)
 
     async def set_clip(self, e: ft.ControlEvent | None = None) -> None:
@@ -291,7 +290,6 @@ class App:
             actions_padding=ft.padding.only(left=20, bottom=20, right=20)
             )
         self.dialog = dlg
-        dlg.open = True
         self.page.open(dlg)
 
     # TODO: why this returns Text?
@@ -319,7 +317,6 @@ class App:
                        tight=True)]
             ))
         self.dialog = dlg
-        dlg.open = True
         self.page.open(dlg)
         return loading_text
 
@@ -4846,9 +4843,7 @@ class LocalModsScreen(ft.Column):
             ),
             open=True,
         )
-        self.app.page.overlay.append(bs)
-        self.app.page.update()
-        bs.update()
+        self.app.page.open(bs)
         await aiofiles.os.remove(os.path.join(mod.manifest_root, "manifest.yaml"))
 
         mod_path = Path(mod.manifest_root)
@@ -4886,9 +4881,7 @@ class LocalModsScreen(ft.Column):
         )
         bs.update()
         await asyncio.sleep(1)
-        bs.open = False
-        bs.update()
-        self.app.page.overlay.remove(bs)
+        self.app.page.close(bs)
         self.app.logger.debug(f"Deleted mod {mod.name} {mod.version!r} [{mod.build}]")
         await self.app.refresh_page(index=AppSections.LOCAL_MODS.value)
 
