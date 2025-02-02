@@ -91,9 +91,9 @@ async def main(page: Page) -> None:
         try:
             game = GameCopy()
             game.process_game_install(target_dir)
-        except Exception as ex:
+        except Exception:
             # TODO: Handle exceptions properly
-            install_context.logger.error(f"[Game loading error] {ex}")
+            install_context.logger.exception("[Game loading error]")
 
             game = GameCopy()
     else:

@@ -5,6 +5,7 @@ import logging
 import math
 import os
 import platform
+import shutil
 import struct
 import subprocess
 import sys
@@ -16,7 +17,6 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import aiofiles
-import aioshutil
 import psutil
 import py7zr
 import yaml
@@ -105,7 +105,7 @@ async def copy_from_to_async(from_path_list: list[str],
             for sfile in filenames:
                 dest_file = os.path.join(path.replace(from_path, to_path), sfile)
                 file_size = round(Path(os.path.join(path, sfile)).stat().st_size / 1024, 2)
-                await aioshutil.copy2(os.path.join(path, sfile), dest_file)
+                await asyncio.to_thread(shutil.copy2, os.path.join(path, sfile), dest_file)
                 await callback_progbar(file_num, files_count, sfile, file_size)
                 file_num += 1
 
@@ -119,7 +119,7 @@ async def copy_file_and_call_async(path: str, file_num: list[int],
     # Note: file num is a dirty hack to pass pointer to mutable int value (index of current file)
     dest_file = os.path.join(path.replace(from_path, to_path), single_file)
     file_size = round(Path(os.path.join(path, single_file)).stat().st_size / 1024, 2)
-    await aioshutil.copy2(os.path.join(path, single_file), dest_file)
+    await asyncio.to_thread(shutil.copy2, os.path.join(path, single_file), dest_file)
     # TODO: describe interface for this type of callback
     await callback_progbar(file_num[0], files_count, single_file, file_size)
     await asyncio.sleep(0)
@@ -327,7 +327,7 @@ def dump_yaml(data: Any, path: str | Path, sort_keys: bool = True) -> bool:  # n
     return True
 
 
-def get_internal_file_path(file_name: str) -> Path:
+def get_internal_file_path(file_name: str | Path) -> Path:
     return Path(__file__).parent.parent / file_name
 
 

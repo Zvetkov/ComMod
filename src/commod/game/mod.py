@@ -868,7 +868,7 @@ class Mod(BaseModel):
             validated, mod_error = prereq.compute_current_status(
                 existing_content, existing_content_descriptions,
                 library_mods_info, is_compatch_env)
-            self.individual_require_status.append((prereq, validated, [mod_error]))
+            self.individual_require_status.append((prereq, validated, mod_error))
             if mod_error:
                 error_msgs.extend(mod_error)
             requirements_met &= validated
@@ -890,7 +890,7 @@ class Mod(BaseModel):
                 validated_vanilla_mod = True
                 mod_error = ""
             self.individual_require_status.append(
-                (fake_req, validated_vanilla_mod, [mod_error]))
+                (fake_req, validated_vanilla_mod, mod_error))
             requirements_met &= validated_vanilla_mod
 
         # if error_msg:

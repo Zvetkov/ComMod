@@ -3,6 +3,7 @@ import logging
 import os
 import platform
 import pprint
+import shutil
 import subprocess
 import traceback
 from collections.abc import Awaitable
@@ -14,7 +15,6 @@ from http import HTTPStatus
 from pathlib import Path
 
 import aiofiles.os
-import aioshutil
 import flet as ft
 import httpx
 from flet import (
@@ -2856,11 +2856,12 @@ class ModFamily(ft.AnimatedSwitcher):
         if len(self.main_versions) > 1:
             variant_versions = [m_mod.variants_loaded[mod_atom.name] for m_mod in self.main_versions
                                 if m_mod.variants_loaded.get(mod_atom.name) is not None]
-            versions = [ft.MenuItemButton(content=ft.Container(
-                                                    Text(ver.build_ver),
-                                                    margin=ft.margin.symmetric(horizontal=5)),
-                         data=ver,
-                         on_click=self.switch_mod_version)
+            versions = [ft.MenuItemButton(
+                            content=ft.Container(
+                                Text(ver.build_ver),
+                                margin=ft.margin.symmetric(horizontal=5)),
+                            data=ver,
+                            on_click=self.switch_mod_version)
                         for ver in variant_versions]
 
             versions.sort(key=lambda item: item.content.content.value)
@@ -2874,7 +2875,8 @@ class ModFamily(ft.AnimatedSwitcher):
                                  weight=ft.FontWeight.W_400,
                                  data=mod_atom,
                                  color=name_color,
-                                 overflow=ft.TextOverflow.ELLIPSIS),
+                                 overflow=ft.TextOverflow.ELLIPSIS
+                                 ),
                     trailing=ft.Container(Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
                                   color=ft.colors.ON_BACKGROUND, size=20),
                                   margin=ft.margin.only(left=-5, right=-3)),
@@ -2883,9 +2885,12 @@ class ModFamily(ft.AnimatedSwitcher):
                         ft.ControlState.FOCUSED: ft.colors.BACKGROUND,
                         ft.ControlState.DEFAULT: ft.colors.BACKGROUND,
                         }, shape=ft.RoundedRectangleBorder(radius=5)),
-                    controls=versions,
-                    height=24)], expand=True,
-                        style=ft.MenuStyle(elevation=0, bgcolor=ft.colors.TRANSPARENT, padding=0))
+                    controls=versions, height=24)],
+                expand=True,
+                style=ft.MenuStyle(
+                    alignment=ft.alignment.center, bgcolor=ft.colors.TRANSPARENT,
+                    elevation=0, padding=0),
+                )
 
             # return Row([
             #     ft.Container(ft.PopupMenuButton(
@@ -4818,21 +4823,21 @@ class LocalModsScreen(ft.Column):
             if main_distro in mod_path.parents:
                 # if mod dir is located directly in "mods" - delete just that
                 if mod_path.parent == main_distro:
-                    await aioshutil.rmtree(mod_path)
+                    await asyncio.to_thread(shutil.rmtree, mod_path)
                 # mod directory is very often nested inside another dir because of zip files structure
                 # if we can detect that it's safe, we will delete whole nested structure
                 elif mod_path.parent.parent == main_distro:
                     # we only want to delete parent dir if it was automatically created by commod
                     if mod_path.parent.stem == mod.id_str:
-                        await aioshutil.rmtree(mod_path.parent)
+                        await asyncio.to_thread(shutil.rmtree, mod_path.parent)
                     else:
-                        await aioshutil.rmtree(mod_path)
+                        await asyncio.to_thread(shutil.rmtree, mod_path)
                 elif mod_path.parent.parent.parent == main_distro:
                     # same as above
                     if mod_path.parent.parent.stem == mod.id_str:
-                        await aioshutil.rmtree(mod_path.parent.parent)
+                        await asyncio.to_thread(shutil.rmtree, mod_path.parent.parent)
                     else:
-                        await aioshutil.rmtree(mod_path)
+                        await asyncio.to_thread(shutil.rmtree, mod_path)
         except PermissionError:
             await self.app.show_alert(tr("couldnt_delete_mod_permission_err"))
 
@@ -5652,8 +5657,8 @@ class HomeScreen(ft.Container):
             new_game = self.app.config.get_game_copy(game_path, reset_cache=True)
             can_be_added, game_is_running = new_game.check_compatible_game(game_path)
         except Exception as ex:
-            await self.app.show_alert(tr("broken_game"), ex)
-            self.app.logger.error("[Game loading error]", exc_info=True)  # noqa: G201
+            await self.app.show_alert(tr("broken_game"), str(ex))
+            self.app.logger.exception("[Game loading error]")
             return
 
         if game_is_running and not self.game_is_running:

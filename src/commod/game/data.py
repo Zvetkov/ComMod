@@ -36,8 +36,7 @@ COMMOD_USES = (
     "[pathvalidate](https://github.com/thombashi/pathvalidate/blob/master/LICENSE), "
     "[python-markdownify](https://github.com/matthewwithanm/python-markdownify/blob/develop/LICENSE), "
     "[aiofiles](https://github.com/Tinche/aiofiles/blob/main/LICENSE), "
-    "[aiopath](https://github.com/alexdelorenzo/aiopath/blob/main/LICENSE), "
-    "[aioshutil](https://github.com/kumaraditya303/aioshutil/blob/master/LICENSE.md)")
+    "[aiopath](https://github.com/alexdelorenzo/aiopath/blob/main/LICENSE)")
 
 VERSION_BYTES_100_STAR = 0x005A69C2
 VERSION_BYTES_102_NOCD = 0x005906A3

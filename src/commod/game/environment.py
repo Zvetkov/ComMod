@@ -1334,6 +1334,9 @@ class GameCopy:
         game_is_running = False
         try:
             self.process_game_install(game_path)
+        except WrongGameDirectoryPathError:
+            can_be_added = False
+            warning = f"{tr('not_a_valid_path')}: {game_path}"
         except ExeIsRunningError:
             can_be_added = False
             warning = f"{tr('game_is_running_cant_select')}"
