@@ -5,9 +5,9 @@ from os import system
 import platform
 
 
-OWN_VERSION = "2.2"
+OWN_VERSION = "2.2.1"
 
-DATE = "(Jun 09 2024)"
+DATE = "(Jun 18 2024)"
 # version of binary fixes
 # corresponds with the latest major.minor ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"

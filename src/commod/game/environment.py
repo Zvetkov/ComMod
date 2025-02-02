@@ -126,10 +126,11 @@ class InstallationContext:
         """Return dict of known display info (names) for mods in session."""
         if not self.validated_mods:
             return None
-        mod_info_list = ((mod.name, mod.language, mod.display_name) for mod in self.validated_mods.values())
         mod_info_dict = defaultdict(dict)
-        for mod_info in mod_info_list:
-            mod_info_dict[mod_info[0]][mod_info[1]] = mod_info[2]
+        for mod in self.validated_mods.values():
+            for variant in mod.variants_loaded.values():
+                mod_info_dict[variant.name][variant.language] = variant.display_name
+
         return mod_info_dict
 
     def new_session(self) -> None:
@@ -138,10 +139,7 @@ class InstallationContext:
     @staticmethod
     def validate_distribution_dir(distribution_dir: str) -> bool:
         """Validate distribution dir - storage location for mods."""
-        if not distribution_dir or not os.path.isdir(distribution_dir):
-            return False
-
-        return True
+        return bool(distribution_dir) and os.path.isdir(distribution_dir)
 
     @staticmethod
     def get_commod_config() -> dict | None:
@@ -242,8 +240,11 @@ class InstallationContext:
         all_config_paths = []
         # TODO: deprecate all code related to legacy comrem file structure
         legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
+        root_mod = os.path.join(self.distribution_dir, "manifest.yaml")
         if os.path.exists(legacy_comrem):
             all_config_paths.append(legacy_comrem)
+        elif os.path.exists(root_mod):
+            all_config_paths.append(root_mod)
 
         self.current_session.mod_loading_errors.clear()
         mod_loading_errors = self.current_session.mod_loading_errors
@@ -342,7 +343,7 @@ class InstallationContext:
         if mod_loading_errors:
             self.logger.error("-- Errors occurred when loading mods! --")
 
-    def get_dir_manifests(self, directory: str, nesting_levels: int = 3, top_level: bool = True) -> str:
+    def get_dir_manifests(self, directory: str, nesting_levels: int = 3, top_level: bool = True) -> list[str]:
         found_manifests = []
         levels_left = nesting_levels - 1
         for entry in os.scandir(directory):
@@ -572,9 +573,8 @@ class InstallationContext:
 
             if not stream_only:
                 file_handler = logging.FileHandler(
-                                    os.path.join(self.log_path,
-                                                 f'debug_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.log'),
-                                    encoding="utf-8")
+                    os.path.join(self.log_path, f'debug_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.log'),
+                    encoding="utf-8")
                 file_handler.setLevel(file_handler_level)
                 file_handler.setFormatter(formatter)
                 self.logger.addHandler(file_handler)
@@ -1296,7 +1296,7 @@ class GameCopy:
                 version_identifier_m113 = f.read(4)
                 if version_identifier_m113 == b"1.01":
                     return "Meridian 113/RoC 1.01 (unsupported)"
-                
+
                 f.seek(VERSION_BYTES_ARCD_100)
                 version_identifier_arcade = f.read(3)
                 if version_identifier_arcade == b"1.0":

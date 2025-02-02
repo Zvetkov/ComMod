@@ -39,18 +39,25 @@ from commod.localisation.service import get_known_mod_display_name, tr
 
 
 class PatcherOptions(BaseModel):
+    # gameplay
     gravity: Annotated[float, Field(ge=-100, le=-1)] | None = None
-    skins_in_shop: Annotated[int, Field(ge=8, le=32)] | None = None
-    sell_price_coeff: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
-    blast_damage_friendly_fire: bool | None = None
-    game_font: str | None = None
     slow_brake: bool | None = None
-    hq_reflections: bool | None = None
-    draw_distance_limit: bool | None = None
-    vanilla_fov: bool | None = None
+    blast_damage_friendly_fire: bool | None = None
     default_difficulty_is_lowest: bool | None = None
+
+    # economy
+    sell_price_coeff: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     no_money_in_player_schwarz: bool | None = None
     calc_peace_price_from_schwarz: bool | None = None
+
+    # visual
+    skins_in_shop: Annotated[int, Field(ge=8, le=32)] | None = None
+    hq_reflections: bool | None = None
+    game_font: str | None = None
+
+    # visual - inverse flags
+    vanilla_fov: bool | None = None
+    draw_distance_limit: bool | None = None
 
 def apply_binary_patch(f: typing.BinaryIO,
                        binary_patches: list[data.BinaryPatch],
@@ -319,7 +326,7 @@ class CompareOperator(enum.IntEnum):
 
 
 class ModCompatConstrain(BaseModel):
-    name: list[Annotated[str, StringConstraints(max_length=64)]]
+    name: list[Annotated[str, StringConstraints(max_length=64)]] | Annotated[str, StringConstraints(max_length=64)]
     versions: list[str] | list[VersionRequirement] | None = Field(default=[], repr=False)
     optional_content: list[str] | None = Field(default=[], repr=False)
 
@@ -394,7 +401,7 @@ class Prerequisite(ModCompatConstrain):
 
     def compute_current_status(self, existing_content: dict,
                        existing_content_descriptions: dict,
-                       library_mods_info: dict[dict[str, str]] | None,
+                       library_mods_info: dict[str, dict[str, str]] | None,
                        is_compatch_env: bool) -> tuple[bool, str]:
         """Return bool check success result and an error message string."""
         error_msg = []
@@ -522,7 +529,7 @@ class Incompatibility(ModCompatConstrain):
 
     def compute_current_status(self, existing_content: dict,
                        existing_content_descriptions: dict,
-                       library_mods_info: dict[dict[str, str]] | None) -> tuple[bool, list]:
+                       library_mods_info: dict[str, dict[str, str]] | None) -> tuple[bool, list]:
         error_msg = []
         name_incompat = False
         version_incomp = False
@@ -778,14 +785,15 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
                 configurable_values["skins_in_shop_2"] = (exe_options_config.skins_in_shop,)
 
             if exe_options_config.blast_damage_friendly_fire is not None:
-                configurable_values["blast_damage_friendly_fire"] = exe_options_config.blast_damage_friendly_fire
+                configurable_values["blast_damage_friendly_fire"] = \
+                    exe_options_config.blast_damage_friendly_fire
 
             if exe_options_config.game_font is not None:
                 font_alias = exe_options_config.game_font
 
             if exe_options_config.draw_distance_limit is not None:
                 apply_binary_patch(f, data.draw_distance_patches,
-                                   enable_flag=exe_options_config.draw_distance_limit)
+                                   enable_flag=not exe_options_config.draw_distance_limit)
 
             if exe_options_config.default_difficulty_is_lowest is not None:
                 apply_binary_patch(f, data.default_difficulty_lowest_patches,
@@ -805,7 +813,7 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
 
             if exe_options_config.vanilla_fov is not None:
                 apply_binary_patch(f, data.projection_matrix_patches,
-                                   enable_flag=exe_options_config.vanilla_fov)
+                                   enable_flag=not exe_options_config.vanilla_fov)
 
             if exe_options_config.slow_brake is not None:
                 apply_binary_patch(f, data.slow_brake_patches,

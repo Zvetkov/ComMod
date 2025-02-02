@@ -753,7 +753,7 @@ class Mod(BaseModel):
             translation.installment_compatible = self.installment == game_installment
 
     def load_session_compatibility(self, installed_content: dict, installed_descriptions: dict,
-                                   library_mods_info: dict[dict[str, str]] | None) -> None:
+                                   library_mods_info: dict[str, dict[str, str]] | None) -> None:
         for translation in self._translations_loaded.values():
 
             translation.compatible, translation.compatible_err = \
@@ -852,7 +852,7 @@ class Mod(BaseModel):
             return True
 
     def check_requirements(self, existing_content: dict, existing_content_descriptions: dict,
-                           library_mods_info: dict[dict[str, str]] | None) -> tuple[bool, list[str]]:
+                           library_mods_info: dict[str, dict[str, str]] | None) -> tuple[bool, list[str]]:
         """Return bool for cumulative check success result and a list of error message string."""
         error_msgs = []
 
@@ -866,10 +866,9 @@ class Mod(BaseModel):
                 continue
 
             validated, mod_error = prereq.compute_current_status(
-                                        existing_content, existing_content_descriptions,
-                                        library_mods_info,
-                                        is_compatch_env)
-            self.individual_require_status.append((prereq, validated, mod_error))
+                existing_content, existing_content_descriptions,
+                library_mods_info, is_compatch_env)
+            self.individual_require_status.append((prereq, validated, [mod_error]))
             if mod_error:
                 error_msgs.extend(mod_error)
             requirements_met &= validated
@@ -1022,7 +1021,7 @@ class Mod(BaseModel):
 
     def check_incompatibles(self, existing_content: dict,
                             existing_content_descriptions: dict,
-                            library_mods_info: dict[dict[str, str]] | None) -> tuple[bool, list]:
+                            library_mods_info: dict[str, dict[str, str]] | None) -> tuple[bool, list]:
         error_msg = []
         compatible = True
 
