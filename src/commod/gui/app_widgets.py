@@ -379,8 +379,8 @@ class App:
         for mod in self.session.mods.values():
             for variant in mod.variants_loaded.values():
                 variant.load_session_compatibility(self.game.installed_content,
-                                               self.game.installed_descriptions,
-                                               self.context.library_mods_info)
+                                                   self.game.installed_descriptions,
+                                                   self.context.library_mods_info)
 
 class GameCopyListItem(ft.Container):
     def __init__(self, game_name: str, game_path: str,
@@ -913,7 +913,7 @@ class SettingsScreen(ft.Container):
                          color=ft.colors.TERTIARY,
                          opacity=0.7,
                          no_wrap=False)
-                    ]), col={"xs": 12, "xl": 10, "xxl": 8})
+                    ]), col={"xs": 12, "xl": 10, "xxl": 7})
 
         self.override_incompat = ft.Container(
             Row([
@@ -926,7 +926,8 @@ class SettingsScreen(ft.Container):
                       color=ft.colors.ERROR,
                       weight=ft.FontWeight.W_500)
                 ], spacing=0), margin=0, padding=0,
-                visible=self.app.context.dev_mode or self.app.config.override_incompat)
+                visible=self.app.context.dev_mode or self.app.config.override_incompat,
+            col={"xs": 12, "xl": 10, "xxl": 7})
 
         self.about = ft.Card(
             ft.Container(

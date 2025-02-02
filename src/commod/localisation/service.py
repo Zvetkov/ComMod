@@ -130,7 +130,7 @@ def is_known_lang(lang: str) -> bool:
     return lang in KnownLangFlags.list_names()
 
 def get_known_mod_display_name(
-        service_name: str, library_mods_info: dict[dict[str, str]] | None = None) -> str | None:
+        service_name: str, library_mods_info: dict[str, dict[str, str]] | None = None) -> str | None:
     current_lang = get_current_lang()
     lang_dict = library_mods_info[service_name]
     if library_mods_info and lang_dict:
