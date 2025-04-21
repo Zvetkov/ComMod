@@ -21,6 +21,7 @@ COMREM_VER = f"ExMachina - Community Remaster fixes v{VERSION} {DATE}"
 
 
 DEM_DISCORD = "https://discord.gg/jZHxYdF"
+DEM_FORUM_MODS = "https://forum.deuswiki.com/c/mods/9"
 DEM_DISCORD_MODS_DOWNLOAD_SCREEN = "https://discord.gg/deus-ex-machina-522817939616038912"
 COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
 WIKI_COMREM = "https://deuswiki.com/w/Community_Remaster"

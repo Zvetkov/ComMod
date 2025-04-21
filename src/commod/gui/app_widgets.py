@@ -13,6 +13,7 @@ from enum import Enum
 from functools import cached_property
 from http import HTTPStatus
 from pathlib import Path
+from typing import Callable
 
 import aiofiles.os
 import flet as ft
@@ -28,7 +29,6 @@ from flet import (
     Tabs,
     Text,
     TextField,
-    colors,
     icons,
 )
 
@@ -39,6 +39,7 @@ from commod.game.data import (
     DATE,
     DEM_DISCORD,
     DEM_DISCORD_MODS_DOWNLOAD_SCREEN,
+    DEM_FORUM_MODS,
     OWN_VERSION,
     WIKI_COMREM,
 )
@@ -50,8 +51,9 @@ from commod.game.mod_auxiliary import (
     Version,
     VersionConstrainStyle,
 )
-from commod.gui.common_widgets import ExpandableContainer, title_btn_style
+from commod.gui import common_widgets as cw
 from commod.gui.config import AppSections, Config
+from commod.gui.modding_tools import ModdingTools
 from commod.helpers import file_ops
 from commod.helpers.errors import (
     DXRenderDllNotFoundError,
@@ -95,8 +97,9 @@ class App:
     home: "HomeScreen | None" = None
     local_mods: "LocalModsScreen | None" = None
     download_mods: "DownloadModsScreen | None" = None
+    modding_tools: "ModdingTools | None" = None
     settings_page: "SettingsScreen | None" = None
-    content_pages: "list[HomeScreen | LocalModsScreen | DownloadModsScreen | SettingsScreen] | None" = None
+    content_pages: "list[HomeScreen | LocalModsScreen | DownloadModsScreen | ModdingTools | SettingsScreen] | None" = None
 
     current_game_process: asyncio.subprocess.Process | None = None
 
@@ -113,7 +116,7 @@ class App:
         return self.context.current_session
 
     def is_current_page(
-            self, page_type: type["HomeScreen | LocalModsScreen | DownloadModsScreen | SettingsScreen"]) -> bool:
+            self, page_type: type["HomeScreen | LocalModsScreen | DownloadModsScreen | ModdingTools | SettingsScreen"]) -> bool:
         return isinstance(self.content_column.content, page_type)
 
     async def maximize(self, e: ft.ControlEvent) -> None:
@@ -128,15 +131,15 @@ class App:
         theme = self.page.theme_mode
         if theme == ft.ThemeMode.SYSTEM:
             self.page.theme_mode = ft.ThemeMode.DARK
-            self.page.theme_icon_btn.current.icon = ft.icons.WB_SUNNY_OUTLINED
+            self.page.theme_icon_btn.current.icon = ft.Icons.WB_SUNNY_OUTLINED
             self.page.theme_icon_btn.current.update()
         elif theme == ft.ThemeMode.DARK:
             self.page.theme_mode = ft.ThemeMode.LIGHT
-            self.page.theme_icon_btn.current.icon = ft.icons.NIGHTLIGHT_OUTLINED
+            self.page.theme_icon_btn.current.icon = ft.Icons.NIGHTLIGHT_OUTLINED
             self.page.theme_icon_btn.current.update()
         else:
             self.page.theme_mode = ft.ThemeMode.SYSTEM
-            self.page.theme_icon_btn.current.icon = ft.icons.BRIGHTNESS_AUTO
+            self.page.theme_icon_btn.current.icon = ft.Icons.BRIGHTNESS_AUTO
             self.page.theme_icon_btn.current.update()
 
         self.page.update()
@@ -144,26 +147,28 @@ class App:
 
     def create_sections(self) -> None:
         self.page.floating_action_button = ft.FloatingActionButton(
-            icon=ft.icons.REFRESH_ROUNDED,
+            icon=ft.Icons.REFRESH_ROUNDED,
             on_click=self.upd_pressed,
             mini=True
             )
         self.home = HomeScreen(self)
         self.local_mods = LocalModsScreen(self)
         self.download_mods = DownloadModsScreen(self)
+        self.modding_tools = ModdingTools(self)
         self.settings_page = SettingsScreen(self)
 
-        self.content_pages = [self.home, self.local_mods, self.download_mods, self.settings_page]
+        self.content_pages = [self.home, self.local_mods, self.download_mods,
+                              self.modding_tools, self.settings_page]
 
     async def wrapped_on_window_event(self, e: ft.ControlEvent) -> None:
         if e.data == "close":
             await self.finalize(e)
         elif e.data in ("unmaximize", "maximize"):
             if self.page.window.maximized:
-                self.page.maximize_btn.current.icon = ft.icons.FILTER_NONE
+                self.page.maximize_btn.current.icon = ft.Icons.FILTER_NONE
                 self.page.maximize_btn.current.icon_size = 15
             else:
-                self.page.maximize_btn.current.icon = ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED
+                self.page.maximize_btn.current.icon = ft.Icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED
                 self.page.maximize_btn.current.icon_size = 17
             self.page.maximize_btn.current.update()
 
@@ -181,7 +186,8 @@ class App:
 
         content = self.content_column.content
 
-        if (isinstance(content, HomeScreen | LocalModsScreen | DownloadModsScreen | SettingsScreen)
+        if (isinstance(
+           content, HomeScreen | LocalModsScreen | DownloadModsScreen | ModdingTools | SettingsScreen)
            and not content.refreshing):
             content.refreshing = True
             self.content_column.content = None
@@ -200,7 +206,7 @@ class App:
 
         real_index = self.config.current_section if self.content_column.content else -1
 
-        if new_index == AppSections.DOWNLOAD_MODS.value:
+        if new_index in [AppSections.DOWNLOAD_MODS.value, AppSections.MODDING_TOOLS.value]:
             self.page.floating_action_button.visible = False
         else:
             self.page.floating_action_button.visible = True
@@ -233,8 +239,8 @@ class App:
         title_text = tr("attention").capitalize() if title is None else title
 
         dlg = ft.AlertDialog(
-            title=Row([Icon(ft.icons.INFO_OUTLINE, color=ft.colors.PRIMARY),
-                       Text(title_text, color=ft.colors.PRIMARY)]),
+            title=Row([Icon(ft.Icons.INFO_OUTLINE, color=ft.Colors.PRIMARY),
+                       Text(title_text, color=ft.Colors.PRIMARY)]),
             shape=ft.RoundedRectangleBorder(radius=10),
             content=Column([Text(text),
                             Text(additional_text,
@@ -261,34 +267,40 @@ class App:
             self.page.set_clipboard(e.control.data)
 
     async def show_alert(self, text: str, additional_text: str = "",
+                         header_loc_str: str = "error",
+                         header_ico: ft.Icons = ft.Icons.WARNING_OUTLINED,
+                         header_ico_color: ft.Colors = ft.Colors.ERROR,
                          allow_copy: bool = False,
-                         additional_as_markdown: bool = False) -> None:
+                         additional_as_markdown: bool = False,
+                         on_dismiss: Callable | Awaitable | None = None) -> None:
         if self.dialog is not None and self.dialog.open:
             return
+        copy_text = text.replace("\n\n", "\n").strip() + "\n\n" + additional_text.strip()
+
         dlg = ft.AlertDialog(
-            title=Row([Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
-                       Text(tr("error"))]),
+            title=Row([Icon(header_ico, color=header_ico_color),
+                       Text(tr(header_loc_str))]),
             shape=ft.RoundedRectangleBorder(radius=10),
-            content=Row([
-                Column([
+            content=ft.Row([
+                ft.Column([
                     ft.Markdown(text.strip()),
                     ft.Divider(visible=bool(additional_text)),
-                    Text(additional_text.strip(),
-                         visible=bool(additional_text) and not additional_as_markdown,
-                         color=ft.colors.ON_ERROR_CONTAINER),
+                    ft.Text(additional_text.strip(),
+                            visible=bool(additional_text) and not additional_as_markdown,
+                         color=ft.Colors.ON_ERROR_CONTAINER),
                     ft.Markdown(str_to_md_format(additional_text.strip()),
                          auto_follow_links=True,
                          visible=bool(additional_text) and additional_as_markdown)
                     ],
                     spacing=5, tight=True, expand=10),
-                IconButton(icon=ft.icons.COPY, on_click=self.set_clip,
-                           data=text.replace("\n\n", "\n").strip(), expand=1,
-                           visible=allow_copy)],
+                ft.IconButton(icon=ft.Icons.COPY, on_click=self.set_clip,
+                              data=copy_text, expand=1,
+                              visible=allow_copy)],
                 tight=True),
             actions=[
                 ft.TextButton("Ok", on_click=self.close_alert)],
-            actions_padding=ft.padding.only(left=20, bottom=20, right=20)
-            )
+            actions_padding=ft.padding.only(left=20, bottom=20, right=20),
+            on_dismiss=on_dismiss)
         self.dialog = dlg
         self.page.open(dlg)
 
@@ -301,8 +313,8 @@ class App:
         dlg = ft.AlertDialog(
             open=True,
             modal=True,
-            title=Row([Icon(ft.icons.HOURGLASS_BOTTOM_ROUNDED,
-                            color=ft.colors.PRIMARY),
+            title=Row([Icon(ft.Icons.HOURGLASS_BOTTOM_ROUNDED,
+                            color=ft.Colors.PRIMARY),
                        Text(tr("is_loading").capitalize())]),
             shape=ft.RoundedRectangleBorder(radius=10),
             content=Row([
@@ -310,7 +322,7 @@ class App:
                 Column([Text(text),
                         Text(additional_text,
                              visible=bool(additional_text),
-                             color=ft.colors.ON_ERROR_CONTAINER),
+                             color=ft.Colors.ON_ERROR_CONTAINER),
                         loading_text
                         ],
                        spacing=5,
@@ -409,8 +421,8 @@ class GameCopyListItem(ft.Container):
     def get_current_game_badges(self) -> Row:
         return Row([
             IconButton(
-                    icon=ft.icons.DONE_OUTLINE_ROUNDED if self.current else ft.icons.DONE_OUTLINE,
-                    icon_color=colors.GREEN if self.current else ft.colors.SURFACE_VARIANT,
+                    icon=ft.Icons.DONE_OUTLINE_ROUNDED if self.current else ft.Icons.DONE_OUTLINE,
+                    icon_color=ft.Colors.GREEN if self.current else ft.Colors.SURFACE_CONTAINER_HIGHEST,
                     on_click=self.make_current,
                     width=45, height=45,
                     ref=self.current_icon,
@@ -423,11 +435,11 @@ class GameCopyListItem(ft.Container):
                         ft.Container(
                             Text(self.version,
                                  weight=ft.FontWeight.W_600,
-                                 color=ft.colors.PRIMARY,
+                                 color=ft.Colors.PRIMARY,
                                  text_align=ft.TextAlign.CENTER),
                             width=130,
-                            bgcolor=ft.colors.BACKGROUND,
-                            border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
+                            bgcolor=ft.Colors.SURFACE,
+                            border=ft.border.all(2, ft.Colors.SECONDARY_CONTAINER),
                             border_radius=16, padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
                             tooltip=ft.Tooltip(message=tr("exe_version"),
                                                wait_duration=300)
@@ -435,9 +447,9 @@ class GameCopyListItem(ft.Container):
                         ft.Container(
                             Text(tr("dirty_copy") if not self.game_is_running else tr("game_is_running"),
                                  weight=ft.FontWeight.W_600,
-                                 color=ft.colors.ON_ERROR_CONTAINER,
+                                 color=ft.Colors.ON_ERROR_CONTAINER,
                                  text_align=ft.TextAlign.CENTER),
-                            bgcolor=ft.colors.ERROR_CONTAINER,
+                            bgcolor=ft.Colors.ERROR_CONTAINER,
                             border_radius=15, padding=ft.padding.only(left=10, right=10, top=5, bottom=5),
                             visible=bool(self.warning),
                             tooltip=ft.Tooltip(
@@ -468,11 +480,11 @@ class GameCopyListItem(ft.Container):
             border_radius=20,
             border_width=2,
             focused_border_width=3,
-            border_color=ft.colors.ON_SECONDARY_CONTAINER,
+            border_color=ft.Colors.ON_SECONDARY_CONTAINER,
             text_style=ft.TextStyle(size=13,
-                                    color=ft.colors.ON_SECONDARY_CONTAINER,
+                                    color=ft.Colors.ON_SECONDARY_CONTAINER,
                                     weight=ft.FontWeight.W_500),
-            focused_border_color=ft.colors.PRIMARY,
+            focused_border_color=ft.Colors.PRIMARY,
             text_size=13,
             max_length=256,
             on_submit=self.save_clicked,
@@ -484,17 +496,17 @@ class GameCopyListItem(ft.Container):
             controls=[
                 self.current_game_badges,
                 Row(controls=[
-                    IconButton(icon=icons.FOLDER_OPEN,
+                    IconButton(icon=ft.Icons.FOLDER_OPEN,
                                on_click=self.open_clicked,
                                tooltip=ft.Tooltip(
                                    message=tr("open_in_explorer"),
                                    wait_duration=300)),
-                    IconButton(icon=icons.DELETE_OUTLINE,
+                    IconButton(icon=ft.Icons.DELETE_OUTLINE,
                                on_click=self.delete_clicked,
                                tooltip=ft.Tooltip(
                                    message=tr("remove_from_list"),
                                    wait_duration=300)),
-                    IconButton(icon=icons.CREATE_OUTLINED,
+                    IconButton(icon=ft.Icons.CREATE_OUTLINED,
                                on_click=self.edit_clicked,
                                tooltip=ft.Tooltip(
                                    message=tr("edit_name"),
@@ -512,16 +524,16 @@ class GameCopyListItem(ft.Container):
                     self.edit_name,
                     ft.Row([
                         IconButton(
-                            icon=ft.icons.SAVE,
-                            icon_color=colors.GREEN,
+                            icon=ft.Icons.SAVE,
+                            icon_color=ft.Colors.GREEN,
                             tooltip=tr("update_name"),
                             on_click=self.save_clicked,
                             width=40, height=40,
                             icon_size=24
                         ),
                         IconButton(
-                            icon=ft.icons.CLEAR,
-                            icon_color=colors.RED,
+                            icon=ft.Icons.CLEAR,
+                            icon_color=ft.Colors.RED,
                             tooltip=tr("cancel"),
                             on_click=self.cancel_clicked,
                             width=40, height=40,
@@ -532,7 +544,7 @@ class GameCopyListItem(ft.Container):
             ),
             visible=False, padding=2
         )
-        self.bgcolor = ft.colors.SECONDARY_CONTAINER if self.current else ft.colors.TRANSPARENT
+        self.bgcolor = ft.Colors.SECONDARY_CONTAINER if self.current else ft.Colors.TRANSPARENT
         self.content = ft.Column(controls=[self.display_view, self.edit_view])
 
     async def make_current(self, e: ft.ControlEvent | None = None) -> None:
@@ -546,10 +558,10 @@ class GameCopyListItem(ft.Container):
 
     async def display_as_current(self) -> None:
         self.current = True
-        self.current_icon.current.icon = ft.icons.DONE_OUTLINE_ROUNDED
-        self.current_icon.current.icon_color = ft.colors.GREEN
+        self.current_icon.current.icon = ft.Icons.DONE_OUTLINE_ROUNDED
+        self.current_icon.current.icon_color = ft.Colors.GREEN
         # self.current_icon.current.update()
-        self.bgcolor = ft.colors.SECONDARY_CONTAINER
+        self.bgcolor = ft.Colors.SECONDARY_CONTAINER
         self.current_game_badges = self.get_current_game_badges()
         self.display_view.controls[0] = self.current_game_badges
         # self.display_view.update()
@@ -558,10 +570,10 @@ class GameCopyListItem(ft.Container):
 
     async def display_as_reserve(self) -> None:
         self.current = False
-        self.current_icon.current.icon = ft.icons.DONE_OUTLINE
-        self.current_icon.current.icon_color = ft.colors.SURFACE_VARIANT
+        self.current_icon.current.icon = ft.Icons.DONE_OUTLINE
+        self.current_icon.current.icon_color = ft.Colors.SURFACE_CONTAINER_HIGHEST
         # self.current_icon.current.update()
-        self.bgcolor = ft.colors.TRANSPARENT
+        self.bgcolor = ft.Colors.TRANSPARENT
         self.update()
 
     async def edit_clicked(self, e: ft.ControlEvent) -> None:
@@ -699,19 +711,23 @@ class SettingsScreen(ft.Container):
         self.get_game_dir_dialog = ft.FilePicker(on_result=self.get_game_dir_result)
         self.get_distro_dir_dialog = ft.FilePicker(on_result=self.get_distro_dir_result)
 
+        self.add_game_expanded = not self.app.config.known_games
+        self.add_steam_expanded = not self.app.config.known_games
+        self.add_distro_expanded = not self.app.config.current_distro
+
         self.no_game_warning_text = ft.Ref[Text]()
         self.no_game_warning = ft.ResponsiveRow([
             ft.Container(
-                Row([Icon(ft.icons.INFO_OUTLINE_ROUNDED, color=ft.colors.ON_TERTIARY_CONTAINER,
+                Row([Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.ON_TERTIARY_CONTAINER,
                           expand=1),
                      Text(value=tr("commod_needs_selected_game") if self.app.config.known_games
                                 else tr("commod_needs_game"),
                           weight=ft.FontWeight.BOLD,
                           no_wrap=False,
                           ref=self.no_game_warning_text,
-                          color=ft.colors.ON_TERTIARY_CONTAINER,
+                          color=ft.Colors.ON_TERTIARY_CONTAINER,
                           expand=15)]),
-                bgcolor=ft.colors.TERTIARY_CONTAINER, padding=10, border_radius=10,
+                bgcolor=ft.Colors.TERTIARY_CONTAINER, padding=10, border_radius=10,
                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                 col={"xs": 12, "xl": 10, "xxl": 8},
                 margin=ft.margin.only(right=20, bottom=15))
@@ -724,14 +740,14 @@ class SettingsScreen(ft.Container):
 
         self.no_distro_warning = ft.ResponsiveRow([
             ft.Container(
-                Row([Icon(ft.icons.INFO_OUTLINE_ROUNDED, color=ft.colors.ON_TERTIARY_CONTAINER,
+                Row([Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=ft.Colors.ON_TERTIARY_CONTAINER,
                           expand=1),
                      Text(value=tr("commod_needs_distro").replace("\n", " "),
                           weight=ft.FontWeight.BOLD,
                           no_wrap=False,
-                          color=ft.colors.ON_TERTIARY_CONTAINER,
+                          color=ft.Colors.ON_TERTIARY_CONTAINER,
                           expand=15)]),
-                bgcolor=ft.colors.TERTIARY_CONTAINER, padding=10, border_radius=10,
+                bgcolor=ft.Colors.TERTIARY_CONTAINER, padding=10, border_radius=10,
                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                 col={"xs": 12, "xl": 10, "xxl": 8},
                 margin=ft.margin.only(right=20, bottom=15))
@@ -743,24 +759,17 @@ class SettingsScreen(ft.Container):
 
         self.env_warnings = ft.Ref[Column]()
 
-        self.game_location_field = TextField(
+        self.game_location_field = cw.TextField(
             label=tr("where_is_game"),
-            label_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
-            text_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
-            border_color=ft.colors.OUTLINE,
-            focused_border_color=ft.colors.PRIMARY,
             on_change=self.check_game_fields,
-            # dense=True,
-            height=42,
-            text_size=13,
             expand=True)
 
-        self.steam_locations_dropdown = ft.Dropdown(
+        self.steam_locations_dropdown = ft.DropdownM2(
             height=42,
             text_size=13,
-            visible=False,
+            visible=bool(self.add_steam_expanded),
             dense=True,
-            border_color=ft.colors.OUTLINE,
+            border_color=ft.Colors.OUTLINE,
             # hint_text=,
             on_change=self.handle_dropdown_onchange,
             label=tr("steam_game_found"),
@@ -769,27 +778,21 @@ class SettingsScreen(ft.Container):
             hint_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
             on_blur=self.add_steam_hint,
             options=[
-                ft.dropdown.Option(path) for path in self.app.context.current_session.steam_game_paths
+                ft.dropdownm2.Option(path) for path in self.app.context.current_session.steam_game_paths
             ],
         )
 
-        self.distro_location_field = TextField(
+        self.distro_location_field = cw.TextField(
             label=tr("where_is_distro"),
-            label_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
-            text_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
-            border_color=ft.colors.OUTLINE,
-            focused_border_color=ft.colors.PRIMARY,
             on_change=self.check_distro_field,
             on_blur=self.check_distro_field,
             # dense=True,
-            height=42,
-            text_size=13,
             expand=True
             )
 
         self.add_from_steam_btn = ft.FilledButton(
             tr("add_to_list").capitalize(),
-            icon=icons.ADD,
+            icon=ft.Icons.ADD,
             on_click=self.add_steam,
             style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=20)),
             visible=False,
@@ -798,7 +801,7 @@ class SettingsScreen(ft.Container):
 
         self.add_game_manual_btn = ft.FilledButton(
             tr("add_to_list").capitalize(),
-            icon=ft.icons.ADD,
+            icon=ft.Icons.ADD,
             on_click=self.add_game_manual,
             style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=20)),
             visible=False,
@@ -807,7 +810,7 @@ class SettingsScreen(ft.Container):
 
         self.add_distro_btn = ft.FilledButton(
             tr("confirm_choice").capitalize(),
-            icon=ft.icons.CHECK_ROUNDED,
+            icon=ft.Icons.CHECK_ROUNDED,
             on_click=self.add_distro,
             style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=20)),
             visible=False,
@@ -816,14 +819,14 @@ class SettingsScreen(ft.Container):
 
         self.open_game_button = FloatingActionButton(
             tr("choose_path").capitalize(),
-            icon=icons.FOLDER_OPEN,
+            icon=ft.Icons.FOLDER_OPEN,
             on_click=self.get_game_dir,
             mini=True, height=40, width=135,
             )
 
         self.open_distro_button = FloatingActionButton(
             tr("choose_path").capitalize(),
-            icon=icons.FOLDER_OPEN,
+            icon=ft.Icons.FOLDER_OPEN,
             on_click=self.get_distro_dir,
             mini=True, height=40, width=135,
             )
@@ -833,35 +836,35 @@ class SettingsScreen(ft.Container):
         self.distro_warning_text = ft.Ref[Text]()
 
         self.game_copy_warning = ft.Container(
-            Row([Icon(ft.icons.WARNING, color=ft.colors.ON_ERROR_CONTAINER, expand=1),
+            Row([Icon(ft.Icons.WARNING, color=ft.Colors.ON_ERROR_CONTAINER, expand=1),
                  Text(value="placeholder",
-                      color=ft.colors.ON_ERROR_CONTAINER,
+                      color=ft.Colors.ON_ERROR_CONTAINER,
                       weight=ft.FontWeight.W_500,
                       overflow=ft.TextOverflow.ELLIPSIS,
                       ref=self.game_copy_warning_text,
                       expand=11)], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            alignment=ft.alignment.center, bgcolor=ft.colors.ERROR_CONTAINER,
+            alignment=ft.alignment.center, bgcolor=ft.Colors.ERROR_CONTAINER,
             padding=10, border_radius=10, visible=False)
 
         self.steam_game_copy_warning = ft.Container(
-            Row([Icon(ft.icons.WARNING, color=ft.colors.ON_ERROR_CONTAINER, expand=1),
+            Row([Icon(ft.Icons.WARNING, color=ft.Colors.ON_ERROR_CONTAINER, expand=1),
                  Text(value="placeholder",
-                      color=ft.colors.ON_ERROR_CONTAINER,
+                      color=ft.Colors.ON_ERROR_CONTAINER,
                       weight=ft.FontWeight.W_500,
                       overflow=ft.TextOverflow.ELLIPSIS,
                       ref=self.steam_game_copy_warning_text,
                       expand=11)], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            alignment=ft.alignment.center, bgcolor=ft.colors.ERROR_CONTAINER,
+            alignment=ft.alignment.center, bgcolor=ft.Colors.ERROR_CONTAINER,
             padding=10, border_radius=10, visible=False)
 
         self.distro_warning = ft.Container(
-            Row([Icon(ft.icons.WARNING, color=ft.colors.ON_ERROR_CONTAINER, expand=1),
+            Row([Icon(ft.Icons.WARNING, color=ft.Colors.ON_ERROR_CONTAINER, expand=1),
                  Text(value=tr("target_dir_missing_files"),
-                      color=ft.colors.ON_ERROR_CONTAINER,
+                      color=ft.Colors.ON_ERROR_CONTAINER,
                       weight=ft.FontWeight.W_500,
                       ref=self.distro_warning_text,
                       expand=11)]),
-            bgcolor=ft.colors.ERROR_CONTAINER, padding=10, border_radius=10, visible=False)
+            bgcolor=ft.Colors.ERROR_CONTAINER, padding=10, border_radius=10, visible=False)
 
 
         self.no_games_for_filter_warning = ft.Ref[ft.Container]()
@@ -873,7 +876,7 @@ class SettingsScreen(ft.Container):
                 ft.Container(
                     Text(tr("not_yet_added_games_of_type"),
                          weight=ft.FontWeight.BOLD,
-                         color=ft.colors.OUTLINE),
+                         color=ft.Colors.OUTLINE),
                     margin=ft.margin.symmetric(horizontal=15, vertical=5),
                     ref=self.no_games_for_filter_warning,
                     visible=not bool(self.app.config.known_games)),
@@ -892,7 +895,7 @@ class SettingsScreen(ft.Container):
                          weight=ft.FontWeight.W_500,
                          ref=self.distro_location_text, expand=True),
                     IconButton(
-                        icon=icons.FOLDER_OPEN,
+                        icon=ft.Icons.FOLDER_OPEN,
                         tooltip=tr("open_in_explorer"),
                         on_click=self.open_distro_dir,
                         ref=self.distro_locaiton_open_btn,
@@ -901,7 +904,7 @@ class SettingsScreen(ft.Container):
             ]
         ), height=None if bool(self.app.config.current_distro) else 0,
            animate_size=ft.animation.Animation(500, ft.AnimationCurve.EASE_IN_OUT),
-           bgcolor=ft.colors.SECONDARY_CONTAINER, border_radius=20,
+           bgcolor=ft.Colors.SECONDARY_CONTAINER, border_radius=20,
            padding=ft.padding.symmetric(horizontal=10),
            col={"xs": 12, "xl": 10, "xxl": 8})
 
@@ -909,29 +912,29 @@ class SettingsScreen(ft.Container):
 
         self.language_select = ft.Container(
                 Row([
-                    ft.Dropdown(
+                    ft.DropdownM2(
                         height=42,
                         text_size=13,
                         width=200,
                         dense=True,
-                        # border_color=ft.colors.SECONDARY_CONTAINER,
+                        # border_color=ft.Colors.SECONDARY_CONTAINER,
                         border_width=2,
                         border_radius=5,
                         on_change=self.change_app_lang,
                         label=tr("app_lang").capitalize(),
                         value=self.app.config.lang,
-                        prefix_icon=ft.icons.LANGUAGE_ROUNDED,
+                        prefix_icon=ft.Icons.LANGUAGE_ROUNDED,
                         label_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
                         text_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
                         hint_style=ft.TextStyle(size=13, weight=ft.FontWeight.BOLD),
                         options=[
-                            ft.dropdown.Option(key=lang, text=tr(lang).capitalize()) for lang in langs
+                            ft.dropdownm2.Option(key=lang, text=tr(lang).capitalize()) for lang in langs
                             ]),
-                    Icon(ft.icons.INFO_OUTLINE_ROUNDED,
+                    Icon(ft.Icons.INFO_OUTLINE_ROUNDED,
                          opacity=0.7,
-                         color=ft.colors.TERTIARY),
+                         color=ft.Colors.TERTIARY),
                     Text(tr("restart_to_change_lang"),
-                         color=ft.colors.TERTIARY,
+                         color=ft.Colors.TERTIARY,
                          opacity=0.7,
                          no_wrap=False)
                     ]), col={"xs": 12, "xl": 10, "xxl": 7})
@@ -941,10 +944,10 @@ class SettingsScreen(ft.Container):
                 ft.Switch(
                     value=self.app.config.override_incompat,
                     scale=0.7,
-                    active_color=ft.colors.ERROR,
+                    active_color=ft.Colors.ERROR,
                     on_change=self.toggle_override_incompat),
                 Text(tr("override_incompat").capitalize(),
-                      color=ft.colors.ERROR,
+                      color=ft.Colors.ERROR,
                       weight=ft.FontWeight.W_500)
                 ], spacing=0), margin=0, padding=0,
                 visible=self.app.context.dev_mode or self.app.config.override_incompat,
@@ -965,7 +968,7 @@ class SettingsScreen(ft.Container):
                     Column([
                         ft.Text(f'{tr("developers").capitalize()} DEM Community Mod Manager',
                                 weight=ft.FontWeight.BOLD, size=12,
-                                color=ft.colors.PRIMARY),
+                                color=ft.Colors.PRIMARY),
                         ft.Text('Aleksandr "Seel" Parfenenkov', size=12),
                         ft.Text(f'Aleksandr "ThePlain" Fateev ({tr("binary_fixes")})', size=12),
                         ft.Column([
@@ -978,12 +981,12 @@ class SettingsScreen(ft.Container):
                                         extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                                         auto_follow_links=True,
                                         scale=0.9),
-                            ExpandableContainer("Powered by", "Powered by",
+                            cw.ExpandableContainer("Powered by", "Powered by",
                                 ft.Markdown(COMMOD_USES,
                                             auto_follow_links=True,
                                             width=300),
                                 expanded=False,
-                                scale=0.7, color=ft.colors.SECONDARY)
+                                scale=0.7, color=ft.Colors.SECONDARY)
                             ], spacing=5,
                             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                             alignment=ft.MainAxisAlignment.START)
@@ -998,14 +1001,11 @@ class SettingsScreen(ft.Container):
             # col={"xs": 8, "xl": 7, "xxl": 6},
         )
 
-        expanded_icon = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
-        collapsed_icon = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
+        expanded_icon = ft.Icons.KEYBOARD_ARROW_UP_OUTLINED
+        collapsed_icon = ft.Icons.KEYBOARD_ARROW_DOWN_OUTLINED
         self.add_game_manual_container = ft.Ref[ft.Container]()
         self.add_game_steam_container = ft.Ref[ft.Container]()
         self.add_distro_container = ft.Ref[ft.Container]()
-        self.add_game_expanded = not self.app.config.known_games
-        self.add_steam_expanded = not self.app.config.known_games
-        self.add_distro_expanded = not self.app.config.current_distro
 
         self.icon_expand_add_game_manual = ft.Ref[Icon]()
         self.icon_expand_add_game_steam = ft.Ref[Icon]()
@@ -1019,7 +1019,7 @@ class SettingsScreen(ft.Container):
                 self.no_distro_warning,
                 ft.Container(ft.ResponsiveRow(controls=[
                     Row([
-                        Icon(ft.icons.VIDEOGAME_ASSET_ROUNDED, color=ft.colors.ON_BACKGROUND),
+                        Icon(ft.Icons.VIDEOGAME_ASSET_ROUNDED, color=ft.Colors.ON_SURFACE),
                         Text(value=tr("control_game_copies").upper(),
                              theme_style=ft.TextThemeStyle.TITLE_SMALL)
                         ], col={"xs": 12, "xl": 10, "xxl": 8}),
@@ -1041,7 +1041,7 @@ class SettingsScreen(ft.Container):
                          Row([self.add_game_manual_btn], alignment=ft.MainAxisAlignment.CENTER),
                          ], spacing=13),
                          padding=11, border_radius=10,
-                         border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
+                         border=ft.border.all(2, ft.Colors.SECONDARY_CONTAINER),
                          clip_behavior=ft.ClipBehavior.HARD_EDGE,
                          animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
                          ref=self.add_game_manual_container,
@@ -1060,7 +1060,7 @@ class SettingsScreen(ft.Container):
                          Row([self.add_from_steam_btn], alignment=ft.MainAxisAlignment.CENTER),
                          ], spacing=13),
                         padding=11, border_radius=10,
-                        border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
+                        border=ft.border.all(2, ft.Colors.SECONDARY_CONTAINER),
                         clip_behavior=ft.ClipBehavior.HARD_EDGE,
                         animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
                         ref=self.add_game_steam_container,
@@ -1070,12 +1070,12 @@ class SettingsScreen(ft.Container):
                         )
                     ], alignment=ft.MainAxisAlignment.CENTER), border_radius=10, padding=15,
                     margin=ft.margin.only(right=20, bottom=15),
-                    border=ft.border.all(1, ft.colors.SURFACE_VARIANT)),
+                    border=ft.border.all(1, ft.Colors.SURFACE_CONTAINER_HIGHEST)),
                 ft.Container(ft.ResponsiveRow(
                     # controls of distro/comrem/mods folders
                     controls=[
                         Row([
-                            ft.Icon(ft.icons.CREATE_NEW_FOLDER, color=ft.colors.ON_BACKGROUND),
+                            ft.Icon(ft.Icons.CREATE_NEW_FOLDER, color=ft.Colors.ON_SURFACE),
                             Text(value=tr("control_mod_folders").upper(),
                                  theme_style=ft.TextThemeStyle.TITLE_SMALL)
                              ], col={"xs": 12, "xl": 10, "xxl": 8}),
@@ -1097,7 +1097,7 @@ class SettingsScreen(ft.Container):
                              Row([self.add_distro_btn], alignment=ft.MainAxisAlignment.CENTER),
                              ], spacing=13),
                                      padding=11, border_radius=10,
-                                     border=ft.border.all(2, ft.colors.SECONDARY_CONTAINER),
+                                     border=ft.border.all(2, ft.Colors.SECONDARY_CONTAINER),
                                      clip_behavior=ft.ClipBehavior.HARD_EDGE,
                                      animate=ft.animation.Animation(300, ft.AnimationCurve.DECELERATE),
                                      ref=self.add_distro_container,
@@ -1106,13 +1106,13 @@ class SettingsScreen(ft.Container):
                                      )], alignment=ft.MainAxisAlignment.CENTER
                                  ), border_radius=10, padding=15,
                                  margin=ft.margin.only(right=20, bottom=15),
-                    border=ft.border.all(1, ft.colors.SURFACE_VARIANT)),
+                    border=ft.border.all(1, ft.Colors.SURFACE_CONTAINER_HIGHEST)),
                 ft.Container(
                     ft.ResponsiveRow(
                         # contols of distro/comrem/mods folders
                         controls=[
                             Row([
-                                ft.Icon(ft.icons.SETTINGS, color=ft.colors.ON_BACKGROUND),
+                                ft.Icon(ft.Icons.SETTINGS, color=ft.Colors.ON_SURFACE),
                                 Text(value=tr("other_settings").upper(),
                                      theme_style=ft.TextThemeStyle.TITLE_SMALL)
                                  ], col={"xs": 12, "xl": 10, "xxl": 8}),
@@ -1120,7 +1120,7 @@ class SettingsScreen(ft.Container):
                             self.override_incompat,
                             ], alignment=ft.MainAxisAlignment.CENTER, run_spacing=15
                     ), border_radius=10, padding=15, margin=ft.margin.only(right=20, bottom=15),
-                    border=ft.border.all(1, ft.colors.SURFACE_VARIANT)),
+                    border=ft.border.all(1, ft.Colors.SURFACE_CONTAINER_HIGHEST)),
                 ft.Row([self.about], alignment=ft.MainAxisAlignment.CENTER)
             ], spacing=0,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -1193,7 +1193,7 @@ class SettingsScreen(ft.Container):
 
         self.add_game_manual_container.current.height = final_height
         self.add_game_expanded = True
-        self.icon_expand_add_game_manual.current.name = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
+        self.icon_expand_add_game_manual.current.name = ft.Icons.KEYBOARD_ARROW_UP_OUTLINED
         # self.add_game_manual_container.current.update()
         self.update()
 
@@ -1204,7 +1204,7 @@ class SettingsScreen(ft.Container):
         # self.add_game_manual_btn.update()
         self.game_copy_warning.visible = False
         # self.game_copy_warning.update()
-        self.icon_expand_add_game_manual.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
+        self.icon_expand_add_game_manual.current.name = ft.Icons.KEYBOARD_ARROW_DOWN_OUTLINED
         self.add_game_manual_container.current.height = 48
         # self.add_game_manual_container.current.update()
         self.add_game_expanded = False
@@ -1233,7 +1233,7 @@ class SettingsScreen(ft.Container):
 
         self.add_game_steam_container.current.height = final_height
         self.add_steam_expanded = True
-        self.icon_expand_add_game_steam.current.name = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
+        self.icon_expand_add_game_steam.current.name = ft.Icons.KEYBOARD_ARROW_UP_OUTLINED
         # self.add_game_steam_container.current.update()
         self.steam_locations_dropdown.visible = True
         # self.steam_locations_dropdown.update()
@@ -1243,7 +1243,7 @@ class SettingsScreen(ft.Container):
     async def minimize_adding_game_steam(self) -> None:
         self.add_game_steam_container.current.height = 48
         self.add_steam_expanded = False
-        self.icon_expand_add_game_steam.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
+        self.icon_expand_add_game_steam.current.name = ft.Icons.KEYBOARD_ARROW_DOWN_OUTLINED
         # self.add_game_steam_container.current.update()
         self.steam_locations_dropdown.visible = False
         self.steam_locations_dropdown.value = ""
@@ -1263,14 +1263,14 @@ class SettingsScreen(ft.Container):
 
         self.add_distro_container.current.height = final_height
         self.add_distro_expanded = True
-        self.icon_expand_add_distro.current.name = ft.icons.KEYBOARD_ARROW_UP_OUTLINED
+        self.icon_expand_add_distro.current.name = ft.Icons.KEYBOARD_ARROW_UP_OUTLINED
         # self.add_distro_container.current.update()
         self.update()
 
     async def minimize_adding_distro(self) -> None:
         self.add_distro_container.current.height = 48
         self.add_distro_expanded = False
-        self.icon_expand_add_distro.current.name = ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED
+        self.icon_expand_add_distro.current.name = ft.Icons.KEYBOARD_ARROW_DOWN_OUTLINED
         self.add_distro_btn.visible = False
         # self.add_distro_container.current.update()
         self.update()
@@ -1436,7 +1436,7 @@ class SettingsScreen(ft.Container):
 
             except Exception as ex:
                 # TODO: Handle exceptions properly
-                await self.app.show_alert(tr("broken_game"), ex)
+                await self.app.show_alert(tr("broken_game"), str(ex))
                 self.app.logger.exception("[Game loading error]")
                 return
 
@@ -1736,7 +1736,7 @@ class ModInfo(ft.Container):
 
         self.screen_pool = self.get_screen_pool(self.screens_option_name)
         self.screenshots_container = ft.Ref[ft.Container]()
-        self.screenshots_selector = ft.Ref[ft.Dropdown]()
+        self.screenshots_selector = ft.Ref[ft.DropdownM2]()
         self.screenshot_img = ft.Ref[Image]()
         self.screenshot_num = ft.Ref[Text]()
         self.screenshot_text = ft.Ref[Text]()
@@ -1881,8 +1881,8 @@ class ModInfo(ft.Container):
                     selected=self.mod.language==lang,
                     style=ft.ButtonStyle(
                         bgcolor={
-                            ft.ControlState.SELECTED: ft.colors.SECONDARY_CONTAINER,
-                            ft.ControlState.DEFAULT: ft.colors.TRANSPARENT,
+                            ft.ControlState.SELECTED: ft.Colors.SECONDARY_CONTAINER,
+                            ft.ControlState.DEFAULT: ft.Colors.TRANSPARENT,
                         }
                     ),
                     col=4,
@@ -1937,8 +1937,8 @@ class ModInfo(ft.Container):
                                             ft.Row([ft.TextButton(content=ft.Row([
                                                 ft.Container(
                                                    ft.Icon(
-                                                       name=ft.icons.HOME_ROUNDED,
-                                                       color=ft.colors.PRIMARY, size=20)),
+                                                       name=ft.Icons.HOME_ROUNDED,
+                                                       color=ft.Colors.PRIMARY, size=20)),
                                                 ft.Container(
                                                     Row([Text(tr("mod_url").replace(":", ""),
                                                               size=14,
@@ -1955,8 +1955,8 @@ class ModInfo(ft.Container):
                                             ft.Row([ft.TextButton(content=ft.Row(
                                                 [
                                                  ft.Container(
-                                                     ft.Icon(name=ft.icons.ONDEMAND_VIDEO_OUTLINED,
-                                                             color=ft.colors.PRIMARY, size=17),
+                                                     ft.Icon(name=ft.Icons.ONDEMAND_VIDEO_OUTLINED,
+                                                             color=ft.Colors.PRIMARY, size=17),
                                                      padding=ft.padding.only(top=2)),
                                                  ft.Container(
                                                      Row([ft.Text(tr("trailer_watch").capitalize(),
@@ -1973,10 +1973,10 @@ class ModInfo(ft.Container):
                                                    alignment=ft.MainAxisAlignment.CENTER),
                                             ft.Container(ft.Row([ft.ElevatedButton(
                                                     elevation=3,
-                                                    icon=ft.icons.DELETE_FOREVER_ROUNDED,
-                                                    icon_color=ft.colors.ERROR,
+                                                    icon=ft.Icons.DELETE_FOREVER_ROUNDED,
+                                                    icon_color=ft.Colors.ERROR,
                                                     text=tr("delete_mod_short").capitalize(),
-                                                    color=ft.colors.ERROR,
+                                                    color=ft.Colors.ERROR,
                                                     ref=self.mod_delete_btn,
                                                     style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=20)),
                                                     on_click=self.delete_mod_ask,
@@ -1998,7 +1998,7 @@ class ModInfo(ft.Container):
                             ft.Container(
                                 Column([
                                     ft.ResponsiveRow([
-                                        ft.Dropdown(
+                                        ft.DropdownM2(
                                                 value=None,
                                                 dense=True,
                                                 height=42,
@@ -2006,8 +2006,8 @@ class ModInfo(ft.Container):
                                                 col={"xs": 12, "xl": 11},
                                                 options=[],
                                                 on_change=self.set_screens_group,
-                                                border_color=ft.colors.with_opacity(0.6,
-                                                                                    ft.colors.SECONDARY),
+                                                border_color=ft.Colors.with_opacity(0.6,
+                                                                                    ft.Colors.SECONDARY),
                                                 ref=self.screenshots_selector)],
                                     alignment=ft.MainAxisAlignment.CENTER,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -2064,7 +2064,7 @@ class ModInfo(ft.Container):
                 margin=ft.margin.only(top=15),
                 padding=ft.padding.only(left=15, right=15, top=5, bottom=0),
                 border_radius=10,
-                bgcolor=ft.colors.SURFACE, alignment=ft.alignment.top_left)
+                bgcolor=ft.Colors.SURFACE, alignment=ft.alignment.top_left)
 
     def did_mount(self) -> None:
         self.height = 0 if not self.expanded else None
@@ -2161,7 +2161,7 @@ class ModInfo(ft.Container):
                             ft.ResponsiveRow([
                                 ft.Container(
                                     Text(self.get_screen_preview_text(),
-                                         color=ft.colors.WHITE,
+                                         color=ft.Colors.WHITE,
                                          style=ft.TextStyle(shadow=ft.BoxShadow(10, 5)),
                                          theme_style=ft.TextThemeStyle.BODY_LARGE,
                                          text_align=ft.TextAlign.CENTER,
@@ -2174,7 +2174,7 @@ class ModInfo(ft.Container):
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER),
                             ], alignment=ft.MainAxisAlignment.CENTER),
-                    bgcolor=ft.colors.BLACK87, alignment=ft.alignment.center),
+                    bgcolor=ft.Colors.BLACK87, alignment=ft.alignment.center),
                 ref=self.screenshot_preview,
                 on_tap=self.discard_screenshot_preview,
                 on_secondary_tap=self.switch_expanded_compare_screen,
@@ -2219,7 +2219,7 @@ class ModInfo(ft.Container):
 
     async def set_mod_info_column(self) -> None:
         self.mod_info_column.current.controls = [
-            Text(self.mod.description, color=ft.colors.ON_SURFACE,
+            Text(self.mod.description, color=ft.Colors.ON_SURFACE,
                  ref=self.mod_description_text),
             ft.Divider(visible=self.mod.name != "community_remaster"
                        or not self.mod.can_install or self.mod.is_reinstall),
@@ -2232,24 +2232,24 @@ class ModInfo(ft.Container):
                               and self.mod.prevalidated)
                          and self.mod.installment_compatible)),
             Row([
-                Icon(ft.icons.INFO_OUTLINE_ROUNDED,
-                     color=ft.colors.ERROR),
+                Icon(ft.Icons.INFO_OUTLINE_ROUNDED,
+                     color=ft.Colors.ERROR),
                 Text(tr("cant_be_installed"),
                      weight=ft.FontWeight.BOLD,
-                     color=ft.colors.ERROR)],
+                     color=ft.Colors.ERROR)],
                 visible=(not (self.mod.commod_compatible
                               and self.mod.compatible
                               and self.mod.prevalidated)
                          and self.mod.installment_compatible)),
             Text(self.mod.commod_compatible_err.replace("**", ""),
-                 color=ft.colors.ERROR,
+                 color=ft.Colors.ERROR,
                  visible=bool(self.mod.commod_compatible_err) and self.mod.installment_compatible,
                  selectable=True),
             Text(self.mod.compatible_err,
-                 color=ft.colors.ERROR,
+                 color=ft.Colors.ERROR,
                  visible=bool(self.mod.compatible_err) and self.mod.installment_compatible),
             Text(self.mod.prevalidated_err,
-                 color=ft.colors.ERROR,
+                 color=ft.Colors.ERROR,
                  visible=bool(self.mod.prevalidated_err) and self.mod.installment_compatible)
             ]
         self.mod_info_column.current.update()
@@ -2278,7 +2278,7 @@ class ModInfo(ft.Container):
         self.screenshots_selector.current.value = start_key
 
         self.screenshots_selector.current.options = [
-            ft.dropdown.Option(key=opt_k, text=opt_v)
+            ft.dropdownm2.Option(key=opt_k, text=opt_v)
             for opt_k, opt_v in screen_group_selector_data.items()
         ]
 
@@ -2296,7 +2296,7 @@ class ModInfo(ft.Container):
                           ref=self.screenshot_img), alignment=ft.alignment.top_center),
                     ft.Container(
                         Text("Placeholder tip",
-                             color=ft.colors.WHITE,
+                             color=ft.Colors.WHITE,
                              text_align=ft.TextAlign.CENTER,
                              ref=self.screenshot_tip,
                              style=ft.TextStyle(
@@ -2312,11 +2312,11 @@ class ModInfo(ft.Container):
                  ref=self.screenshot_text,
                  text_align=ft.TextAlign.CENTER),
             Row([
-                IconButton(ft.icons.CHEVRON_LEFT,
+                IconButton(ft.Icons.CHEVRON_LEFT,
                                visible=self.screen_pool.pool_size > 1,
                                on_click=self.show_previous_screen),
                 Text("Placeholder number", ref=self.screenshot_num, weight=ft.FontWeight.W_600),
-                IconButton(ft.icons.CHEVRON_RIGHT,
+                IconButton(ft.Icons.CHEVRON_RIGHT,
                                    visible=self.screen_pool.pool_size > 1,
                                    on_click=self.show_next_screen)],
                 alignment=ft.MainAxisAlignment.CENTER),
@@ -2331,8 +2331,8 @@ class ModInfo(ft.Container):
 
         installment_compat_content = []
         if not self.mod.installment_compatible:
-            icon = ft.Icon(ft.icons.WARNING_ROUNDED,
-                           color=ft.colors.ERROR,
+            icon = ft.Icon(ft.Icons.WARNING_ROUNDED,
+                           color=ft.Colors.ERROR,
                            tooltip=tr("incompatible_game_installment"))
 
             if self.app.game.installment is None:
@@ -2347,7 +2347,7 @@ class ModInfo(ft.Container):
                 Column([
                     Row([Text(game_label,
                               weight=ft.FontWeight.W_500,
-                              color=ft.colors.ON_PRIMARY_CONTAINER),
+                              color=ft.Colors.ON_PRIMARY_CONTAINER),
                          Text(f"[{self.app.game.exe_version}]",
                               weight=ft.FontWeight.W_300,
                               visible=has_game)]),
@@ -2393,12 +2393,12 @@ class ModInfo(ft.Container):
                             + ", " + and_word.join(optional_cont[-2:]))
 
             if ok_status:
-                icon = ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED,
-                               color=ft.colors.TERTIARY,
+                icon = ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED,
+                               color=ft.Colors.TERTIARY,
                                tooltip=tr("requirements_met"))
             else:
-                icon = ft.Icon(ft.icons.WARNING_ROUNDED,
-                               color=ft.colors.ERROR,
+                icon = ft.Icon(ft.Icons.WARNING_ROUNDED,
+                               color=ft.Colors.ERROR,
                                tooltip=tr("requirements_not_met"))
 
             if versions:
@@ -2411,15 +2411,15 @@ class ModInfo(ft.Container):
                 Column([
                     Row([Text(req.name_label,
                               weight=ft.FontWeight.W_500,
-                              color=ft.colors.ON_PRIMARY_CONTAINER),
+                              color=ft.Colors.ON_PRIMARY_CONTAINER),
                          Text(version_string,
                               weight=ft.FontWeight.W_300,
                               visible=mention_versions),
-                         Icon(ft.icons.INFO_OUTLINE_ROUNDED,
+                         Icon(ft.Icons.INFO_OUTLINE_ROUNDED,
                               visible=not ok_status,
                               size=20,
                               tooltip="\n".join(req_errors),
-                              color=ft.colors.ERROR)
+                              color=ft.Colors.ERROR)
                          ], spacing=5),
                     Text(f'{tr("including_options").capitalize()}: {optional_cont}',
                          visible=bool(optional_cont),
@@ -2462,12 +2462,12 @@ class ModInfo(ft.Container):
                             + ", " + and_word.join(optional_cont[-2:]))
 
             if incomp_ok_status:
-                icon = ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED,
-                               color=ft.colors.TERTIARY,
+                icon = ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED,
+                               color=ft.Colors.TERTIARY,
                                tooltip=tr("requirements_met"))
             else:
-                icon = ft.Icon(ft.icons.WARNING_ROUNDED,
-                               color=ft.colors.ERROR,
+                icon = ft.Icon(ft.Icons.WARNING_ROUNDED,
+                               color=ft.Colors.ERROR,
                                tooltip=tr("requirements_not_met"))
 
             if not versions:
@@ -2480,22 +2480,22 @@ class ModInfo(ft.Container):
                 Column([
                     Row([Text(incomp.name_label,
                               weight=ft.FontWeight.W_500,
-                              color=ft.colors.ON_PRIMARY_CONTAINER),
+                              color=ft.Colors.ON_PRIMARY_CONTAINER),
                          Text(version_string,
                               weight=ft.FontWeight.W_300),
                          Text(f'({tr("not_installed")})',
                               weight=ft.FontWeight.W_300,
-                              color=ft.colors.TERTIARY,
+                              color=ft.Colors.TERTIARY,
                               visible=incomp_ok_status),
                          Text(f'({tr("installed")})',
                               weight=ft.FontWeight.W_300,
-                              color=ft.colors.ERROR,
+                              color=ft.Colors.ERROR,
                               visible=not incomp_ok_status),
-                         Icon(ft.icons.INFO_OUTLINE_ROUNDED,
+                         Icon(ft.Icons.INFO_OUTLINE_ROUNDED,
                               visible=not incomp_ok_status,
                               size=20,
                               tooltip="\n".join(incomp_errors),
-                              color=ft.colors.ERROR)], spacing=5),
+                              color=ft.Colors.ERROR)], spacing=5),
                     Text(f'{tr("with_options").capitalize()}: {optional_cont}',
                          visible=bool(optional_cont),
                          weight=ft.FontWeight.W_300,
@@ -2507,12 +2507,12 @@ class ModInfo(ft.Container):
         reinstall_content = []
         if self.mod.is_reinstall:
             if self.mod.can_be_reinstalled:
-                icon = ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED,
-                               color=ft.colors.TERTIARY,
+                icon = ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED,
+                               color=ft.Colors.TERTIARY,
                                tooltip=tr("can_reinstall"))
             else:
-                icon = ft.Icon(ft.icons.WARNING_ROUNDED,
-                               color=ft.colors.ERROR,
+                icon = ft.Icon(ft.Icons.WARNING_ROUNDED,
+                               color=ft.Colors.ERROR,
                                tooltip=tr("cant_reinstall"))
 
             mod_name = self.mod.existing_version.get("display_name")
@@ -2534,7 +2534,7 @@ class ModInfo(ft.Container):
                 Column([
                     Row([Text(mod_name,
                               weight=ft.FontWeight.W_500,
-                              color=ft.colors.ON_PRIMARY_CONTAINER),
+                              color=ft.Colors.ON_PRIMARY_CONTAINER),
                          Text(f"({version_clean})",
                               weight=ft.FontWeight.W_300),
                          Text(f'[{self.mod.existing_version.get("build")}]',
@@ -2596,7 +2596,7 @@ class ModArchiveItem(ft.Card):
         self.file_counting_text = ft.Ref[Text]()
         self.version_label = ft.Ref[ft.Container]()
 
-        self.surface_tint_color = ft.colors.SECONDARY
+        self.surface_tint_color = ft.Colors.SECONDARY
         self.margin = ft.margin.symmetric(vertical=1)
         self.elevation = 2
 
@@ -2622,7 +2622,7 @@ class ModArchiveItem(ft.Card):
         self.version_label.current.update()
         mods_path = os.path.join(self.app.context.distribution_dir, "mods")
         await extract_archive_from_to(self.archive_path, os.path.join(mods_path, self.mod.id_str),
-                              self.progress_show, loading_text)
+                                      self.progress_show, loading_text)
         self.extracting = False
         self.app.context.archived_mods.pop(self.archive_path, None)
         await self.app.close_alert()
@@ -2658,7 +2658,7 @@ class ModArchiveItem(ft.Card):
                                          size=18,
                                          weight=ft.FontWeight.W_500,
                                          tooltip=tr("mod_version_and_build").capitalize(),
-                                         color=ft.colors.ON_PRIMARY_CONTAINER,
+                                         color=ft.Colors.ON_PRIMARY_CONTAINER,
                                          overflow=ft.TextOverflow.ELLIPSIS),
                                     margin=ft.margin.only(bottom=3),
                                     alignment=ft.alignment.center,
@@ -2668,13 +2668,13 @@ class ModArchiveItem(ft.Card):
                         ft.Container(col={"xs": 0, "xl": 1}),
                         Column([
                             ft.Row([
-                                Icon(name=ft.icons.INFO_OUTLINED
+                                Icon(name=ft.Icons.INFO_OUTLINED
                                           if self.mod.commod_compatible
-                                          else ft.icons.WARNING_OUTLINED,
+                                          else ft.Icons.WARNING_OUTLINED,
                                     #  size=20,
-                                     color=ft.colors.TERTIARY
+                                     color=ft.Colors.TERTIARY
                                            if self.mod.commod_compatible
-                                           else ft.colors.ERROR),
+                                           else ft.Colors.ERROR),
                                 ft.Container(
                                     Text(f"[{self.archive_extension}] {self.mod.display_name}",
                                          opacity=0.9,
@@ -2686,7 +2686,7 @@ class ModArchiveItem(ft.Card):
                                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                             ft.Row([
                                 Text(tr("mod_in_archive"),
-                                     color=ft.colors.SECONDARY,
+                                     color=ft.Colors.SECONDARY,
                                      weight=ft.FontWeight.W_300,
                                      visible=self.mod.commod_compatible),
                                 ft.Markdown(
@@ -2701,19 +2701,19 @@ class ModArchiveItem(ft.Card):
                             Row([
                                  ft.Container(ft.ElevatedButton(
                                     tr("extract").capitalize(),
-                                    icon=ft.icons.UNARCHIVE_ROUNDED,
+                                    icon=ft.Icons.UNARCHIVE_ROUNDED,
                                     ref=self.extract_btn,
                                     disabled=self.extracting,
                                     style=ft.ButtonStyle(
                                         color={
-                                            ft.ControlState.HOVERED: ft.colors.ON_SECONDARY,
-                                            ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY,
-                                            ft.ControlState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                            ft.ControlState.HOVERED: ft.Colors.ON_SECONDARY,
+                                            ft.ControlState.DEFAULT: ft.Colors.ON_PRIMARY,
+                                            ft.ControlState.DISABLED: ft.Colors.ON_SURFACE_VARIANT
                                             },
                                         bgcolor={
-                                            ft.ControlState.HOVERED: ft.colors.SECONDARY,
-                                            ft.ControlState.DEFAULT: ft.colors.PRIMARY,
-                                            ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
+                                            ft.ControlState.HOVERED: ft.Colors.SECONDARY,
+                                            ft.ControlState.DEFAULT: ft.Colors.PRIMARY,
+                                            ft.ControlState.DISABLED: ft.Colors.SURFACE_CONTAINER_HIGHEST
                                         },
                                         padding=ft.padding.symmetric(horizontal=20),
                                     ),
@@ -2732,12 +2732,12 @@ class ModArchiveItem(ft.Card):
                     ft.Container(
                         ft.Row([ft.Container(ft.Column([
                             Text(f"{tr('game').capitalize()}: {tr(self.mod.installment)}",
-                                 color=ft.colors.SECONDARY,
+                                 color=ft.Colors.SECONDARY,
                                  weight=ft.FontWeight.W_500),
                             Text(tr("main_info").capitalize()),
                             Text(self.mod.description,
                                  no_wrap=False)]),
-                            bgcolor=ft.colors.SURFACE,
+                            bgcolor=ft.Colors.SURFACE,
                             border_radius=10,
                             padding=ft.padding.symmetric(horizontal=20, vertical=15),
                             expand=1
@@ -2844,19 +2844,19 @@ class ModFamily(ft.AnimatedSwitcher):
                                      max_lines=2,
                                      size=18 if max_var_name_length < long_name_len else 16,
                                      overflow=ft.TextOverflow.ELLIPSIS),
-                        trailing=Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
-                                    color=ft.colors.ON_BACKGROUND, size=20),
+                        trailing=Icon(ft.Icons.KEYBOARD_ARROW_DOWN_OUTLINED,
+                                    color=ft.Colors.ON_SURFACE, size=20),
                         style=ft.ButtonStyle(bgcolor={
-                            ft.ControlState.HOVERED: ft.colors.PRIMARY_CONTAINER,
-                            ft.ControlState.FOCUSED: ft.colors.BACKGROUND,
-                            ft.ControlState.DEFAULT: ft.colors.BACKGROUND,
+                            ft.ControlState.HOVERED: ft.Colors.PRIMARY_CONTAINER,
+                            ft.ControlState.FOCUSED: ft.Colors.SURFACE,
+                            ft.ControlState.DEFAULT: ft.Colors.SURFACE,
                             }, shape=ft.RoundedRectangleBorder(radius=5)),
                         controls=variants,
                         height=32)],
                     expand=True,
                     style=ft.MenuStyle(
                         alignment=ft.alignment.top_left,
-                        bgcolor=ft.colors.TRANSPARENT,
+                        bgcolor=ft.Colors.TRANSPARENT,
                         elevation=0,
                         padding=0
                         ),
@@ -2875,11 +2875,11 @@ class ModFamily(ft.AnimatedSwitcher):
         mod_cant_install = (not mod_atom.can_install
                             or (mod_atom.is_reinstall and not mod_atom.can_be_reinstalled))
         if not mod_cant_install:
-            name_color = ft.colors.TERTIARY
+            name_color = ft.Colors.TERTIARY
         elif mod_atom.is_reinstall:
-            name_color = ft.colors.ON_SECONDARY_CONTAINER
+            name_color = ft.Colors.ON_SECONDARY_CONTAINER
         else:
-            name_color = ft.colors.ERROR
+            name_color = ft.Colors.ERROR
 
         if len(self.main_versions) > 1:
             variant_versions = [m_mod.variants_loaded[mod_atom.name] for m_mod in self.main_versions
@@ -2905,18 +2905,18 @@ class ModFamily(ft.AnimatedSwitcher):
                                  color=name_color,
                                  overflow=ft.TextOverflow.ELLIPSIS
                                  ),
-                    trailing=ft.Container(Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
-                                  color=ft.colors.ON_BACKGROUND, size=20),
+                    trailing=ft.Container(Icon(ft.Icons.KEYBOARD_ARROW_DOWN_OUTLINED,
+                                  color=ft.Colors.ON_SURFACE, size=20),
                                   margin=ft.margin.only(left=-5, right=-3)),
                     style=ft.ButtonStyle(bgcolor={
-                        ft.ControlState.HOVERED: ft.colors.PRIMARY_CONTAINER,
-                        ft.ControlState.FOCUSED: ft.colors.BACKGROUND,
-                        ft.ControlState.DEFAULT: ft.colors.BACKGROUND,
+                        ft.ControlState.HOVERED: ft.Colors.PRIMARY_CONTAINER,
+                        ft.ControlState.FOCUSED: ft.Colors.SURFACE,
+                        ft.ControlState.DEFAULT: ft.Colors.SURFACE,
                         }, shape=ft.RoundedRectangleBorder(radius=5)),
                     controls=versions, height=24)],
                 expand=True,
                 style=ft.MenuStyle(
-                    alignment=ft.alignment.center, bgcolor=ft.colors.TRANSPARENT,
+                    alignment=ft.alignment.center, bgcolor=ft.Colors.TRANSPARENT,
                     elevation=0, padding=0),
                 )
 
@@ -2930,13 +2930,13 @@ class ModFamily(ft.AnimatedSwitcher):
             #                      data=mod_atom,
             #                      color=name_color,
             #                      overflow=ft.TextOverflow.ELLIPSIS),
-            #                 Icon(ft.icons.KEYBOARD_ARROW_DOWN_OUTLINED,
-            #                      color=ft.colors.ON_BACKGROUND, size=20)
+            #                 Icon(ft.Icons.KEYBOARD_ARROW_DOWN_OUTLINED,
+            #                      color=ft.Colors.ON_SURFACE, size=20)
             #             ], spacing=2),
             #             padding=ft.padding.only(left=7, right=5, top=2, bottom=2)),
             #         items=versions),
             #         border_radius=5,
-            #         bgcolor=ft.colors.BACKGROUND)
+            #         bgcolor=ft.Colors.SURFACE)
             # ], alignment=ft.MainAxisAlignment.CENTER, spacing=0)
 
         return Text(
@@ -3011,7 +3011,7 @@ class ModItem(ft.Card):
         self.author_text = ft.Ref[Text]()
         self.mod_logo_img = ft.Ref[Image]()
 
-        self.surface_tint_color = ft.colors.PRIMARY
+        self.surface_tint_color = ft.Colors.PRIMARY
         self.margin = ft.margin.symmetric(vertical=1)
         self.elevation = 3
 
@@ -3034,7 +3034,7 @@ class ModItem(ft.Card):
             bg = ft.Container(Row([Column(
                 controls=[], alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER)]),
-                bgcolor=ft.colors.BLACK87)
+                bgcolor=ft.Colors.BLACK87)
 
             fg = ModInstallWizard(self, self.app, self.main_mod,
                                   mod_var=self.mod.name,
@@ -3131,7 +3131,7 @@ class ModItem(ft.Card):
     async def update_install_btn(self) -> None:
         btn = self.install_btn.current
 
-        btn.icon = ft.icons.CHECK_ROUNDED if self.mod.is_reinstall else None
+        btn.icon = ft.Icons.CHECK_ROUNDED if self.mod.is_reinstall else None
 
         if not self.mod.is_reinstall:
             btn.text = tr("install").capitalize()
@@ -3140,17 +3140,17 @@ class ModItem(ft.Card):
 
         btn.style = ft.ButtonStyle(
             color={
-                ft.ControlState.HOVERED: ft.colors.ON_SECONDARY,
-                ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY if not self.mod.is_reinstall
-                else ft.colors.ON_PRIMARY_CONTAINER,
-                ft.ControlState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                ft.ControlState.HOVERED: ft.Colors.ON_SECONDARY,
+                ft.ControlState.DEFAULT: ft.Colors.ON_PRIMARY if not self.mod.is_reinstall
+                else ft.Colors.ON_PRIMARY_CONTAINER,
+                ft.ControlState.DISABLED: ft.Colors.ON_SURFACE_VARIANT
                 },
             bgcolor={
-                ft.ControlState.HOVERED: ft.colors.SECONDARY,
-                ft.ControlState.DEFAULT: ft.colors.PRIMARY if not self.mod.is_reinstall
-                else ft.colors.PRIMARY_CONTAINER,
-                ft.ControlState.DISABLED: ft.colors.with_opacity(
-                    0.3, ft.colors.PRIMARY if self.mod.is_reinstall else ft.colors.SECONDARY)
+                ft.ControlState.HOVERED: ft.Colors.SECONDARY,
+                ft.ControlState.DEFAULT: ft.Colors.PRIMARY if not self.mod.is_reinstall
+                else ft.Colors.PRIMARY_CONTAINER,
+                ft.ControlState.DISABLED: ft.Colors.with_opacity(
+                    0.3, ft.Colors.PRIMARY if self.mod.is_reinstall else ft.Colors.SECONDARY)
             })
 
         btn.disabled = (not self.mod.can_install
@@ -3160,8 +3160,8 @@ class ModItem(ft.Card):
 
         if (btn.disabled and self.app.config.override_incompat
            and not self.app.local_mods.game_is_running and self.app.game.target_exe):
-            btn.color = ft.colors.ON_ERROR
-            btn.bgcolor = ft.colors.ERROR
+            btn.color = ft.Colors.ON_ERROR
+            btn.bgcolor = ft.Colors.ERROR
             btn.tooltip = tr("compat_checks_disabled").capitalize()
             btn.disabled = False
 
@@ -3208,20 +3208,20 @@ class ModItem(ft.Card):
                                  overflow=ft.TextOverflow.ELLIPSIS,
                                  size=13,
                                  weight=ft.FontWeight.W_300),
-                            Row([*[ft.Container(Text(tag, color=ft.colors.ON_TERTIARY_CONTAINER, size=12),
+                            Row([*[ft.Container(Text(tag, color=ft.Colors.ON_TERTIARY_CONTAINER, size=12),
                                                 padding=ft.padding.only(left=4, right=3, bottom=2),
                                                 border_radius=3,
-                                                bgcolor=ft.colors.TERTIARY_CONTAINER) for tag in tr_tags[:3]],
+                                                bgcolor=ft.Colors.TERTIARY_CONTAINER) for tag in tr_tags[:3]],
                                  ft.Container(
-                                     ft.Icon(ft.icons.MORE_HORIZ_ROUNDED,
-                                         color=ft.colors.ON_TERTIARY_CONTAINER,
+                                     ft.Icon(ft.Icons.MORE_HORIZ_ROUNDED,
+                                         color=ft.Colors.ON_TERTIARY_CONTAINER,
                                          size=15,
                                          tooltip=", ".join(tr_tags),
                                          ),
                                      visible=len(self.mod.tags) > 3,
                                      padding=ft.padding.only(left=4, right=3, bottom=1, top=1),
                                      border_radius=3,
-                                     bgcolor=ft.colors.TERTIARY_CONTAINER)],
+                                     bgcolor=ft.Colors.TERTIARY_CONTAINER)],
                                 wrap=True, spacing=5, run_spacing=5)
                             ]), clip_behavior=ft.ClipBehavior.HARD_EDGE, col={"xs": 13, "xl": 16}),
                         Column([
@@ -3237,23 +3237,23 @@ class ModItem(ft.Card):
                             ft.ElevatedButton(
                                 tr("install").capitalize() if not self.mod.is_reinstall
                                 else tr("installed").capitalize(),
-                                icon=ft.icons.CHECK_ROUNDED if self.mod.is_reinstall else None,
+                                icon=ft.Icons.CHECK_ROUNDED if self.mod.is_reinstall else None,
                                 style=ft.ButtonStyle(
                                   color={
-                                      ft.ControlState.HOVERED: ft.colors.ON_SECONDARY,
-                                      ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY
+                                      ft.ControlState.HOVERED: ft.Colors.ON_SECONDARY,
+                                      ft.ControlState.DEFAULT: ft.Colors.ON_PRIMARY
                                       if not self.mod.is_reinstall
-                                      else ft.colors.ON_PRIMARY_CONTAINER,
-                                      ft.ControlState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                      else ft.Colors.ON_PRIMARY_CONTAINER,
+                                      ft.ControlState.DISABLED: ft.Colors.ON_SURFACE_VARIANT
                                       },
                                   bgcolor={
-                                      ft.ControlState.HOVERED: ft.colors.SECONDARY,
-                                      ft.ControlState.DEFAULT: ft.colors.PRIMARY
+                                      ft.ControlState.HOVERED: ft.Colors.SECONDARY,
+                                      ft.ControlState.DEFAULT: ft.Colors.PRIMARY
                                       if not self.mod.is_reinstall
-                                      else ft.colors.PRIMARY_CONTAINER,
-                                      ft.ControlState.DISABLED: ft.colors.with_opacity(
-                                          0.3, ft.colors.PRIMARY if self.mod.is_reinstall
-                                               else ft.colors.SECONDARY)
+                                      else ft.Colors.PRIMARY_CONTAINER,
+                                      ft.ControlState.DISABLED: ft.Colors.with_opacity(
+                                          0.3, ft.Colors.PRIMARY if self.mod.is_reinstall
+                                               else ft.Colors.SECONDARY)
                                   },
                                   padding=ft.padding.symmetric(horizontal=20)
                                 ),
@@ -3273,8 +3273,8 @@ class ModItem(ft.Card):
                 margin=10)
         if (self.app.config.override_incompat and mod_cant_install
             and not self.app.local_mods.game_is_running and self.app.game.target_exe):
-            self.install_btn.current.bgcolor = ft.colors.ERROR
-            self.install_btn.current.color = ft.colors.ON_ERROR
+            self.install_btn.current.bgcolor = ft.Colors.ERROR
+            self.install_btn.current.color = ft.Colors.ON_ERROR
             self.install_btn.current.disabled = False
             self.install_btn.current.tooltip = tr("compat_checks_disabled").capitalize()
 
@@ -3288,7 +3288,7 @@ class ModInstallWizard(ft.Container):
         self.mod_var_lang: Mod | None = self.main_mod.variants_loaded[mod_var].translations_loaded[language]
         self.current_variant = self.main_mod.variants_loaded[mod_var]
         self.current_screen = None
-        self.options: list[self.ModOption] = []
+        self.options: list[ModInstallWizard.ModOption] = []
         self.variant_buttons: dict[str, ft.FloatingActionButton] = {}
 
         self.expand = True
@@ -3358,7 +3358,7 @@ class ModInstallWizard(ft.Container):
             self.option_screens = ft.Ref[Column]()
             self.screen_pool = self.get_screen_pool(self.option.content_names)
             self.screenshots_container = ft.Ref[ft.Container]()
-            self.screenshots_selector = ft.Ref[ft.Dropdown]()
+            self.screenshots_selector = ft.Ref[ft.DropdownM2]()
             self.screenshot_img = ft.Ref[Image]()
             self.screenshot_num = ft.Ref[Text]()
             self.screenshot_text = ft.Ref[Text]()
@@ -3367,7 +3367,7 @@ class ModInstallWizard(ft.Container):
             self.screen_preview_img = ft.Ref[Image]()
             self.screen_preview_text = ft.Ref[Text]()
 
-            self.surface_tint_color = ft.colors.PRIMARY
+            self.surface_tint_color = ft.Colors.PRIMARY
 
         @property
         def app(self) -> App:
@@ -3397,7 +3397,7 @@ class ModInstallWizard(ft.Container):
         async def set_inactive(self) -> None:
             self.elevation = 0
             self.scale = 0.99
-            self.color = ft.colors.SURFACE
+            self.color = ft.Colors.SURFACE
             self.warning_text.current.visible = True
             self.update()
             self.active = False
@@ -3523,7 +3523,7 @@ class ModInstallWizard(ft.Container):
                                 ft.ResponsiveRow([
                                     ft.Container(
                                         Text(self.get_screen_preview_text(),
-                                             color=ft.colors.WHITE70,
+                                             color=ft.Colors.WHITE70,
                                              style=ft.TextStyle(shadow=ft.BoxShadow(3, 3)),
                                              theme_style=ft.TextThemeStyle.BODY_LARGE,
                                              text_align=ft.TextAlign.CENTER,
@@ -3533,7 +3533,7 @@ class ModInstallWizard(ft.Container):
                                 ], alignment=ft.alignment.bottom_center),
                             ],
                             alignment=ft.MainAxisAlignment.CENTER),
-                        bgcolor=ft.colors.BLACK87),
+                        bgcolor=ft.Colors.BLACK87),
                     ref=self.screenshot_preview,
                     on_tap=self.discard_screenshot_preview,
                     on_secondary_tap=self.switch_expanded_compare_screen,
@@ -3557,7 +3557,7 @@ class ModInstallWizard(ft.Container):
                               ref=self.screenshot_img),
                         ft.Container(
                             Text("Placeholder tip",
-                                 color=ft.colors.WHITE,
+                                 color=ft.Colors.WHITE,
                                  text_align=ft.TextAlign.CENTER,
                                  ref=self.screenshot_tip,
                                  style=ft.TextStyle(
@@ -3572,11 +3572,11 @@ class ModInstallWizard(ft.Container):
                 Text("Placeholder description", ref=self.screenshot_text,
                      text_align=ft.TextAlign.CENTER),
                 Row([
-                    IconButton(ft.icons.CHEVRON_LEFT,
+                    IconButton(ft.Icons.CHEVRON_LEFT,
                                        visible=self.screen_pool.pool_size > 1,
                                        on_click=self.show_previous_screen),
                     Text("Placeholder number", ref=self.screenshot_num),
-                    IconButton(ft.icons.CHEVRON_RIGHT,
+                    IconButton(ft.Icons.CHEVRON_RIGHT,
                                        visible=self.screen_pool.pool_size > 1,
                                        on_click=self.show_next_screen)],
                     alignment=ft.MainAxisAlignment.CENTER),
@@ -3589,7 +3589,7 @@ class ModInstallWizard(ft.Container):
             await self.set_option_screens()
             await self.update_screens()
 
-        def get_screenshots_container(self) -> ExpandableContainer:
+        def get_screenshots_container(self) -> cw.ExpandableContainer:
             screen_group_selector_data = {}
             for screen in self.screen_pool.screens:
                 if screen.option_name == "base" and self.option.name == "base":
@@ -3607,26 +3607,26 @@ class ModInstallWizard(ft.Container):
             if not self.screen_pool.screens:
                 return ft.Container()
 
-            return ExpandableContainer(
+            return cw.ExpandableContainer(
                 label_expanded=tr("screenshots").title(),
                 label_collapsed=tr("screenshots").title(),
                 min_height=38,
                 border_thickness=1,
-                color=ft.colors.PRIMARY,
+                color=ft.Colors.PRIMARY,
                 vertical_margin=5,
                 padding=5,
-                bgcolor=ft.colors.with_opacity(0.6, ft.colors.SURFACE),
-                border=ft.border.all(1, color=ft.colors.SURFACE),
+                bgcolor=ft.Colors.with_opacity(0.6, ft.Colors.SURFACE),
+                border=ft.border.all(1, color=ft.Colors.SURFACE),
                 expanded=False,
                 content=ft.Column([
                 ft.ResponsiveRow([
-                        ft.Dropdown(
+                        ft.DropdownM2(
                                 value=start_key,
                                 dense=True,
                                 height=42,
                                 text_size=13,
                                 options=[
-                                    ft.dropdown.Option(key=opt_k, text=opt_v)
+                                    ft.dropdownm2.Option(key=opt_k, text=opt_v)
                                     for opt_k, opt_v in screen_group_selector_data.items()
                                 ],
                                 on_change=self.update_screens_group,
@@ -3674,10 +3674,10 @@ class ModInstallWizard(ft.Container):
                             Row([
                                 check,
                                 Text(setting_display_name,
-                                     color=ft.colors.PRIMARY,
+                                     color=ft.Colors.PRIMARY,
                                      weight=ft.FontWeight.BOLD),
                                 Text(setting.description,
-                                     color=ft.colors.PRIMARY,
+                                     color=ft.Colors.PRIMARY,
                                      no_wrap=False),
                                 ], wrap=True, run_spacing=5)
                         )
@@ -3686,13 +3686,13 @@ class ModInstallWizard(ft.Container):
                             Row([
                                 Row([check,
                                      Text(setting_display_name,
-                                          color=ft.colors.PRIMARY,
+                                          color=ft.Colors.PRIMARY,
                                           weight=ft.FontWeight.BOLD),
                                      Text(f"[{setting.name}]",
                                           opacity=0.6) if setting.display_name else Text()
                                      ]),
                                 Text(setting.description,
-                                     color=ft.colors.PRIMARY,
+                                     color=ft.Colors.PRIMARY,
                                      no_wrap=False),
                                 ], wrap=True, run_spacing=5)
                         )
@@ -3721,12 +3721,12 @@ class ModInstallWizard(ft.Container):
                                  weight=ft.FontWeight.BOLD),
                             Text(f"[{self.option.name}]", opacity=0.6),
                             Text(tr("will_not_be_installed").capitalize(),
-                                 color=ft.colors.TERTIARY,
+                                 color=ft.Colors.TERTIARY,
                                  visible=not self.active and self.existing_content in ("skip", ""),
                                  ref=self.warning_text,
                                  weight=ft.FontWeight.W_500),
                             Text(tr("cant_change_choice").capitalize(),
-                                 color=ft.colors.ERROR,
+                                 color=ft.Colors.ERROR,
                                  visible=bool(self.existing_content)
                                  and self.existing_content != "skip",
                                  opacity=0.85)
@@ -3735,7 +3735,7 @@ class ModInstallWizard(ft.Container):
                         Column([
                             Text(self.option.description, no_wrap=False),
                             Text(f'{tr("choose_one_of_the_options").capitalize()}:',
-                                 color=ft.colors.SECONDARY),
+                                 color=ft.Colors.SECONDARY),
                             *selector,
                             ], spacing=5, col={"xs": 12, "xl": 11, "xxl": 10},
                             alignment=ft.MainAxisAlignment.START),
@@ -3754,17 +3754,17 @@ class ModInstallWizard(ft.Container):
                                  weight=ft.FontWeight.BOLD),
                             Text(f"[{self.option.name}]", opacity=0.6),
                             Text(tr("will_not_be_installed").capitalize(),
-                                 color=ft.colors.TERTIARY,
+                                 color=ft.Colors.TERTIARY,
                                  visible=not self.active and self.existing_content != "yes",
                                  ref=self.warning_text,
                                  weight=ft.FontWeight.W_500),
                             Text(tr("cant_change_choice").capitalize(),
-                                 color=ft.colors.ERROR,
+                                 color=ft.Colors.ERROR,
                                  visible=bool(self.existing_content) and not self.option.forced_option
                                  and self.existing_content != "skip",
                                  opacity=0.85),
                             Text(tr("forced_option").capitalize(),
-                                 color=ft.colors.TERTIARY,
+                                 color=ft.Colors.TERTIARY,
                                  visible=self.option.forced_option,
                                  opacity=0.85)
                             ], wrap=True, run_spacing=5, col={"xs": 12, "xl": 11, "xxl": 10},
@@ -4018,13 +4018,13 @@ class ModInstallWizard(ft.Container):
         install_info = self.app.session.content_in_processing[mod_name]
 
         if status_ok:
-            info_color = ft.colors.TERTIARY
+            info_color = ft.Colors.TERTIARY
             result_text = Text(tr("successfully").capitalize(),
                                color=info_color,
                                weight=ft.FontWeight.BOLD)
             debug_info = ""
         else:
-            info_color = ft.colors.ERROR
+            info_color = ft.Colors.ERROR
             result_text = Text(tr("error_occurred").capitalize(),
                                color=info_color,
                                weight=ft.FontWeight.BOLD)
@@ -4042,10 +4042,10 @@ class ModInstallWizard(ft.Container):
 
         mod_basic_info.append(Text(mod_display_name,
                                    theme_style=ft.TextThemeStyle.HEADLINE_SMALL,
-                                   no_wrap=False, color=ft.colors.PRIMARY))
+                                   no_wrap=False, color=ft.Colors.PRIMARY))
         mod_basic_info.append(Text(mod_description, no_wrap=False))
         mod_basic_info.append(Text(f"{tr(mod.developer_title)} {mod.authors}",
-                                   no_wrap=False, color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD))
+                                   no_wrap=False, color=ft.Colors.SECONDARY, weight=ft.FontWeight.BOLD))
 
         mod_info = []
         options_installed = []
@@ -4060,13 +4060,13 @@ class ModInstallWizard(ft.Container):
                                 variant_description = setting.description
                         options_installed.append(Row([
                             Text(option.display_name,
-                                 color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD),
+                                 color=ft.Colors.SECONDARY, weight=ft.FontWeight.BOLD),
                             Text(f"[{option.name} / {variant}]", opacity=0.6)]))
                         options_installed.append(Text(option.description + f"\n({variant_description})"))
                     else:
                         options_installed.append(Row([
                             Text(option.display_name,
-                                 color=ft.colors.SECONDARY, weight=ft.FontWeight.BOLD),
+                                 color=ft.Colors.SECONDARY, weight=ft.FontWeight.BOLD),
                             Text(f"[{option.name}]", opacity=0.6)]))
                         options_installed.append(Text(option.description))
 
@@ -4077,11 +4077,11 @@ class ModInstallWizard(ft.Container):
                 with_opt_label = tr("with_options").capitalize()
 
             mod_info.append(
-                ExpandableContainer(with_opt_label,
+                cw.ExpandableContainer(with_opt_label,
                                     with_opt_label,
                                     Column(options_installed),
                                     expanded=False,
-                                    color=ft.colors.PRIMARY))
+                                    color=ft.Colors.PRIMARY))
 
         if not status_ok:
             mod_info.append(Column([
@@ -4101,20 +4101,20 @@ class ModInstallWizard(ft.Container):
                     splited = splited_raw.replace("* ", "").strip()
                     if splited:
                         mod_info.append(Row([
-                            ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED,
-                                    color=ft.colors.TERTIARY,
+                            ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED,
+                                    color=ft.Colors.TERTIARY,
                                     expand=1),
                             Text(splited, expand=15)
                             ]))
 
         reinstall_warn_container = ft.Container(Row([
-            Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
+            Icon(ft.Icons.WARNING_OUTLINED, color=ft.Colors.ERROR),
             Text((f'{tr("was_reinstall").capitalize()}!\n'
                   f'{tr("install_from_scratch_if_issues")}'),
-                 no_wrap=False, color=ft.colors.ERROR, expand=True),
+                 no_wrap=False, color=ft.Colors.ERROR, expand=True),
             ]),
             border_radius=10, padding=10, margin=ft.margin.only(bottom=8),
-            bgcolor=ft.colors.ERROR_CONTAINER,
+            bgcolor=ft.Colors.ERROR_CONTAINER,
             height=0,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             animate_size=ft.animation.Animation(500, ft.AnimationCurve.DECELERATE),
@@ -4122,7 +4122,7 @@ class ModInstallWizard(ft.Container):
 
         c1 = ft.Container(
                 Column([
-                    Icon(ft.icons.CHECK_CIRCLE_ROUNDED if status_ok else ft.icons.WARNING_ROUNDED,
+                    Icon(ft.Icons.CHECK_CIRCLE_ROUNDED if status_ok else ft.Icons.WARNING_ROUNDED,
                          size=100,
                          color=info_color),
                     result_text], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -4131,16 +4131,16 @@ class ModInstallWizard(ft.Container):
         c2 = ft.Container(
                 Row([
                     Column([
-                        Icon(ft.icons.CHECK_CIRCLE_ROUNDED if status_ok else ft.icons.WARNING_ROUNDED,
+                        Icon(ft.Icons.CHECK_CIRCLE_ROUNDED if status_ok else ft.Icons.WARNING_ROUNDED,
                              size=80,
                              color=info_color),
                         Text(tr("installed").capitalize() if status_ok else tr("not_installed").capitalize(),
-                             color=ft.colors.TERTIARY if status_ok else ft.colors.ERROR,
+                             color=ft.Colors.TERTIARY if status_ok else ft.Colors.ERROR,
                              weight=ft.FontWeight.W_600)],
                            horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=2),
                     Column(mod_basic_info, expand=10) if status_ok else Column([
-                        Row([Text(ex, no_wrap=False, color=ft.colors.ERROR, expand=11),
-                             IconButton(icon=ft.icons.COPY, on_click=self.set_clip, data=debug_info, expand=1)
+                        Row([Text(ex, no_wrap=False, color=ft.Colors.ERROR, expand=11),
+                             IconButton(icon=ft.Icons.COPY, on_click=self.set_clip, data=debug_info, expand=1)
                              ])], expand=10)
                     ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 margin=ft.margin.symmetric(vertical=10), height=0,
@@ -4213,8 +4213,8 @@ class ModInstallWizard(ft.Container):
                     selected=False,
                     style=ft.ButtonStyle(
                         bgcolor={
-                            ft.ControlState.SELECTED: ft.colors.PRIMARY_CONTAINER,
-                            ft.ControlState.DEFAULT: ft.colors.BLACK12,
+                            ft.ControlState.SELECTED: ft.Colors.PRIMARY_CONTAINER,
+                            ft.ControlState.DEFAULT: ft.Colors.BLACK12,
                         }
                     ),
                     expand=1)
@@ -4229,7 +4229,7 @@ class ModInstallWizard(ft.Container):
 
     async def change_from_default(self) -> None:
         self.default_install_btn.current.content = Row([
-            Icon(ft.icons.STAR, color=ft.colors.ON_PRIMARY, size=22),
+            Icon(ft.Icons.STAR, color=ft.Colors.ON_PRIMARY, size=22),
             Text(tr("choose_recommended_install").capitalize())
         ], alignment=ft.MainAxisAlignment.CENTER)
         self.default_install_btn.current.disabled = False
@@ -4283,7 +4283,7 @@ class ModInstallWizard(ft.Container):
             await self.set_option_cards_default()
 
         self.default_install_btn.current.content = ft.Row([
-                    Icon(ft.icons.RECOMMEND_ROUNDED, color=ft.colors.TERTIARY),
+                    Icon(ft.Icons.RECOMMEND_ROUNDED, color=ft.Colors.TERTIARY),
                     Text(tr("recommended_install_chosen").capitalize())
         ], alignment=ft.MainAxisAlignment.CENTER)
         self.default_install_btn.current.disabled = True
@@ -4364,7 +4364,7 @@ class ModInstallWizard(ft.Container):
                 ft.FloatingActionButton(
                     content=ft.Container(
                         Row([
-                            Icon(ft.icons.CHECK, visible=is_current),
+                            Icon(ft.Icons.CHECK, visible=is_current),
                             Text(mod_variant.display_name, no_wrap=False, expand=1,
                                  text_align=ft.TextAlign.CENTER)
                              ], alignment=ft.MainAxisAlignment.CENTER, spacing=0),
@@ -4373,8 +4373,8 @@ class ModInstallWizard(ft.Container):
                     disabled=disable_variant_install,
                     opacity=0.7 if disable_variant_install else 1.0,
                     tooltip=variant_install_tip,
-                    bgcolor=ft.colors.PRIMARY_CONTAINER if srv_name == variant_name
-                        else ft.colors.SECONDARY_CONTAINER,
+                    bgcolor=ft.Colors.PRIMARY_CONTAINER if srv_name == variant_name
+                        else ft.Colors.SECONDARY_CONTAINER,
                     on_click=self.show_variant_welcome,
                     width=btn_width,
                     height=btn_height,
@@ -4382,8 +4382,8 @@ class ModInstallWizard(ft.Container):
 
             if self.variant_buttons[srv_name].disabled and self.app.config.override_incompat:
                 self.variant_buttons[srv_name].disabled = False
-                self.variant_buttons[srv_name].bgcolor = ft.colors.ERROR
-                self.variant_buttons[srv_name].foreground_color = ft.colors.ON_ERROR
+                self.variant_buttons[srv_name].bgcolor = ft.Colors.ERROR
+                self.variant_buttons[srv_name].foreground_color = ft.Colors.ON_ERROR
                 self.variant_buttons[srv_name].tooltip = tr("compat_checks_disabled").capitalize()
 
         if variant_used.optional_content:
@@ -4410,14 +4410,14 @@ class ModInstallWizard(ft.Container):
                               data={"variant_name": variant_name},
                               style=ft.ButtonStyle(
                                  color={
-                                     ft.ControlState.HOVERED: ft.colors.ON_SECONDARY,
-                                     ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY,
-                                     ft.ControlState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                     ft.ControlState.HOVERED: ft.Colors.ON_SECONDARY,
+                                     ft.ControlState.DEFAULT: ft.Colors.ON_PRIMARY,
+                                     ft.ControlState.DISABLED: ft.Colors.ON_SURFACE_VARIANT
                                      },
                                  bgcolor={
-                                     ft.ControlState.HOVERED: ft.colors.SECONDARY,
-                                     ft.ControlState.DEFAULT: ft.colors.PRIMARY,
-                                     ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
+                                     ft.ControlState.HOVERED: ft.Colors.SECONDARY,
+                                     ft.ControlState.DEFAULT: ft.Colors.PRIMARY,
+                                     ft.ControlState.DISABLED: ft.Colors.SURFACE_CONTAINER_HIGHEST
                                  },
                                  padding=ft.padding.symmetric(horizontal=20))),
             ft.FilledTonalButton(tr("no").capitalize(),
@@ -4456,23 +4456,23 @@ class ModInstallWizard(ft.Container):
                              alignment=ft.MainAxisAlignment.CENTER),
             ft.Container(Column([
                 ft.Row([ft.Container(Row([
-                        Icon(ft.icons.WARNING_OUTLINED, color=ft.colors.ERROR),
+                        Icon(ft.Icons.WARNING_OUTLINED, color=ft.Colors.ERROR),
                         Column([
                             Text(tr("check_reinstallability").capitalize(), weight=ft.FontWeight.BOLD,
-                                 color=ft.colors.ERROR),
-                            Text(reinstall_warning, no_wrap=False, color=ft.colors.ERROR)], spacing=5),
+                                 color=ft.Colors.ERROR),
+                            Text(reinstall_warning, no_wrap=False, color=ft.Colors.ERROR)], spacing=5),
                         ], spacing=30, alignment=ft.MainAxisAlignment.CENTER),
                         visible=bool(reinstall_warning), border_radius=10,
                         padding=ft.padding.only(top=15, bottom=15, left=30, right=60),
                         margin=ft.margin.only(bottom=10),
-                        bgcolor=ft.colors.ERROR_CONTAINER)], alignment=ft.MainAxisAlignment.CENTER, tight=True),
+                        bgcolor=ft.Colors.ERROR_CONTAINER)], alignment=ft.MainAxisAlignment.CENTER, tight=True),
                 ft.ResponsiveRow(flag_btns, visible=bool(self.current_variant.translations),
                                  ref=self.flag_buttons, alignment=ft.MainAxisAlignment.CENTER,
                                  columns=12 if len(flag_btns) <= 12 else len(flag_btns)),
                 Text(welcome_install_prompt,
                      text_align=ft.TextAlign.CENTER),
                 Text(f"({tr('mod_install_language').capitalize()}: {variant_used.lang_label})",
-                     color=ft.colors.SECONDARY)
+                     color=ft.Colors.SECONDARY)
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5), padding=5),
             Row(controls=user_answer_buttons,
                 alignment=ft.MainAxisAlignment.CENTER)
@@ -4527,14 +4527,14 @@ class ModInstallWizard(ft.Container):
                               on_click=self.show_install_progress,
                               style=ft.ButtonStyle(
                                  color={
-                                     ft.ControlState.HOVERED: ft.colors.ON_SECONDARY,
-                                     ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY,
-                                     ft.ControlState.DISABLED: ft.colors.ON_SURFACE_VARIANT
+                                     ft.ControlState.HOVERED: ft.Colors.ON_SECONDARY,
+                                     ft.ControlState.DEFAULT: ft.Colors.ON_PRIMARY,
+                                     ft.ControlState.DISABLED: ft.Colors.ON_SURFACE_VARIANT
                                      },
                                  bgcolor={
-                                     ft.ControlState.HOVERED: ft.colors.SECONDARY,
-                                     ft.ControlState.DEFAULT: ft.colors.PRIMARY,
-                                     ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
+                                     ft.ControlState.HOVERED: ft.Colors.SECONDARY,
+                                     ft.ControlState.DEFAULT: ft.Colors.PRIMARY,
+                                     ft.ControlState.DISABLED: ft.Colors.SURFACE_CONTAINER_HIGHEST
                                  },
                                  padding=ft.padding.symmetric(horizontal=20)),
                               ref=self.ok_button,
@@ -4550,11 +4550,11 @@ class ModInstallWizard(ft.Container):
 
         default_install_btn_row.controls.append(ft.ElevatedButton(
             content=ft.Container(Row([
-                Icon(ft.icons.RECOMMEND_ROUNDED,
-                     color=ft.colors.TERTIARY,
+                Icon(ft.Icons.RECOMMEND_ROUNDED,
+                     color=ft.Colors.TERTIARY,
                      visible=not forced_options),
-                Icon(ft.icons.RULE,
-                     color=ft.colors.TERTIARY,
+                Icon(ft.Icons.RULE,
+                     color=ft.Colors.TERTIARY,
                      visible=forced_options),
                 Text(tr("recommended_install_chosen").capitalize(),
                      visible=not forced_options),
@@ -4569,15 +4569,15 @@ class ModInstallWizard(ft.Container):
             style=ft.ButtonStyle(
                              side={
                                  ft.ControlState.DISABLED: ft.BorderSide(width=1,
-                                                                          color=ft.colors.TERTIARY)
+                                                                          color=ft.Colors.TERTIARY)
                              },
                              color={
-                                 ft.ControlState.DEFAULT: ft.colors.ON_PRIMARY,
-                                 ft.ControlState.DISABLED: ft.colors.TERTIARY
+                                 ft.ControlState.DEFAULT: ft.Colors.ON_PRIMARY,
+                                 ft.ControlState.DISABLED: ft.Colors.TERTIARY
                                  },
                              bgcolor={
-                                 ft.ControlState.DEFAULT: ft.colors.PRIMARY,
-                                 ft.ControlState.DISABLED: ft.colors.SURFACE_VARIANT
+                                 ft.ControlState.DEFAULT: ft.Colors.PRIMARY,
+                                 ft.ControlState.DISABLED: ft.Colors.SURFACE_CONTAINER_HIGHEST
                              },
                              padding=ft.padding.symmetric(horizontal=20)),
             ref=self.default_install_btn))
@@ -4603,15 +4603,15 @@ class ModInstallWizard(ft.Container):
                              alignment=ft.MainAxisAlignment.CENTER),
             ft.Container(
                 Row([
-                    Icon(ft.icons.INFO_OUTLINE_ROUNDED,
-                         color=ft.colors.ON_TERTIARY_CONTAINER,
+                    Icon(ft.Icons.INFO_OUTLINE_ROUNDED,
+                         color=ft.Colors.ON_TERTIARY_CONTAINER,
                          expand=1),
                     Text(value=tr("no_base_content_mod_requires_options"),
                          weight=ft.FontWeight.BOLD,
                          no_wrap=False,
-                         color=ft.colors.ON_TERTIARY_CONTAINER,
+                         color=ft.Colors.ON_TERTIARY_CONTAINER,
                          expand=15)]),
-                bgcolor=ft.colors.TERTIARY_CONTAINER,
+                bgcolor=ft.Colors.TERTIARY_CONTAINER,
                 padding=10, border_radius=10,
                 visible=False,
                 ref=self.no_base_content_mod_warning),
@@ -4647,16 +4647,16 @@ class ModInstallWizard(ft.Container):
         self.current_screen = step
 
         # colors of capsule representing currently active installation step
-        active_clr = ft.colors.ON_PRIMARY_CONTAINER
-        active_cont = ft.colors.PRIMARY_CONTAINER
+        active_clr = ft.Colors.ON_PRIMARY_CONTAINER
+        active_cont = ft.Colors.PRIMARY_CONTAINER
 
         # colors of capsule representing step that can't be directly chosen by pressing the capsule
-        bg_clr = ft.colors.ON_SURFACE
-        bg_cont = ft.colors.SURFACE
+        bg_clr = ft.Colors.ON_SURFACE
+        bg_cont = ft.Colors.SURFACE
 
         # colors of capsule representing step that was already processed but we can go back to it
-        deflt_clr = ft.colors.ON_SECONDARY_CONTAINER
-        deflt_cont = ft.colors.SECONDARY_CONTAINER
+        deflt_clr = ft.Colors.ON_SECONDARY_CONTAINER
+        deflt_cont = ft.Colors.SECONDARY_CONTAINER
 
         welcome = step == self.Steps.WELCOME
         setting_up = step == self.Steps.SETTING_UP
@@ -4760,23 +4760,23 @@ class ModInstallWizard(ft.Container):
                                 Row([
                                     Text(self.mod_title_text,
                                          ref=self.mod_title,
-                                         color=ft.colors.PRIMARY,
+                                         color=ft.Colors.PRIMARY,
                                          weight=ft.FontWeight.BOLD)],
                                     alignment=ft.MainAxisAlignment.CENTER),
                                 padding=12), expand=True),
-                            ft.IconButton(ft.icons.MINIMIZE_ROUNDED,
-                                          on_click=self.app.minimize, icon_size=20,
-                                          style=title_btn_style()),
-                            ft.IconButton(ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED,
-                                          on_click=self.app.maximize, icon_size=17,
-                                          style=title_btn_style()),
-                            ft.IconButton(ft.icons.CLOSE_ROUNDED,
+                            cw.TitleButton(ft.Icons.MINIMIZE_ROUNDED,
+                                           on_click=self.app.minimize,
+                                           icon_size=20),
+                            cw.TitleButton(ft.Icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED,
+                                           on_click=self.app.maximize,
+                                           icon_size=17),
+                            ft.IconButton(ft.Icons.CLOSE_ROUNDED,
                                           on_click=self.close_wizard,
                                           ref=self.close_wizard_btn,
                                           data="cancel",
-                                          icon_color=ft.colors.RED,
-                                          selected_icon=ft.icons.HOURGLASS_BOTTOM_ROUNDED,
-                                          selected_icon_color=ft.colors.ON_BACKGROUND,
+                                          icon_color=ft.Colors.RED,
+                                          selected_icon=ft.Icons.HOURGLASS_BOTTOM_ROUNDED,
+                                          selected_icon_color=ft.Colors.ON_SURFACE,
                                           icon_size=22,
                                           tooltip=ft.Tooltip(
                                               message=tr("cancel_install").capitalize(),
@@ -4788,7 +4788,7 @@ class ModInstallWizard(ft.Container):
                          ft.Container(ref=self.screen,
                                       padding=ft.padding.only(bottom=20, left=40, right=40)),
                          ])
-                    ), surface_tint_color=ft.colors.SURFACE)
+                    ), surface_tint_color=ft.Colors.SURFACE)
                 ], alignment=ft.MainAxisAlignment.CENTER,
                 col={"xs": 14, "lg": 13, "xxl": 12}),
             ], alignment=ft.MainAxisAlignment.CENTER, columns=15)], scroll=ft.ScrollMode.ADAPTIVE)
@@ -4873,7 +4873,7 @@ class LocalModsScreen(ft.Column):
 
         cont_ref.current.content = Row(
             [
-                Icon(ft.icons.CHECK_CIRCLE_ROUNDED, color=ft.colors.TERTIARY, size=37),
+                Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ft.Colors.TERTIARY, size=37),
                 ft.Text(f'{tr("ready").capitalize()}: {mod.name} {mod.version!r} [{mod.build}] - '
                         f'{tr("deleted_mod_from_lib")}.'),
             ],
@@ -5088,9 +5088,9 @@ class LocalModsScreen(ft.Column):
             return ft.Card(
                ft.Container(
                    Row([
-                       ft.Icon(ft.icons.ROCKET_LAUNCH_ROUNDED,
+                       ft.Icon(ft.Icons.ROCKET_LAUNCH_ROUNDED,
                                size=40,
-                               color=ft.colors.TERTIARY,
+                               color=ft.Colors.TERTIARY,
                                expand=1),
                        Column([
                            Text(tr("commod_needs_selected_game") if self.app.config.known_games
@@ -5100,7 +5100,7 @@ class LocalModsScreen(ft.Column):
                                 ),
                            Row([Text(tr("launch_game_placeholder")),
                                 ft.TextButton(tr("settings").capitalize(),
-                                              icon=ft.icons.SETTINGS_OUTLINED,
+                                              icon=ft.Icons.SETTINGS_OUTLINED,
                                               on_click=self.app.show_settings),
                                 ], spacing=2)
                             ], expand=8)
@@ -5136,13 +5136,13 @@ class LocalModsScreen(ft.Column):
                             Text(f"[{self.app.game.exe_version_tr}]",
                                  weight=ft.FontWeight.W_500),
                             ft.Container(
-                                Row([Icon(ft.icons.BUILD_ROUNDED, size=14, color=ft.colors.PRIMARY),
+                                Row([Icon(ft.Icons.BUILD_ROUNDED, size=14, color=ft.Colors.PRIMARY),
                                      Text(tr("has_mods").capitalize(),
                                           weight=ft.FontWeight.W_500,
-                                          color=ft.colors.PRIMARY),
+                                          color=ft.Colors.PRIMARY),
                                      ft.IconButton(
-                                        icon=icons.FOLDER_OPEN,
-                                        icon_color=ft.colors.PRIMARY,
+                                        icon=ft.Icons.FOLDER_OPEN,
+                                        icon_color=ft.Colors.PRIMARY,
                                         on_click=self.open_clicked,
                                         scale=0.7,
                                         visible=bool(self.app.game.game_root_path),
@@ -5154,17 +5154,17 @@ class LocalModsScreen(ft.Column):
                                  tooltip=ft.Tooltip(message=mods_text),
                                  visible=bool(mods_text)),
                             ft.Container(
-                                Row([Icon(ft.icons.PENDING_ROUNDED, size=14, color=ft.colors.TERTIARY),
+                                Row([Icon(ft.Icons.PENDING_ROUNDED, size=14, color=ft.Colors.TERTIARY),
                                      Text(tr("game_is_running"),
                                           weight=ft.FontWeight.W_500,
-                                          color=ft.colors.TERTIARY)
+                                          color=ft.Colors.TERTIARY)
                                      ], spacing=5),
                                 tooltip=ft.Tooltip(message=self.app.game.target_exe),
                                 visible=self.game_is_running)
                             ]),
                         Text(self.app.config.game_names[self.app.config.current_game],
                              tooltip=self.app.game.game_root_path),
-                        # ExpandableContainer(
+                        # cw.ExpandableContainer(
                         #     tr("local_mods").capitalize(),
                         #     tr("local_mods").capitalize(),
                         #     Text("\n\n".join(self.app.game.installed_descriptions.values())),
@@ -5174,7 +5174,7 @@ class LocalModsScreen(ft.Column):
                     ]),
                 padding=ft.padding.symmetric(horizontal=15, vertical=15)
             ), elevation=5, margin=ft.margin.only(left=20, right=20, bottom=5),
-            surface_tint_color=ft.colors.TERTIARY,
+            surface_tint_color=ft.Colors.TERTIARY,
             col={"xs": 12, "xl": 11, "xxl": 10})
 
     def build(self) -> None:
@@ -5187,9 +5187,9 @@ class LocalModsScreen(ft.Column):
                     ft.Card(
                        ft.Container(
                            Row([
-                               ft.Icon(ft.icons.BOOKMARK_ADD_ROUNDED,
+                               ft.Icon(ft.Icons.BOOKMARK_ADD_ROUNDED,
                                        size=40,
-                                       color=ft.colors.TERTIARY,
+                                       color=ft.Colors.TERTIARY,
                                        expand=1),
                                Column([
                                    Text(tr("commod_needs_distro"),
@@ -5198,7 +5198,7 @@ class LocalModsScreen(ft.Column):
                                         ),
                                    Row([Text(tr("local_mods_placeholder")),
                                         ft.TextButton(tr("settings").capitalize(),
-                                                      icon=ft.icons.SETTINGS_OUTLINED,
+                                                      icon=ft.Icons.SETTINGS_OUTLINED,
                                                       on_click=self.app.show_settings),
                                         ], spacing=2)
                                     ], expand=8)
@@ -5220,7 +5220,7 @@ class LocalModsScreen(ft.Column):
                              visible=False,
                              ref=self.no_mods_warning,
                              weight=ft.FontWeight.BOLD,
-                             color=ft.colors.PRIMARY,
+                             color=ft.Colors.PRIMARY,
                              col={"xs": 12, "xl": 11, "xxl": 10},
                              text_align=ft.TextAlign.CENTER),
                         ft.ListView([], spacing=10, padding=0,
@@ -5237,7 +5237,7 @@ class LocalModsScreen(ft.Column):
                             Column([
                                 Text(tr("archived_mods_explanation"),
                                      weight=ft.FontWeight.W_400,
-                                     color=ft.colors.SECONDARY),
+                                     color=ft.Colors.SECONDARY),
                                 Column([],
                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                        ref=self.add_mods_column),
@@ -5246,7 +5246,7 @@ class LocalModsScreen(ft.Column):
                                     mini=True,
                                     on_click=self.load_archive,
                                     height=40,
-                                    icon=ft.icons.FILE_OPEN)
+                                    icon=ft.Icons.FILE_OPEN)
                                 ],
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             border_radius=10, padding=20),
@@ -5276,9 +5276,9 @@ class DownloadModsScreen(ft.Column):
                 ft.Container(
                     Column([
                         ft.ResponsiveRow([
-                            ft.Icon(ft.icons.PUBLIC_OFF_OUTLINED,
+                            ft.Icon(ft.Icons.PUBLIC_OFF_OUTLINED,
                                     size=40,
-                                    color=ft.colors.TERTIARY,
+                                    color=ft.Colors.TERTIARY,
                                     col={"xs": 1, "md": 2, "xl": 3, "xxl": 4}),
                             Text(tr("download_mods_screen_placeholder"),
                                  weight=ft.FontWeight.BOLD,
@@ -5288,8 +5288,16 @@ class DownloadModsScreen(ft.Column):
                         ft.Divider(),
                         Text(tr("download_at_dem_gallery")),
                         ft.TextButton(content=ft.Row([
+                            Image(src=get_internal_file_path("assets/icons/dem_logo.svg"),
+                                  color=ft.Colors.PRIMARY,
+                                  fit=ft.ImageFit.FILL, height=30),
+                            Text(tr("go_to_dem_forum"))],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            height=38),
+                            url=DEM_FORUM_MODS),
+                        ft.TextButton(content=ft.Row([
                             Image(src=get_internal_file_path("assets/icons/discord-icon-svgrepo.svg"),
-                                  color=ft.colors.PRIMARY,
+                                  color=ft.Colors.PRIMARY,
                                   fit=ft.ImageFit.FILL, height=30),
                             Text(tr("go_to_dem_server"))],
                             alignment=ft.MainAxisAlignment.CENTER,
@@ -5297,7 +5305,7 @@ class DownloadModsScreen(ft.Column):
                             url=DEM_DISCORD_MODS_DOWNLOAD_SCREEN),
                         ft.TextButton(content=ft.Row([
                             Image(src=get_internal_file_path("assets/icons/github_invertocat.svg"),
-                                  color=ft.colors.PRIMARY,
+                                  color=ft.Colors.PRIMARY,
                                   fit=ft.ImageFit.FILL, height=27),
                             Text(tr("our_github"))],
                             alignment=ft.MainAxisAlignment.CENTER,
@@ -5648,9 +5656,9 @@ class HomeScreen(ft.Container):
             ft.Card(
                ft.Container(
                    Row([
-                       ft.Icon(ft.icons.ROCKET_LAUNCH_ROUNDED,
+                       ft.Icon(ft.Icons.ROCKET_LAUNCH_ROUNDED,
                                size=40,
-                               color=ft.colors.TERTIARY,
+                               color=ft.Colors.TERTIARY,
                                expand=1),
                        Column([
                            Text(tr("commod_needs_selected_game") if self.app.config.known_games
@@ -5660,7 +5668,7 @@ class HomeScreen(ft.Container):
                                 ),
                            Row([Text(tr("launch_game_placeholder")),
                                 ft.TextButton(tr("settings").capitalize(),
-                                              icon=ft.icons.SETTINGS_OUTLINED,
+                                              icon=ft.Icons.SETTINGS_OUTLINED,
                                               on_click=self.app.show_settings),
                                 ], spacing=2)
                             ], expand=8)
@@ -5720,10 +5728,10 @@ class HomeScreen(ft.Container):
 
     def build(self) -> None:
         self.app.page.floating_action_button = ft.FloatingActionButton(
-            icon=ft.icons.REFRESH_ROUNDED,
+            icon=ft.Icons.REFRESH_ROUNDED,
             on_click=self.app.upd_pressed,
             mini=True
-            # bgcolor=ft.colors.PRIMARY
+            # bgcolor=ft.Colors.PRIMARY
             )
         with open(get_internal_file_path("assets/placeholder.md"), encoding="utf-8") as fh:
             md1 = fh.read()
@@ -5746,7 +5754,7 @@ class HomeScreen(ft.Container):
             image = ft.Stack([Image(src=get_internal_file_path("assets/em_logo.png"),
                                     fit=ft.ImageFit.FILL, opacity=0.4),
                               ft.Container(Column([
-                                    Icon(ft.icons.QUESTION_MARK_ROUNDED,
+                                    Icon(ft.Icons.QUESTION_MARK_ROUNDED,
                                          size=90,
                                          color="red")],
                                     horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -5756,17 +5764,17 @@ class HomeScreen(ft.Container):
             if self.app.game.check_is_running():
                 self.game_is_running = True
                 info_msg = Row([
-                    Icon(ft.icons.PENDING_ROUNDED,
+                    Icon(ft.Icons.PENDING_ROUNDED,
                          size=20,
-                         color=ft.colors.TERTIARY),
-                    Text(tr("game_is_running"), color=ft.colors.TERTIARY)])
+                         color=ft.Colors.TERTIARY),
+                    Text(tr("game_is_running"), color=ft.Colors.TERTIARY)])
             elif logo_path is None:
                 self.game_is_running = False
                 info_msg = Row([
-                    Icon(ft.icons.WARNING_ROUNDED,
+                    Icon(ft.Icons.WARNING_ROUNDED,
                          size=20,
-                         color=ft.colors.ERROR),
-                    Text(tr("broken_game_short"), color=ft.colors.ERROR)])
+                         color=ft.Colors.ERROR),
+                    Text(tr("broken_game_short"), color=ft.Colors.ERROR)])
         except ExeNotFoundError:
             self.content = self.get_no_game_placeholder()
             return
@@ -5784,7 +5792,7 @@ class HomeScreen(ft.Container):
                         ft.Container(
                             Text(f"... {tr('and_others')}",
                                  size=12,
-                                 color=ft.colors.ON_BACKGROUND,
+                                 color=ft.Colors.ON_SURFACE,
                                  tooltip=mods_text), margin=ft.margin.only(left=25)))
                     break
                 splited = mod_identifier.split("\n")
@@ -5792,9 +5800,9 @@ class HomeScreen(ft.Container):
                     mods_info.controls.append(
                         ft.Container(
                             ft.Row([
-                                Icon(ft.icons.INFO_OUTLINE_ROUNDED,
+                                Icon(ft.Icons.INFO_OUTLINE_ROUNDED,
                                      size=12,
-                                     color=ft.colors.SECONDARY,
+                                     color=ft.Colors.SECONDARY,
                                      expand=1),
                                 Text(splited[0],
                                      size=12,
@@ -5809,9 +5817,9 @@ class HomeScreen(ft.Container):
                 else:
                     mods_info.controls.append(
                         ft.Row([
-                                Icon(ft.icons.CIRCLE,
+                                Icon(ft.Icons.CIRCLE,
                                      size=12,
-                                     color=ft.colors.ON_BACKGROUND,
+                                     color=ft.Colors.ON_SURFACE,
                                      expand=1),
                                 Text(mod_identifier,
                                      size=12,
@@ -5828,12 +5836,12 @@ class HomeScreen(ft.Container):
 
         if len(self.app.config.game_names) == 1:
             game_selector = ft.Container(
-                Icon(ft.icons.BADGE_ROUNDED, color=ft.colors.PRIMARY, size=20),
+                Icon(ft.Icons.BADGE_ROUNDED, color=ft.Colors.PRIMARY, size=20),
                 margin=ft.margin.only(left=7, right=8))
         else:
             game_selector = ft.PopupMenuButton(
-                                icon=ft.icons.BADGE_ROUNDED,
-                                # icon_color=ft.colors.PRIMARY,
+                                icon=ft.Icons.BADGE_ROUNDED,
+                                # icon_color=ft.Colors.PRIMARY,
                                 # icon_size=20,
                                 scale=0.85,
                                 tooltip=tr("select_other_game").capitalize(),
@@ -5862,16 +5870,16 @@ class HomeScreen(ft.Container):
                             game_selector,
                             ft.Column([
                                 Text(self.app.config.game_names.get(self.app.config.current_game),
-                                     color=ft.colors.PRIMARY,
+                                     color=ft.Colors.PRIMARY,
                                      overflow=ft.TextOverflow.ELLIPSIS,
                                      weight=ft.FontWeight.W_400,
                                      tooltip=self.app.config.game_names.get(self.app.config.current_game))],
                                 expand=True)
                             ], spacing=0, alignment=ft.MainAxisAlignment.START),
                         ft.Container(Row([
-                            Icon(ft.icons.INFO_ROUNDED, color=ft.colors.PRIMARY, size=20),
+                            Icon(ft.Icons.INFO_ROUNDED, color=ft.Colors.PRIMARY, size=20),
                             Text(self.app.game.exe_version_tr,
-                                 color=ft.colors.PRIMARY,
+                                 color=ft.Colors.PRIMARY,
                                  tooltip=tr("exe_version") + "\n" + self.app.game.target_exe,
                                  weight=ft.FontWeight.W_700),
                             ]), margin=ft.margin.only(left=7),
@@ -5880,7 +5888,7 @@ class HomeScreen(ft.Container):
                         ft.Container(Row([
                                 Text(tr("has_mods").upper(),
                                      weight=ft.FontWeight.BOLD,
-                                     color=ft.colors.ON_BACKGROUND)
+                                     color=ft.Colors.ON_SURFACE)
                                 ]), margin=ft.margin.only(top=10),
                                 visible=bool(mods_text),
                                 tooltip=ft.Tooltip(
@@ -5892,7 +5900,7 @@ class HomeScreen(ft.Container):
                                  weight=ft.FontWeight.BOLD),
                             ft.TextButton(
                                     text=tr("open_in_explorer"),
-                                    icon=icons.FOLDER_OPEN,
+                                    icon=ft.Icons.FOLDER_OPEN,
                                     on_click=self.open_clicked,
                                     tooltip=ft.Tooltip(
                                         message=tr("open_in_explorer"),
@@ -5908,7 +5916,7 @@ class HomeScreen(ft.Container):
                                   weight=ft.FontWeight.BOLD),
                              ft.PopupMenuButton(items=[
                                 ft.PopupMenuItem(
-                                    content=Row([Icon(ft.icons.FULLSCREEN_ROUNDED),
+                                    content=Row([Icon(ft.Icons.FULLSCREEN_ROUNDED),
                                                  Text(tr("windowed_mode").capitalize(),
                                                       width=160,
                                                       size=13)]),
@@ -5916,7 +5924,7 @@ class HomeScreen(ft.Container):
                                     on_click=self.switch_to_windowed,
                                     ref=self.checkbox_windowed_game),
                                 ft.PopupMenuItem(
-                                    content=Row([Icon(ft.icons.FOUR_K_ROUNDED),
+                                    content=Row([Icon(ft.Icons.FOUR_K_ROUNDED),
                                                  Text(tr("hi_dpi_aware"),
                                                       width=160,
                                                       size=13)]),
@@ -5925,7 +5933,7 @@ class HomeScreen(ft.Container):
                                     ref=self.checkbox_hi_dpi_aware,
                                     disabled=not self.app.context.under_windows),
                                 ft.PopupMenuItem(
-                                    content=Row([Icon(ft.icons.SETTINGS_APPLICATIONS_OUTLINED),
+                                    content=Row([Icon(ft.Icons.SETTINGS_APPLICATIONS_OUTLINED),
                                                  Text(tr("fullscreen_optimizations"),
                                                       width=160,
                                                       size=13)]),
@@ -5936,8 +5944,8 @@ class HomeScreen(ft.Container):
                                 ft.PopupMenuItem(),
                                 ft.PopupMenuItem(
                                     content=ft.Container(
-                                        Row([Icon(ft.icons.QUESTION_MARK_OUTLINED,
-                                                  color=ft.colors.ON_BACKGROUND),
+                                        Row([Icon(ft.Icons.QUESTION_MARK_OUTLINED,
+                                                  color=ft.Colors.ON_SURFACE),
                                              Text(tr("launch_options_instructions").capitalize(),
                                                   width=190,
                                                   size=13)]),
@@ -5963,14 +5971,14 @@ class HomeScreen(ft.Container):
                         ft.FloatingActionButton(
                             content=ft.Row([
                                 ft.ProgressRing(visible=False,
-                                                color=ft.colors.ON_PRIMARY,
+                                                color=ft.Colors.ON_PRIMARY,
                                                 scale=0.7,
                                                 ref=self.launch_prog_ring),
                                 ft.Text(tr("play").capitalize(), size=20,
                                         weight=ft.FontWeight.W_700,
                                         ref=self.launch_game_btn_text,
-                                        color=ft.colors.ON_PRIMARY)],
-                                alignment="center", spacing=5
+                                        color=ft.Colors.ON_PRIMARY)],
+                                alignment=ft.MainAxisAlignment.CENTER, spacing=5
                             ),
                             shape=ft.RoundedRectangleBorder(radius=5),
                             bgcolor="#FFA500",

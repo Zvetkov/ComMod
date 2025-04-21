@@ -21,6 +21,7 @@ from pydantic import (
 )
 
 from commod.game import data, hd_ui
+from commod.helpers import parse_ops
 from commod.helpers.file_ops import (
     RESOLUTION_OPTION_LIST_SIZE,
     get_config,
@@ -36,7 +37,72 @@ from commod.helpers.parse_ops import (
     xml_to_objfy,
 )
 from commod.localisation.service import get_known_mod_display_name, tr
+from commod.tools import xml_merge
 
+
+class MergeDirective(BaseModel, arbitrary_types_allowed = True):
+    root_dir: Path
+    raw_commands_file: str = Field(validation_alias="commands", repr=False)
+    raw_targets: str | list[str] = Field(validation_alias="targets", repr=False)
+    merge_author: str
+
+    _command_list: list[xml_merge.Command] = []
+
+    @field_validator("raw_targets", mode="before")
+    @classmethod
+    def convert_to_list(
+            cls, value: str | list) -> list[str]:
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, list):
+            return value
+        raise ValueError("Unexpected value type in 'targets' field")
+
+    @field_validator("raw_targets", mode="after")
+    @classmethod
+    def parse_relative_paths(cls, value: list[str]) -> list[str]:
+        return [parse_simple_relative_path(path) for path in value]
+
+    @field_validator("raw_commands_file", mode="after")
+    @classmethod
+    def parse_relative_path(cls, value: str) -> str:
+        return parse_simple_relative_path(value)
+
+    @computed_field(repr=True)
+    @cached_property
+    def targets(self) -> list[Path]:
+        return [Path(target) for target in self.raw_targets]
+
+    @computed_field(repr=True)
+    @cached_property
+    def commands_file(self) -> Path:
+        return self.root_dir / self.raw_commands_file
+
+    @computed_field(repr=False)
+    @property
+    def commands(self) -> list[xml_merge.Command]:
+        try:
+            cmd_tree = parse_ops.xml_to_objfy(self.commands_file)
+            self._command_list = xml_merge.parse_command_tree(
+                cmd_tree, merge_author=self.merge_author)
+        except Exception as ex:
+            raise ValueError(f"Unable to parse commands from '{self.commands_file!r}'") from ex
+
+        return self._command_list
+
+    @model_validator(mode="after")
+    def load_commands(self) -> "MergeDirective":
+        if not self.commands_file.name.startswith("_"):
+            raise ValueError(f"All command file names must start with underscore('_'): {self.commands_file}")
+
+        if not self.commands_file.exists():
+            raise ValueError(f"Specified 'commands' path doesn't exist: '{self.commands_file!r}'")
+        for target in self.targets:
+            if (self.root_dir / target).exists():
+                raise ValueError(
+                    f"Merge command file specifies target '{target}' "
+                    "but copy file overwriting that target also exists in mod files!")
+        return self
 
 class PatcherOptions(BaseModel):
     # gameplay

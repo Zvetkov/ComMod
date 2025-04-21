@@ -8,6 +8,7 @@ import platform
 import pprint
 import subprocess
 import sys
+import time
 import zipfile
 from asyncio import gather
 from collections import defaultdict
@@ -260,7 +261,7 @@ class InstallationContext:
             raise NoModsFoundError
 
         # TODO: maybe use ThreadPool to speedup
-        start = datetime.now()
+        start = time.perf_counter()
         for mod_config_path in all_config_paths:
             with open(mod_config_path, "rb") as f:
                 digest = hashlib.file_digest(f, "md5").hexdigest()
@@ -319,8 +320,8 @@ class InstallationContext:
                 if not validated and (mod_config_path in self.validated_mods):
                     self.validated_mods.pop(mod_config_path, None)
 
-        end = datetime.now()
-        self.logger.debug(f"{(end - start).microseconds / 1000000} seconds took mods loading")
+        end = time.perf_counter()
+        self.logger.debug(f"{round(end - start, 3)} seconds took mods loading")
 
         outdated_mods = set(self.validated_mods.keys()) - set(all_config_paths)
         if outdated_mods:
@@ -388,7 +389,7 @@ class InstallationContext:
 
         return [result for result in search_results if result is not None]
 
-    async def get_existing_mods_async(self, mods_dir: str) -> list[str]:
+    async def get_existing_mods_async(self, mods_dir: str) -> tuple[list[str], dict]:
         # TODO: review this commented out code
         # self.logger.debug("Inside get_existing_mods async")
         # mod_list = await self.get_dir_manifest_async(mods_dir)
@@ -562,6 +563,8 @@ class InstallationContext:
                                           "%(module)-11s - line %(lineno)-4d: %(message)s")
             stream_formatter = logging.Formatter("%(asctime)s: %(levelname)-7s - %(module)-11s"
                                                  " - line %(lineno)-4d: %(message)s")
+
+            # self.dev_mode = True # TODO: REMOVE!
 
             if self.dev_mode or (stream_only and "NUITKA_ONEFILE_PARENT" not in os.environ):
                 stream_handler = logging.StreamHandler()

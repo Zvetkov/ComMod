@@ -3,8 +3,8 @@
 import logging
 import operator
 import os
+import time
 from collections.abc import Awaitable
-from datetime import datetime
 from functools import cached_property
 from pathlib import Path
 from typing import Annotated, Any
@@ -42,6 +42,7 @@ from commod.game.mod_auxiliary import (
     Screenshot,
     Tags,
     Version,
+    MergeDirective
 )
 from commod.helpers.errors import ModFileInstallationError
 from commod.helpers.file_ops import (
@@ -155,7 +156,7 @@ class Mod(BaseModel):
     @field_validator("patcher_version_requirement", mode="before")
     @classmethod
     def convert_to_parsed_version(
-            cls, value: str | list | ManagerVersionRequirement) -> ManagerVersionRequirement:
+            cls, value: str | list | ManagerVersionRequirement) -> list[ManagerVersionRequirement]:
         if isinstance(value, str):
             return [ManagerVersionRequirement(value)]
         if isinstance(value, ManagerVersionRequirement):
@@ -486,6 +487,20 @@ class Mod(BaseModel):
 
     @computed_field(repr=False)
     @cached_property
+    def merge_directives(self) -> list[MergeDirective]:
+        directives = []
+        for path in self.data_dirs:
+            merge_instruction = self.mod_files_root / path / "merge_instructions.yaml"
+            if merge_instruction.exists():
+                instruction_list = read_yaml(merge_instruction)
+                directives = [MergeDirective(
+                    **instr, merge_author=self.id_str, root_dir=self.mod_files_root / path)
+                    for instr in instruction_list]
+
+        return directives
+
+    @computed_field(repr=False)
+    @cached_property
     def bin_dirs(self) -> list[Path]:
         if not self.raw_bin_dirs and self.name in ("community_patch", "community_remaster"):
             return [Path("libs")]
@@ -612,6 +627,8 @@ class Mod(BaseModel):
                     elif not path_to_check.is_dir():
                         raise ValueError("Data path doesn't exists for optional content", path_to_check)
             item.data_dirs = resolved_item_paths
+        if self.merge_directives:
+            logger.debug("Loaded merge directives")
         return self
 
     @model_validator(mode="after")
@@ -803,14 +820,14 @@ class Mod(BaseModel):
                 data_paths = [Path(self.mod_files_root, one_dir) for one_dir in self.data_dirs]
                 await callback_status(tr("copying_base_files_please_wait"))
                 mod_files.extend(data_paths)
-                start = datetime.now()
+                start = time.perf_counter()
                 await copy_from_to_async_fast(mod_files, game_data_path, callback_progbar)
                 await copy_from_to_async_fast(bin_paths, Path(game_data_path).parent, callback_progbar)
-                end = datetime.now()
-                logger.debug(f"{(end - start).microseconds / 1000000} seconds took fast copy")
+                end = time.perf_counter()
+                logger.debug(f"{round(end - start, 3)} seconds took fast copy")
                 mod_files.clear()
 
-            for install_setting in install_settings:
+            for install_setting in install_settings:  # noqa: PLC0206
                 if install_setting == "base":
                     continue
 
@@ -839,10 +856,10 @@ class Mod(BaseModel):
                 if installation_decision != "skip":
                     await callback_status(tr("copying_options_please_wait"))
 
-                start = datetime.now()
+                start = time.perf_counter()
                 await copy_from_to_async_fast(mod_files, game_data_path, callback_progbar)
-                end = datetime.now()
-                logger.debug(f"{(end - start).microseconds / 1000000} seconds took fast copy")
+                end = time.perf_counter()
+                logger.debug(f"{round(end - start, 3)} seconds took fast copy")
 
                 mod_files.clear()
         except Exception as ex:

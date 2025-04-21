@@ -1,15 +1,15 @@
 import asyncio
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import flet as ft
 from flet import IconButton, Image, Page, Theme, VisualDensity
 
 from commod.game.data import get_title
 from commod.game.environment import GameCopy, InstallationContext
+from commod.gui import common_widgets as cw
 from commod.gui.app_widgets import App
-from commod.gui.common_widgets import title_btn_style
 from commod.gui.config import AppSections, Config
 from commod.helpers.file_ops import get_internal_file_path
 from commod.helpers.parse_ops import init_input_parser
@@ -42,7 +42,7 @@ async def main(page: Page) -> None:
     page.window.visible = True
 
     loading_ring = ft.Container(
-        ft.ProgressRing(width=300, height=300, color=ft.colors.PRIMARY_CONTAINER),
+        ft.ProgressRing(width=300, height=300, color=ft.Colors.PRIMARY_CONTAINER),
         expand=True,
         alignment=ft.alignment.center)
 
@@ -119,14 +119,14 @@ async def main(page: Page) -> None:
     app.create_sections()
 
     page.theme_icon_btn = ft.Ref[IconButton]()
-    theme_icon = ft.icons.BRIGHTNESS_AUTO
+    theme_icon = ft.Icons.BRIGHTNESS_AUTO
     match page.theme_mode:
         case ft.ThemeMode.SYSTEM:
-            theme_icon = ft.icons.BRIGHTNESS_AUTO
+            theme_icon = ft.Icons.BRIGHTNESS_AUTO
         case ft.ThemeMode.DARK:
-            theme_icon = ft.icons.WB_SUNNY_OUTLINED
+            theme_icon = ft.Icons.WB_SUNNY_OUTLINED
         case ft.ThemeMode.LIGHT:
-            theme_icon = ft.icons.NIGHTLIGHT_OUTLINED
+            theme_icon = ft.Icons.NIGHTLIGHT_OUTLINED
 
     rail = ft.NavigationRail(
         selected_index=0,
@@ -135,23 +135,28 @@ async def main(page: Page) -> None:
         animate_size=ft.animation.Animation(200, ft.AnimationCurve.DECELERATE),
         destinations=[
             ft.NavigationRailDestination(
-                icon=ft.icons.ROCKET_LAUNCH_OUTLINED,
-                selected_icon=ft.icons.ROCKET_LAUNCH,
+                icon=ft.Icons.ROCKET_LAUNCH_OUTLINED,
+                selected_icon=ft.Icons.ROCKET_LAUNCH,
                 label=tr("launch").capitalize()
             ),
             ft.NavigationRailDestination(
-                icon=ft.icons.BOOKMARK_BORDER,
-                selected_icon=ft.icons.BOOKMARK,
+                icon=ft.Icons.BOOKMARK_BORDER,
+                selected_icon=ft.Icons.BOOKMARK,
                 label=tr("local_mods").capitalize(),
             ),
             ft.NavigationRailDestination(
-                icon=ft.icons.DOWNLOAD_OUTLINED,
-                selected_icon=ft.icons.DOWNLOAD,
+                icon=ft.Icons.DOWNLOAD_OUTLINED,
+                selected_icon=ft.Icons.DOWNLOAD,
                 label=tr("download").capitalize()
             ),
             ft.NavigationRailDestination(
-                icon=ft.icons.SETTINGS_OUTLINED,
-                selected_icon=ft.icons.SETTINGS,
+                icon=ft.Icons.CONSTRUCTION_OUTLINED,
+                selected_icon=ft.Icons.CONSTRUCTION,
+                label=tr("modding_tools").capitalize(),
+            ),
+            ft.NavigationRailDestination(
+                icon=ft.Icons.SETTINGS_OUTLINED,
+                selected_icon=ft.Icons.SETTINGS,
                 label=tr("settings").capitalize()
             )
         ],
@@ -159,7 +164,7 @@ async def main(page: Page) -> None:
             icon=theme_icon,
             on_click=app.change_theme_mode,
             ref=page.theme_icon_btn,
-            selected_icon_color=ft.colors.ON_SURFACE_VARIANT,
+            selected_icon_color=ft.Colors.ON_SURFACE_VARIANT,
             tooltip=ft.Tooltip(
                 message=tr("theme_mode"),
                 wait_duration=500)),
@@ -180,20 +185,22 @@ async def main(page: Page) -> None:
                            height=20,
                            fit=ft.ImageFit.COVER),
                      ft.Text(get_title(), size=13, weight=ft.FontWeight.W_500),
-                     ft.Text("[dev]", size=13, color=ft.colors.ERROR, weight=ft.FontWeight.BOLD,
+                     ft.Text("[dev]", size=13, color=ft.Colors.ERROR, weight=ft.FontWeight.BOLD,
                              visible=install_context.dev_mode or app.config.modder_mode),
                      ]), padding=6),
                      expand=True),
-             ft.IconButton(ft.icons.MINIMIZE_ROUNDED,
-                           on_click=app.minimize, icon_size=20,
-                           style=title_btn_style(),
-                           ref=page.minimize_btn),
-             ft.IconButton(ft.icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED,
-                           on_click=app.maximize, icon_size=17,
-                           style=title_btn_style(),
-                           ref=page.maximize_btn),
-             ft.IconButton(ft.icons.CLOSE_ROUNDED, on_click=app.finalize, icon_size=22,
-                           style=title_btn_style(hover_color=ft.colors.RED))
+             cw.TitleButton(ft.Icons.MINIMIZE_ROUNDED,
+                            on_click=app.minimize,
+                            icon_size=20,
+                            ref=page.minimize_btn),
+             cw.TitleButton(ft.Icons.CHECK_BOX_OUTLINE_BLANK_ROUNDED,
+                            on_click=app.maximize,
+                            icon_size=17,
+                            ref=page.maximize_btn),
+             cw.TitleButton(ft.Icons.CLOSE_ROUNDED,
+                            on_click=app.finalize,
+                            icon_size=22,
+                            hover_color=ft.Colors.RED),
              ],
             spacing=0,
             height=31

@@ -1,6 +1,7 @@
 # ruff: noqa: E721
 
 import asyncio
+import json
 import logging
 import math
 import os
@@ -24,45 +25,70 @@ from flet import Text
 from lxml import etree, objectify
 
 from commod.helpers.parse_ops import beautify_machina_xml, xml_to_objfy
+from commod.game.data import ENCODING
 
 logger = logging.getLogger("dem")
 
 SUPPORTED_IMG_TYPES = (".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
 RESOLUTION_OPTION_LIST_SIZE = 5
 
-def write_xml_to_file(objectify_tree: objectify.ObjectifiedElement, path: str,
-                 machina_beautify: bool = True) -> None:
+def write_xml_to_file(
+    objectify_tree: objectify.ObjectifiedElement,
+    path: str | Path, machina_beautify: bool = True,
+    use_utf: bool = False) -> None:
     """Write ObjectifiedElement tree to file at path.
 
     Will format and beautify file in the style very similar to original EM dynamicscene.xml
     files by default. Can skip beautifier and save raw lxml formated file.
     """
+    if use_utf:
+        doctype = ""
+        encoding = "utf-8"
+    else:
+        doctype = f'<?xml version="1.0" encoding="{ENCODING}" standalone="yes" ?>'
+        encoding = ENCODING
+
     xml_string = etree.tostring(
         objectify_tree,
         pretty_print=True,
-        doctype='<?xml version="1.0" encoding="windows-1251" standalone="yes" ?>',
-        encoding="windows-1251")
-    with open(path, "wb") as fh:
+        xml_declaration=False,
+        doctype=doctype,
+        # standalone=True,
+        encoding=encoding)
+
+    # TODO: replace("&quot;", "''") maybe?
+
+    with Path(path).open("wb") as fh:
         if machina_beautify:
             fh.write(beautify_machina_xml(xml_string))
         else:
             fh.write(xml_string)
 
 
-async def write_xml_to_file_async(objectify_tree: objectify.ObjectifiedElement, path: str,
-                             machina_beautify: bool = True) -> None:
+async def write_xml_to_file_async(
+        objectify_tree: objectify.ObjectifiedElement, path: str,
+        machina_beautify: bool = True,
+        use_utf: bool = False) -> None:
     """Asynchronously write ObjectifiedElement tree to file at path.
 
     Will format and beautify file in the style very similar to original EM
     dynamicscene.xml files by default. Can skip beautifier and save raw lxml
     formated file.
     """
+    if use_utf:
+        doctype = ""
+        encoding = "utf-8"
+    else:
+        doctype = f'<?xml version="1.0" encoding="{ENCODING}" standalone="yes" ?>'
+        encoding = ENCODING
+
     xml_string = etree.tostring(
         objectify_tree,
         pretty_print=True,
-        doctype='<?xml version="1.0" encoding="windows-1251" standalone="yes" ?>',
-        encoding="windows-1251")
-    async with aiofiles.open(path, "wb") as fh:
+        doctype=doctype,
+        encoding=encoding)
+
+    async with aiofiles.open(path, mode="wb", encoding=encoding) as fh:
         if machina_beautify:
             await fh.write(beautify_machina_xml(xml_string))
         else:
@@ -71,13 +97,30 @@ async def write_xml_to_file_async(objectify_tree: objectify.ObjectifiedElement, 
 def open_dir_in_os(directory_path: str | Path) -> None:
     """Open directory in Windows Explorer or OS specific equiavalents."""
     directory_path = Path(directory_path)
-    if os.path.isdir(directory_path):
+    if directory_path.is_dir():
         sysplat = platform.system()
         if "Windows" in sysplat:
             os.startfile(directory_path)  # noqa: S606
             return
         opener = "open" if "Darwin" in sysplat else "xdg-open"
         subprocess.call([opener, directory_path])  # noqa: S603
+
+def open_file_in_editor(file_path: str | Path, editor: str, line: int = 1) -> None:
+    """Open file in VSCode or other configurated editor."""
+    file_path = Path(file_path)
+    if file_path.exists():
+        final_cmd = [editor]
+        try:
+            if line != 1 and (editor == "code" or "code.exe" in editor.lower()):
+                final_cmd.extend(["-g", f"{file_path}:{line}"])
+            elif line != 1 and "notepad++" in editor.lower():
+                final_cmd.extend([str(file_path), f"-n{line}"])
+            else:
+                final_cmd.append(str(file_path))
+
+            subprocess.run(final_cmd, shell=True)  # noqa: S603
+        except Exception:
+            logger.exception("Unable to open file in editor")
 
 def count_files(directory: str) -> int:
     files = []
@@ -221,6 +264,8 @@ async def extract_zip_from_to(archive_path: str | Path, to_path: str | Path,
                     file_path.encode("cp437").decode("ascii")
                 except UnicodeDecodeError:
                     file_path = file_path.encode("cp437").decode("cp866")
+                except UnicodeEncodeError:
+                    pass
                 os.makedirs(Path(to_path) / file_path, exist_ok=True)
             else:
                 only_files.append(file_path)
@@ -307,6 +352,17 @@ def load_yaml(stream: typing.IO) -> Any:  # noqa: ANN401
         logger.exception("Unable to load yaml")
         return None
 
+def read_json(json_path: str | Path) -> Any: # noqa: ANN401
+    with Path(json_path).open(encoding="utf-8") as fh:
+        try:
+            loaded = json.load(fh)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            logger.exception("Unable to decode json")
+            loaded = None
+
+        if loaded is None:
+            logger.error(f"Couln't read json at: '{json_path}")
+        return loaded
 
 def read_yaml(yaml_path: str | Path) -> Any:  # noqa: ANN401
     with open(yaml_path, encoding="utf-8") as stream:

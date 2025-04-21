@@ -13,7 +13,8 @@ from lxml import objectify
 
 from commod.game import data
 
-DOMAIN_SAFELIST = {"youtube.com", "youtu.be", "github.com", "deuswiki.com", "dem.org.ua"}
+DOMAIN_SAFELIST = {"youtube.com", "youtu.be", "github.com",
+                   "deuswiki.com", "forum.deuswiki.com", "dem.org.ua"}
 
 def init_input_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="DEM Community Mod Manager")
@@ -99,9 +100,13 @@ def parse_simple_relative_path(path: str | Path) -> str:
 
 
 def find_element(
-        xml_node: objectify.ObjectifiedElement,
+        xml_node: objectify.ObjectifiedElement | None,
         child_name: str, do_not_warn: bool = False) -> objectify.ObjectifiedElement | None:
     """Get child from ObjectifiedElement by name."""
+    if not isinstance(xml_node, objectify.ObjectifiedElement):
+        if not do_not_warn:
+            print(f"Can't find child node, as parent element is invalid: '{xml_node}'")
+        return None
     try:
         return xml_node[child_name]
     except AttributeError:
@@ -148,23 +153,50 @@ def get_attrib(
         print(f"No attribute with name '{attrib_name}' for xml node '{xml_node.tag}'")
     return attrib
 
-def beautify_machina_xml(xml_string: str) -> str:
+def beautify_machina_xml(xml_string: bytes) -> bytes:
     """Format and beautify xml string in the style similar to original Ex Machina dynamicscene.xml files."""
     beautified_string = b""
     previous_line_indent = -1
 
     # As first line of xml file is XML Declaration, we want to exclude it
     # from Beautifier to get rid of checks for every line down the line
-    for raw_line in xml_string[xml_string.find(b"\n<") + 1:].splitlines():
+    inside_plaintext_block = False
+    plaintext_tag_indent = 0
+
+    never_split_tags = [b"event", b"Point", b"Wheel"] # b"Folder"
+
+    for raw_line in xml_string.splitlines():
         line = raw_line
+
         line_stripped = line.lstrip()
+
         # calculating indent level of parent line to indent attributes
         # lxml use spaces for indents, game use tabs, so indents maps 2:1
         line_indent = (len(line) - len(line_stripped)) // 2
 
-        line = _split_tag_on_attributes(line_stripped, line_indent)
-        # manually tabulating lines according to saved indent level
-        line = line_indent * b"\t" + line + b"\n"
+        if line_stripped.startswith(b"</script>"):
+            inside_plaintext_block = False
+            line_indent = plaintext_tag_indent
+            previous_line_indent = 0
+            plaintext_tag_indent = 0
+
+        if line_stripped.startswith(b"<?xml") and line_stripped.endswith(b"?>"):
+            beautified_string += line + b"\n\n"
+            continue
+
+        if inside_plaintext_block:
+            beautified_string += line + b"\n"
+            continue
+
+
+        # beautified_string += line_indent * b"\t" + line + b"\n"
+
+        if any(line_stripped.startswith(b"<"+prefix) for prefix in never_split_tags):
+            line = line_indent * b"\t" + line_stripped + b"\n"
+        else:
+            # manually tabulating lines according to saved indent level
+            line = _split_tag_on_attributes(line_stripped, line_indent)
+            line = line_indent * b"\t" + line + b"\n"
 
         # in EM xmls every first and only first tag of its tree level is
         # separated by a new line
@@ -176,10 +208,15 @@ def beautify_machina_xml(xml_string: str) -> str:
         previous_line_indent = line_indent
 
         beautified_string += line
+
+        if line_stripped.startswith(b"<script>"):
+            inside_plaintext_block = True
+            plaintext_tag_indent = line_indent
+
     return beautified_string
 
 
-def _split_tag_on_attributes(xml_line: str, line_indent: int) -> str:
+def _split_tag_on_attributes(xml_line: bytes, line_indent: int) -> bytes:
     white_space_index = xml_line.find(b" ")
     quotmark_index = xml_line.find(b'"')
 
@@ -201,12 +238,21 @@ def _split_tag_on_attributes(xml_line: str, line_indent: int) -> str:
                                        line_indent))
 
 
-def xml_to_objfy(full_path: str) -> objectify.ObjectifiedElement:
-    with open(full_path, encoding=data.ENCODING) as f:
-        parser_recovery = objectify.makeparser(recover=True, encoding=data.ENCODING, collect_ids=False)
-        objectify.enable_recursive_str()
-        objfy = objectify.parse(f, parser_recovery)
-    return objfy.getroot()
+def xml_to_objfy(full_path: str | Path) -> objectify.ObjectifiedElement:
+    with Path(full_path).open("rb") as fh:
+        byte_string = fh.read()
+        try:
+            encoding = "utf-8"
+            file_data = byte_string.decode(encoding)
+        except UnicodeDecodeError:
+            encoding = data.ENCODING
+            file_data = byte_string.decode(data.ENCODING)
+
+        parser_recovery = objectify.makeparser(recover=True, encoding=encoding, collect_ids=False)
+        objectify.enable_recursive_str(True)
+        # objectify.parse(f, parser_recovery)
+        objfy = objectify.fromstring(byte_string, parser_recovery)
+    return objfy
 
 def xml_to_etree(full_path: str | Path) -> ET.Element:
     tree = ET.parse(full_path)
