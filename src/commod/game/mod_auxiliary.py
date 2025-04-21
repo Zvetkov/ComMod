@@ -44,6 +44,7 @@ class MergeDirective(BaseModel, arbitrary_types_allowed = True):
     root_dir: Path
     raw_commands_file: str = Field(validation_alias="commands", repr=False)
     raw_targets: str | list[str] = Field(validation_alias="targets", repr=False)
+    type: str = "merge_xml"
     merge_author: str
 
     _command_list: list[xml_merge.Command] = []
@@ -695,7 +696,28 @@ class InstallSettings(BaseModel):
     description: Annotated[str, StringConstraints(max_length=1024)] = Field(repr=False)
 
     # file structure
-    data_dirs: list[str] = []
+    data_dirs: list[str] | list[Path] = []
+    _merge_directives: list[MergeDirective] = []
+
+    @property
+    def merge_directives(self) -> list[MergeDirective]:
+        return self._merge_directives
+
+    @merge_directives.setter
+    def merge_directives(self, new_directives: list[MergeDirective]) -> None:
+        for directive in new_directives:
+            if not directive.commands_file.name.startswith("_"):
+                raise AssertionError(
+                    "All command instruction file name must start with underscore ('_') symbol:\n"
+                    f"{directive.commands_file}")
+            corresponding_file = directive.commands_file.parent / directive.commands_file.name.lstrip("_")
+            if corresponding_file.exists():
+                raise AssertionError(
+                    f"Can't have merge commands duplicating files that are simply copied: \n"
+                    f"{directive.commands_file}\n"
+                    "AND\n"
+                    f"{corresponding_file}!")
+        self._merge_directives = new_directives
 
     @field_validator("name", "display_name", "description", mode="after")
     @classmethod
@@ -727,7 +749,28 @@ class OptionalContent(BaseModel):
     patcher_options: PatcherOptions | None = None
 
     # file structure
-    data_dirs: list[str] = []
+    data_dirs: list[str] | list[Path] = []
+    _merge_directives: list[MergeDirective] = []
+
+    @property
+    def merge_directives(self) -> list[MergeDirective]:
+        return self._merge_directives
+
+    @merge_directives.setter
+    def merge_directives(self, new_directives: list[MergeDirective]) -> None:
+        for directive in new_directives:
+            if not directive.commands_file.name.startswith("_"):
+                raise AssertionError(
+                    "All command instruction file name must start with underscore ('_') symbol:\n"
+                    f"{directive.commands_file}")
+            corresponding_file = directive.commands_file.parent / directive.commands_file.name.lstrip("_")
+            if corresponding_file.exists():
+                raise AssertionError(
+                    f"Can't have merge commands duplicating files that are simply copied: \n"
+                    f"{directive.commands_file}\n"
+                    "AND\n"
+                    f"{corresponding_file}!")
+        self._merge_directives = new_directives
 
     @field_validator("name", "display_name", "description", mode="after")
     @classmethod

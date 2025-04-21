@@ -490,11 +490,11 @@ class Mod(BaseModel):
     def merge_directives(self) -> list[MergeDirective]:
         directives = []
         for path in self.data_dirs:
-            merge_instruction = self.mod_files_root / path / "merge_instructions.yaml"
-            if merge_instruction.exists():
-                instruction_list = read_yaml(merge_instruction)
+            merge_instructions = self.mod_files_root / path / "merge_instructions.yaml"
+            if merge_instructions.exists():
+                instruction_list = read_yaml(merge_instructions)
                 directives = [MergeDirective(
-                    **instr, merge_author=self.id_str, root_dir=self.mod_files_root / path)
+                    **instr, merge_author=f"{self.id_str}[base]", root_dir=self.mod_files_root / path)
                     for instr in instruction_list]
 
         return directives
@@ -627,8 +627,31 @@ class Mod(BaseModel):
                     elif not path_to_check.is_dir():
                         raise ValueError("Data path doesn't exists for optional content", path_to_check)
             item.data_dirs = resolved_item_paths
+
         if self.merge_directives:
-            logger.debug("Loaded merge directives")
+            logger.debug(f"Loaded merge directives for {self!r}")
+        for item in self.optional_content:
+            for option_data in item.data_dirs:
+                merge_instructions = Path(option_data) / "merge_instructions.yaml"
+                if merge_instructions.exists():
+                    opt_instruction_list = read_yaml(merge_instructions)
+                    directives = [MergeDirective(
+                        **instr, merge_author=f"{self.id_str}[{item.name}]",
+                        root_dir=Path(option_data))
+                        for instr in opt_instruction_list]
+                    item.merge_directives = directives
+                if item.install_settings:
+                    for custom_setting in item.install_settings:
+                        for custom_data_dir in custom_setting.data_dirs:
+                            merge_instructions = Path(option_data) / custom_data_dir / "merge_instructions.yaml"
+                            if merge_instructions.exists():
+                                opt_instruction_list = read_yaml(merge_instructions)
+                                directives = [MergeDirective(
+                                    **instr,
+                                    merge_author=f"{self.id_str}[{item.name}][{custom_setting.name}]",
+                                    root_dir=Path(option_data) / custom_data_dir)
+                                    for instr in opt_instruction_list]
+                                custom_setting.merge_directives = directives
         return self
 
     @model_validator(mode="after")
@@ -690,11 +713,6 @@ class Mod(BaseModel):
             self.variants.append("patch")
             self.add_mod_variant(compatch_fallback)
 
-        # for variant in self.variants_loaded.values():
-        #     variant._sister_variants = {
-        #         sis_var.name: sis_var
-        #         for sis_var in self.variants_loaded.values()
-        #         if sis_var.name != variant.name}
         return self
 
     @model_validator(mode="after")
