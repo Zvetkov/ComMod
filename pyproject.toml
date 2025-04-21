@@ -10,7 +10,7 @@ name = "commod"
 dynamic = ["version"]
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "flet==0.26.0",
+    "flet==0.27.*",
     "aiofiles==24.1.0",
     "aiopath==0.7.7",
     "httpx==0.28.1",
@@ -32,7 +32,8 @@ version = {attr = "commod.__version__"}
 [project.optional-dependencies]
 dev = [
     "nuitka>=2.3",
-    "ruff>=0.1.8"
+    "ruff>=0.1.8",
+    "types-lxml>=24.12.13"
 ]
 
 [tool.ruff]
@@ -40,7 +41,7 @@ line-length = 110
 extend-exclude = ["venv", "C:\\Users\\**\\*.py"]
 select = ["ALL"]
 cache-dir = "/tmp/ruff-cache/"
-ignore = ["D1", "TCH002", "TCH003", "ANN101", "ANN102", "COM812", "TD", "FIX", "DTZ005",
+ignore = ["D1", "TCH002", "TCH003", "ANN101", "ANN102", "ANN003", "COM812", "TD", "FIX", "DTZ005",
           "EM101", "EM102", "TRY003", "TRY301", "G004", # logging and exceptions improvements
           "C901", "PLR0912", "PLR0915", "PLR0913", # complexity suggestions
           "ERA001", # dead code
@@ -50,9 +51,11 @@ ignore = ["D1", "TCH002", "TCH003", "ANN101", "ANN102", "COM812", "TD", "FIX", "
           "S324", # cryptographic warning
           "TRY400", # logging.error -> exception
           "ARG001", "ARG002", # Unused method argument, Unused function argument
+          "PT" # we don't use pytest
           ]
 # D1 disabled for philosophical reason, hard docstrings requirement is debatable
 # ANN101, ANN102 are disabled as type checkers can infer this automatically
+# ANN003 disabled for kwarg type annotations, flet's UserControls don't easily allow that
 # TCH *2, *3 disabled to decrease complexity of imports
 # COM812 is giving false positives on multiline string concatenation
 # TD and FIX disabled in a single developer context, as all responsibility is on him
