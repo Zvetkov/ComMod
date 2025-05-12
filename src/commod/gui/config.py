@@ -6,7 +6,8 @@ from typing import Any
 import flet as ft
 
 import commod.localisation.service as localisation
-from commod.game.environment import GameCopy, GameInstallment, InstallationContext
+from commod.game.data import GameFilter
+from commod.game.environment import GameCopy, InstallationContext
 from commod.helpers.file_ops import dump_yaml, read_yaml
 
 
@@ -14,8 +15,8 @@ class AppSections(Enum):
     LAUNCH = 0
     LOCAL_MODS = 1
     DOWNLOAD_MODS = 2
-    MODDING_TOOLS = 3
-    SETTINGS = 4
+    SETTINGS = 3
+    MODDING_TOOLS = 4
 
     @classmethod
     def list_values(cls) -> list[int]:
@@ -46,7 +47,7 @@ class Config:
         self.override_incompat: bool = False
 
         self.current_section: int = AppSections.SETTINGS.value
-        self.current_game_filter: int = GameInstallment.ALL.value
+        self.current_game_filter: int = GameFilter.ALL.value
         self.game_with_console: bool = False
         self.linux_run_cmd = "flatpak run net.lutris.Lutris lutris:rungame/HTA"
         self.code_editor = "code"
@@ -144,10 +145,12 @@ class Config:
 
             current_section = config.get("current_section")
             if current_section in AppSections.list_values():
+                if self.modder_mode is False and current_section == AppSections.MODDING_TOOLS.value:
+                    current_section = AppSections.LAUNCH.value
                 self.current_section = current_section
 
             current_game_filter = config.get("current_game_filter")
-            if current_game_filter in GameInstallment.list_values():
+            if current_game_filter in GameFilter.list_values():
                 self.current_game_filter = current_game_filter
 
             game_with_console = config.get("game_with_console")

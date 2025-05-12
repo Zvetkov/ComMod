@@ -12,13 +12,17 @@ from commod.helpers.get_system_fonts import get_fonts
 logger = logging.getLogger("dem")
 
 
-def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "",
+def scale_fonts(root_dir: str | Path, scale_factor: float, custom_font: str = "",
                 under_windows: bool = True) -> bool:
     config = file_ops.get_config(root_dir)
 
-    config_path = os.path.join(*config.attrib.get("ui_pathToSchema").split("\\")).lower()
-    ui_schema_path = os.path.join(root_dir, config_path)
-    ui_schema = parse_ops.xml_to_objfy(ui_schema_path)
+    config_path_parts = config.attrib.get("ui_pathToSchema")
+    if config_path_parts is None:
+        logger.debug("Unable to read 'ui_pathToSchema' for config!")
+        return False
+    config_path = Path(*config_path_parts.split("\\"))
+    ui_schema_path = Path(root_dir, config_path)
+    ui_schema = parse_ops.xml_to_objfy(str(ui_schema_path).lower())
 
     font_alias = custom_font if custom_font else "Arial"
 
@@ -33,7 +37,7 @@ def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "",
             if temp_dir == test_dir:
                 break
             test_dir = temp_dir
-            fonts_path = Path(os.path.join(test_dir, "Windows", "fonts"))
+            fonts_path = Path(test_dir, "Windows", "fonts")
             if fonts_path.exists():
                 break
 
@@ -73,7 +77,7 @@ def scale_fonts(root_dir: str, scale_factor: float, custom_font: str = "",
     return True
 
 # TODO: better to have two functions without bool flag
-def toggle_16_9_UI_xmls(root_dir: str,screen_width: int, screen_height: int, enable: bool = True) -> None:  # noqa: N802
+def toggle_16_9_UI_xmls(root_dir: str | Path, screen_width: int, screen_height: int, enable: bool = True) -> None:  # noqa: N802
     config = file_ops.get_config(root_dir)
     if config.attrib.get("pathToUiWindows") is not None:
         if enable:
@@ -144,10 +148,10 @@ def toggle_16_9_UI_xmls(root_dir: str,screen_width: int, screen_height: int, ena
             config.attrib["r_width"] = new_width
             config.attrib["r_height"] = new_height
 
-    file_ops.write_xml_to_file(config, os.path.join(root_dir, "data", "config.cfg"))
+    file_ops.write_xml_to_file(config, Path(root_dir, "data", "config.cfg"))
 
 
-def toggle_16_9_glob_prop(root_dir: str, enable: bool = True) -> None:
+def toggle_16_9_glob_prop(root_dir: str | Path, enable: bool = True) -> None:
     config_path = os.path.join(*(commod.game.mod_auxiliary.get_glob_props_path(root_dir).split("\\")))
     glob_props_full_path = os.path.join(root_dir, config_path)
     glob_props = parse_ops.xml_to_objfy(glob_props_full_path)

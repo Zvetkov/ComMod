@@ -1,21 +1,19 @@
-import asyncio
-from itertools import batched
 import logging
 import math
 import time
-from collections import Counter
-from collections.abc import AsyncGenerator, Iterable, Iterator
-from copy import deepcopy, copy
+from collections.abc import Iterable, Iterator
+from copy import copy
 from dataclasses import dataclass
 from enum import Enum
-from functools import lru_cache, cached_property
+from functools import cached_property
+from itertools import batched
 from pathlib import Path
 
 from lxml import objectify
 from pydantic import BaseModel, computed_field, model_validator
 
-from commod.helpers import file_ops, parse_ops
-from commod.tools.xml_merge import ActionType, Command, InvalidMergeCommandError
+from commod.helpers import parse_ops
+from commod.tools.xml_helpers import ActionType, Command, InvalidMergeCommandError
 
 # Some nodes use unique tag names, we can handle them safely if we know that.
 # UNIQUE_TAGS = ["TargetNamesForDestroy", "params", "Files"]
@@ -281,7 +279,8 @@ class Differ:
             for unique_key in unique_keys:
                 unique_key_val = child.get(unique_key)
                 if unique_key_val:
-                   attrib_selectors.append(f"[@{unique_key}='{unique_key_val.replace("'", "&apos;").replace('"', "&quot;")}']")
+                   attrib_selectors.append(
+                       f"[@{unique_key}='{unique_key_val.replace("'", "&apos;").replace('"', "&quot;")}']")
 
             if len(attrib_selectors) == len(unique_keys):
                 child_selector = "".join(attrib_selectors)
@@ -355,7 +354,9 @@ class Differ:
 
 
     @staticmethod
-    def serialize_command(command: Command, keep_attrs: list[str] | None = None) -> objectify.ObjectifiedElement:
+    def serialize_command(
+       command: Command, keep_attrs: list[str] | None = None) -> objectify.ObjectifiedElement:
+
         keep_attrs = keep_attrs if keep_attrs is not None else []
         cmd_node = objectify.Element(command.tag)
         cmd_node.set("_Action", command.action.value)
@@ -430,11 +431,8 @@ class Differ:
     @staticmethod
     def annotate_float_lists(node: objectify.ObjectifiedElement,
                              float_list_attribs: Iterable[str]) -> objectify.ObjectifiedElement:
-        if node.attrib:
-            # calculates the set of coordinate attribs that node has
-            if coord_attrib := set(node.attrib) & set(float_list_attribs):
-                Differ.annotate_float_list_attr(node, coord_attrib)
-                ...
+        if node.attrib and (coord_attrib := set(node.attrib) & set(float_list_attribs)):
+            Differ.annotate_float_list_attr(node, coord_attrib)
 
         return node
 
@@ -580,7 +578,7 @@ class Differ:
             try:
                 matching_base_nodes = base_tree.xpath(selector)
             except Exception as ex:
-                ...
+                raise InvalidDiffError("Unable to diff trees") from ex
 
             left_node = matching_base_nodes[0] if matching_base_nodes else None
 
@@ -610,10 +608,12 @@ class Differ:
             matching_modded_nodes = modded_tree.xpath(selector)
 
             if len(matching_modded_nodes) == 1:
-                raise ValueError("Debug: unexpected result, matching node should have been proccessed earlier!")
+                raise ValueError(
+                    "Debug: unexpected result, matching node should have been proccessed earlier!")
 
             if len(matching_modded_nodes) > 1:
-                raise ValueError("Debug: unexpected result, matching node should have been proccessed earlier!")
+                raise ValueError(
+                    "Debug: unexpected result, matching node should have been proccessed earlier!")
                 # TODO
                 # logger.warning(f"Multiple matching nodes found for selector '{selector}'")
                 # continue
@@ -641,8 +641,10 @@ class Differ:
         logger.debug(f"Annotated trees in "
               f"{round(time.perf_counter() - start, 3)} seconds")
 
-        # file_ops.write_xml_to_file(base_tree, DESKTOP / "base.xml", machina_beautify=True, use_utf=False)
-        # file_ops.write_xml_to_file(modded_tree, DESKTOP / "modded.xml", machina_beautify=True, use_utf=False)
+        # file_ops.write_xml_to_file(base_tree, DESKTOP / "base.xml",
+        #                            machina_beautify=True, use_utf=False)
+        # file_ops.write_xml_to_file(modded_tree, DESKTOP / "modded.xml",
+        #                            machina_beautify=True, use_utf=False)
         # return
 
         for diff in self.parse_diffs(base_tree, modded_tree):
@@ -662,6 +664,7 @@ class Differ:
         selector_keys_attr = primary_node.get("_SelectorKeys")
         selector_keys = selector_keys_attr.split(",") if selector_keys_attr else []
         attr_list = []
+        existing_count = 1
         desired_count = 1
         children = None
 
@@ -677,6 +680,7 @@ class Differ:
                 attr_list.extend([attr for attr in primary_node.attrib
                                   if not attr.startswith("_")
                                   and attr not in attr_list])
+
                 desired_count = primary_node.get("_DuplicateCount", "1")
                 if not desired_count.isnumeric():
                     raise InvalidDiffError(
@@ -687,7 +691,8 @@ class Differ:
                 attr_list.extend([attr for attr in primary_node.attrib
                                   if not attr.startswith("_")
                                   and attr not in attr_list])
-            children = diff.result.getchildren()
+            if diff.result:
+                children = diff.result.getchildren()
 
         elif diff.change_type is Change.REMOVED:
             action = ActionType.REMOVE
@@ -731,6 +736,7 @@ class Differ:
                 attr_list.extend([attr for attr in primary_node.attrib
                                   if not attr.startswith("_")
                                   and attr not in attr_list])
+
                 desired_count = primary_node.get("_DuplicateCount", "1")
                 if not desired_count.isnumeric():
                     raise InvalidDiffError(
@@ -745,18 +751,24 @@ class Differ:
                                   and attr not in attr_list])
                 children = None
 
+        if node_type == NodeType.NON_UNIQUE.value and diff.source is not None:
+            existing_count = diff.source.get("_DuplicateCount", "1")
+            if not existing_count.isnumeric():
+                raise InvalidDiffError(
+                    f"Incorrect _DuplicateCount {existing_count} for source node!"
+                    f"({diff.source.tag}[{diff.source.attrib}])")
+            existing_count = int(existing_count)
+
         tag = str(primary_node.tag)
 
         parent_path = primary_node.get("_ParentXPath") or ""
         selector = self.get_annotated_selector(primary_node)
 
-        self.cleanup_temp_attributes(primary_node, self.diff_guide.float_list_to_round,
-                                     ["_DuplicateCount"])
+        self.cleanup_temp_attributes(primary_node, self.diff_guide.float_list_to_round)
 
         if diff.source is not None:
             source = self.cleanup_temp_attributes(copy(diff.source),
-                                                  self.diff_guide.float_list_to_round,
-                                                  ["_DuplicateCount"])
+                                                  self.diff_guide.float_list_to_round)
         else:
             source = None
 
@@ -772,7 +784,9 @@ class Differ:
             selector_keys = ["*"]
         end = time.perf_counter()
 
-        if (end - start) > 0.01:
+        reasonable_gen_time = 0.01
+
+        if (end - start) > reasonable_gen_time:
             logger.debug(f"Generated command from diff in "
                   f"{round(end - start, 3)} seconds")
 
@@ -786,6 +800,7 @@ class Differ:
             children_nodes=children,
             source_node=source,
             modded_node=result,
+            existing_count=existing_count,
             desired_count=desired_count)
 
 def create_xml_diff(base_path: Path, modded_path: Path, output_path: Path,
@@ -799,7 +814,7 @@ def create_xml_diff(base_path: Path, modded_path: Path, output_path: Path,
     commands = differ.calculate_diff(base_tree, modded_tree)
 
     list_of_commands = []
-    for batch in batched(commands, 25):
+    for batch in batched(commands, 25):  # noqa: B911
         list_of_commands.extend([cmd for cmd in batch if cmd is not None])
     logger.debug(f"Calculated diffs in "
           f"{round(time.perf_counter() - start, 3)} seconds")

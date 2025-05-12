@@ -446,6 +446,9 @@
     "root_tag": "ModelNames",
     "unique_signatures": [
         {
+            "unique_keys": ["id", "locForm"]
+        },
+        {   
             "unique_keys": ["id"]
         }
     ]

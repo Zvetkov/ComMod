@@ -1,10 +1,12 @@
 # ruff: noqa: SLF001
 
+import asyncio
 import logging
 import operator
 import os
+import shutil
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from functools import cached_property
 from pathlib import Path
 from typing import Annotated, Any
@@ -24,6 +26,7 @@ from pydantic import (
     model_validator,
 )
 
+import commod.tools.xml_helpers
 from commod.game.data import (
     COMPATCH_GITHUB,
     DEM_DISCORD,
@@ -36,23 +39,29 @@ from commod.game.mod_auxiliary import (
     ConfigOptions,
     Incompatibility,
     ManagerVersionRequirement,
+    MergeDirective,
     OptionalContent,
     PatcherOptions,
     Prerequisite,
     Screenshot,
     Tags,
     Version,
-    MergeDirective
 )
-from commod.helpers.errors import ModFileInstallationError
+from commod.helpers.errors import (
+    ModFilePackagingError,
+    ModInvalidMergeInstallationError,
+    ModMissingFileInstallationError,
+)
 from commod.helpers.file_ops import (
     SUPPORTED_IMG_TYPES,
     copy_from_to_async_fast,
+    copy_targets_from_to_async,
     get_internal_file_path,
     read_yaml,
 )
 from commod.helpers.parse_ops import parse_simple_relative_path, process_markdown, remove_substrings
 from commod.localisation.service import KnownLangFlags, SupportedLanguages, is_known_lang, tr, tr_lang
+from commod.tools import xml_merge
 
 logger = logging.getLogger("dem")
 COMPATCH_REM = {"community_patch", "community_remaster"}
@@ -140,8 +149,10 @@ class Mod(BaseModel):
     no_base_content: bool = Field(default=False, repr=False)
     raw_data_dirs: list[str] = Field(default=[], validation_alias="data_dirs", repr=False)
     raw_bin_dirs: list[str] = Field(default=[], validation_alias="bin_dirs", repr=False)
+    raw_merge_instructions: list[str] = Field(default=[], validation_alias="merge_instructions", repr=False)
     raw_options_base_dir: str = Field(default="", validation_alias="options_base_dir", repr=False)
     archive_file_list: Any | None = Field(default=None, repr=False) # list[ZipInfo] | py7zr.ArchiveFileList | None
+    # lua_execute: list[str] | list[Path] = []
 
     @field_validator("name", "description", mode="after")
     @classmethod
@@ -165,7 +176,7 @@ class Mod(BaseModel):
             return [ManagerVersionRequirement(single_ver) for single_ver in value]
         return value
 
-    @field_validator("raw_data_dirs", "raw_bin_dirs", mode="after")
+    @field_validator("raw_data_dirs", "raw_bin_dirs", "raw_merge_instructions", mode="after")
     @classmethod
     def parse_relative_paths(cls, value: list[str]) -> list[str]:
         return [parse_simple_relative_path(path) for path in value]
@@ -226,6 +237,15 @@ class Mod(BaseModel):
             return os.path.join(*KnownLangFlags[self.language].value.split("\\"))
         return os.path.join(*KnownLangFlags.other.value.split("\\"))
 
+    @computed_field(repr=False)
+    @property
+    def compatible_err_str(self) -> str:
+        return "\n".join(self.compatible_err).strip()
+
+    @computed_field(repr=False)
+    @property
+    def prevalidated_err_str(self) -> str:
+        return "\n".join(self.prevalidated_err).strip()
 
     @classmethod
     def is_mod_manager_too_new(cls, commod_version: str,
@@ -389,7 +409,7 @@ class Mod(BaseModel):
 
     @computed_field(repr=False)
     @property
-    def options_base_dir(self) -> FilePath:
+    def options_base_dir(self) -> str | FilePath:
         if (self.name == "community_remaster" and not self.raw_options_base_dir):
             return "remaster"
         return self.raw_options_base_dir
@@ -489,13 +509,18 @@ class Mod(BaseModel):
     @cached_property
     def merge_directives(self) -> list[MergeDirective]:
         directives = []
-        for path in self.data_dirs:
-            merge_instructions = self.mod_files_root / path / "merge_instructions.yaml"
-            if merge_instructions.exists():
-                instruction_list = read_yaml(merge_instructions)
-                directives = [MergeDirective(
-                    **instr, merge_author=f"{self.id_str}[base]", root_dir=self.mod_files_root / path)
-                    for instr in instruction_list]
+        for path in self.raw_merge_instructions:
+            merge_instructions = self.mod_files_root / path
+            if not merge_instructions.exists():
+                raise ValueError(f"Specified merge instruction file doesn't exist:\n\n{merge_instructions}")
+            instruction_list = read_yaml(merge_instructions)
+            if not instruction_list:
+                raise ValueError("Specified merge instruction file is empty:\n\n"
+                                 f"{merge_instructions}")
+            directives.extend([MergeDirective(
+                **instr, merge_author=f"{self.id_str}[base:{merge_instructions.stem}]",
+                root_dir=self.mod_files_root)
+                for instr in instruction_list])
 
         return directives
 
@@ -577,6 +602,10 @@ class Mod(BaseModel):
         if self.no_base_content and self.raw_data_dirs:
             raise AssertionError("no_base_content mods can't specify data_dirs for root mod!")
 
+        if self.no_base_content and self.raw_merge_instructions:
+            raise AssertionError("no_base_content mods can't specify merge_instructions for root mod!")
+
+
         for data_path in self.data_dirs:
             resolved_data_path = self.mod_files_root / data_path
 
@@ -611,11 +640,13 @@ class Mod(BaseModel):
                             if archive_files:
                                 path_to_check = str(resolved_opt_path).replace("\\", "/")
                                 if (path_to_check not in archive_files and
-                                    not any(file_path.startswith(path_to_check) for file_path in archive_files)):
+                                    not any(file_path.startswith(path_to_check)
+                                            for file_path in archive_files)):
                                     raise ValueError("Data path for optional content wasn't found in archive",
                                                      path_to_check)
-                            elif not path_to_check.is_dir():
-                                raise ValueError("Data path doesn't exists for optional content", path_to_check)
+                            elif not path_to_check.is_dir() and not custom_setting.merge_instructions:
+                                raise ValueError("Data path doesn't exists for optional content",
+                                                 path_to_check)
                 else:
                     path_to_check = resolved_opt_path / "data"
                     if archive_files:
@@ -624,34 +655,45 @@ class Mod(BaseModel):
                             not any(file_path.startswith(path_to_check) for file_path in archive_files)):
                             raise ValueError("Data path for optional content wasn't found in archive",
                                              path_to_check)
-                    elif not path_to_check.is_dir():
+                    elif not path_to_check.is_dir() and not item.merge_instructions:
                         raise ValueError("Data path doesn't exists for optional content", path_to_check)
             item.data_dirs = resolved_item_paths
 
         if self.merge_directives:
             logger.debug(f"Loaded merge directives for {self!r}")
         for item in self.optional_content:
-            for option_data in item.data_dirs:
-                merge_instructions = Path(option_data) / "merge_instructions.yaml"
-                if merge_instructions.exists():
+            if item.install_settings:
+                for custom_setting in item.install_settings:
+                    for path in custom_setting.merge_instructions:
+                        merge_instructions = self.mod_files_root / path
+                        if not merge_instructions.exists():
+                            raise ValueError("Specified merge instruction file doesn't exist:\n\n"
+                                             f"{merge_instructions}")
+                        opt_instruction_list = read_yaml(merge_instructions)
+                        if not opt_instruction_list:
+                            raise ValueError("Specified merge instruction file is empty:\n\n"
+                                             f"{merge_instructions}")
+                        directives = [MergeDirective(
+                            **instr,
+                            merge_author=f"{self.id_str}[{item.name}][{custom_setting.name}]",
+                            root_dir=self.mod_files_root)
+                            for instr in opt_instruction_list]
+                        custom_setting.merge_directives.extend(directives)
+            else:
+                for path in item.merge_instructions:
+                    merge_instructions = self.mod_files_root / path
+                    if not merge_instructions.exists():
+                        raise ValueError("Specified merge instruction file doesn't exist:\n\n"
+                                         f"{merge_instructions}")
                     opt_instruction_list = read_yaml(merge_instructions)
+                    if not opt_instruction_list:
+                        raise ValueError("Specified merge instruction file is empty:\n\n"
+                                         f"{merge_instructions}")
                     directives = [MergeDirective(
                         **instr, merge_author=f"{self.id_str}[{item.name}]",
-                        root_dir=Path(option_data))
+                        root_dir=self.mod_files_root)
                         for instr in opt_instruction_list]
-                    item.merge_directives = directives
-                if item.install_settings:
-                    for custom_setting in item.install_settings:
-                        for custom_data_dir in custom_setting.data_dirs:
-                            merge_instructions = Path(option_data) / custom_data_dir / "merge_instructions.yaml"
-                            if merge_instructions.exists():
-                                opt_instruction_list = read_yaml(merge_instructions)
-                                directives = [MergeDirective(
-                                    **instr,
-                                    merge_author=f"{self.id_str}[{item.name}][{custom_setting.name}]",
-                                    root_dir=Path(option_data) / custom_data_dir)
-                                    for instr in opt_instruction_list]
-                                custom_setting.merge_directives = directives
+                    item.merge_directives.extend(directives)
         return self
 
     @model_validator(mode="after")
@@ -763,10 +805,38 @@ class Mod(BaseModel):
 
             for mod in all_known:
                 if not mod.sister_variants:
-                    mod._sister_variants = {sis_mod.name: sis_mod for sis_mod in all_known
-                                            if mod.version == sis_mod.version
-                                            and mod.name != sis_mod.name
-                                            and mod.language == sis_mod.language}
+                    mod._sister_variants = {
+                        sis_mod.name: sis_mod for sis_mod in all_known
+                        if mod.version == sis_mod.version
+                        and mod.name != sis_mod.name
+                        and mod.language == sis_mod.language}
+        return self
+
+    @model_validator(mode="after")
+    def check_m113_arcade(self) -> "Mod":
+        if self.installment == SupportedGames.EXMACHINA:
+            return self
+
+        if self.name in COMPATCH_REM:
+            raise AssertionError(
+                f"{self.name} is reserved for EM1 mods, as it forced implicit binary patching")
+
+        if self.patcher_options and not self.patcher_options.is_compatible_with_installment(self.installment):
+            raise AssertionError(
+                f"Mod specifies patcher_options that are not supported for '{self.installment}' mods")
+        for option in self.optional_content:
+            if option.patcher_options and not option.patcher_options.is_compatible_with_installment(self.installment):
+                raise AssertionError(
+                    f"Mod's option specifies patcher_options that are not supported for '{self.installment}' mods")
+
+        if self.config_options is not None:
+            if self.config_options.ai_clash_coeff is not None:
+                raise AssertionError("ai_clash_coeff config option is only valid for EM1")
+            if self.config_options.ai_enemies_ramming_damage_coeff is not None:
+                raise AssertionError(
+                    "ai_enemies_ramming_damage_coeff config option is only valid for EM1")
+            if self.config_options.ai_min_hit_velocity is not None:
+                raise AssertionError("ai_min_hit_velocity config option is only valid for EM1")
 
         return self
 
@@ -783,7 +853,7 @@ class Mod(BaseModel):
     def load_gui_info(self) -> None:
         raise DeprecationWarning
 
-    def load_game_compatibility(self, game_installment: str) -> None:
+    def load_game_compatibility(self, game_installment: SupportedGames | None) -> None:
         for translation in self._translations_loaded.values():
             translation.installment_compatible = self.installment == game_installment
 
@@ -797,15 +867,11 @@ class Mod(BaseModel):
                     installed_descriptions,
                     library_mods_info)
 
-            translation.compatible_err = "\n".join(translation.compatible_err).strip()
-
             translation.prevalidated, translation.prevalidated_err = \
                 translation.check_incompatibles(
                     installed_content,
                     installed_descriptions,
                     library_mods_info)
-
-            translation.prevalidated_err = "\n".join(translation.prevalidated_err).strip()
 
             (translation.is_reinstall, translation.can_be_reinstalled,
              translation.reinstall_warning, translation.existing_version) = \
@@ -818,15 +884,57 @@ class Mod(BaseModel):
                                        and translation.prevalidated
                                        and translation.can_be_reinstalled)
 
-    async def install_async(self, game_data_path: str,
-                            install_settings: dict,
-                            existing_content: dict,
-                            callback_progbar: Awaitable,
-                            callback_status: Awaitable) -> bool:
+    async def find_missing_targets_for_directives(
+            self, temp_data: Path, directive_list: list[MergeDirective]) -> list[Path]:
+        need_to_copy: list[Path] = []
+        for directive in directive_list:
+            need_to_copy.extend([target for target in directive.targets
+                                 if not (temp_data / target).exists()])
+        return need_to_copy
+
+    async def apply_directives(
+            self, target_dir: Path, directives: list[MergeDirective],
+            callback_progbar: Callable[[int, int, str, float], Awaitable[None]]) -> None:
+        total_count = sum(len(directive.targets) for directive in directives)
+        current_count = 0
+        for directive in directives:
+            for target in directive.targets:
+                current_count += 1
+                base_path = target_dir / target
+                try:
+                    directive_commands = directive.commands
+                except (ValueError, AssertionError) as ex:
+                    raise ModFilePackagingError(f"Incorrect merge command found!\n{ex}!")  # noqa: B904
+
+                try:
+                    logger.debug(f"Updating file with commands: {base_path}")
+                    await asyncio.to_thread(xml_merge.update_file_with_commands, base_path, directive_commands)
+                except commod.tools.xml_helpers.InvalidMergeCommandError as ex:
+                    raise ModInvalidMergeInstallationError(target,
+                                                           ex.error_desc) from ex
+                except Exception as ex:
+                    raise ModInvalidMergeInstallationError(target,
+                                                          str(ex)) from ex
+
+                await callback_progbar(current_count, total_count, str(target), 0)
+                await asyncio.sleep(0.01)
+
+    async def install_async(self, temp_location: str | Path,
+                            game_data_path: str | Path,
+                            install_settings: dict[str, Any],
+                            existing_content: dict[str, Any],
+                            callback_progbar: Callable[[int, int, str, float], Awaitable[None]],
+                            callback_status: Callable[[str], Awaitable[None]]) -> bool:
         """Use fast async copy, return bool success status of install."""
+        start = time.perf_counter()
         try:
+
+            temp_location = Path(temp_location)
+            temp_data = temp_location / "data"
+            game_data_path = Path(game_data_path)
             logger.info(f"Existing content at the start of install: {existing_content}")
-            mod_files = []
+            mod_files: list[Path] = []
+            merge_directives: list[MergeDirective] = []
             install_base = install_settings.get("base")
             if install_base is None:
                 raise KeyError(f"Installation config for base of mod '{self.name}' is broken")
@@ -836,14 +944,12 @@ class Mod(BaseModel):
             else:
                 bin_paths = [Path(self.mod_files_root, one_dir) for one_dir in self.bin_dirs]
                 data_paths = [Path(self.mod_files_root, one_dir) for one_dir in self.data_dirs]
-                await callback_status(tr("copying_base_files_please_wait"))
                 mod_files.extend(data_paths)
-                start = time.perf_counter()
-                await copy_from_to_async_fast(mod_files, game_data_path, callback_progbar)
-                await copy_from_to_async_fast(bin_paths, Path(game_data_path).parent, callback_progbar)
-                end = time.perf_counter()
-                logger.debug(f"{round(end - start, 3)} seconds took fast copy")
-                mod_files.clear()
+                merge_directives.extend(self.merge_directives)
+
+                if bin_paths:
+                    await callback_status(tr("copying_base_files_to_temp_dir"))
+                    await copy_from_to_async_fast(bin_paths, temp_location, callback_progbar)
 
             for install_setting in install_settings:  # noqa: PLC0206
                 if install_setting == "base":
@@ -858,6 +964,7 @@ class Mod(BaseModel):
                             data_dir,
                             "data")
                         mod_files.append(simple_option_path)
+                    merge_directives.extend(wip_setting.merge_directives)
                 elif installation_decision == "skip":
                     logger.debug(f"Skipping option {install_setting}")
                     continue
@@ -871,20 +978,44 @@ class Mod(BaseModel):
                                 data_dir,
                                 sett_data_dir)
                             mod_files.append(complex_option_path)
-                if installation_decision != "skip":
-                    await callback_status(tr("copying_options_please_wait"))
+                            merge_directives.extend(install_setting_obj.merge_directives)
 
-                start = time.perf_counter()
-                await copy_from_to_async_fast(mod_files, game_data_path, callback_progbar)
-                end = time.perf_counter()
-                logger.debug(f"{round(end - start, 3)} seconds took fast copy")
+            await callback_status(tr("copying_base_files_to_temp_dir"))
+            await asyncio.sleep(0.01)
+            await copy_from_to_async_fast(mod_files, temp_data, callback_progbar)
 
-                mod_files.clear()
-        except Exception as ex:
+            if merge_directives:
+                await callback_status(tr("copying_additional_files_to_temp_dir"))
+                await asyncio.sleep(0.01)
+                directive_base_files = await self.find_missing_targets_for_directives(
+                    temp_data, merge_directives)
+                for relative_path in directive_base_files:
+                    if not (game_data_path / relative_path).exists():
+                        raise ModMissingFileInstallationError(relative_path)
+                await copy_targets_from_to_async(
+                    directive_base_files, game_data_path, temp_data, callback_progbar)
+
+                await callback_status(tr("applying_merge_mod_to_temp_dir"))
+                await asyncio.sleep(0.01)
+                await self.apply_directives(temp_data, merge_directives, callback_progbar)
+
+            await callback_status(tr("copying_final_files_from_temp_dir"))
+            await asyncio.sleep(0.01)
+            await copy_from_to_async_fast(
+                [temp_location], Path(game_data_path).parent, callback_progbar)
+
+        except (ModMissingFileInstallationError, ModFilePackagingError, ModInvalidMergeInstallationError):
+            logger.error("Handled error occurred when installing the mod!")
+            raise
+        except Exception:
             logger.exception("Exception occured when installing mod!")
-            raise ModFileInstallationError from ex
+            raise
         else:
             return True
+        finally:
+            logger.debug(f"{round(time.perf_counter() - start, 3)} seconds took copy (and file patching)")
+            await asyncio.to_thread(shutil.rmtree, temp_location)
+            logger.debug("Deleted temp dir")
 
     def check_requirements(self, existing_content: dict, existing_content_descriptions: dict,
                            library_mods_info: dict[str, dict[str, str]] | None) -> tuple[bool, list[str]]:

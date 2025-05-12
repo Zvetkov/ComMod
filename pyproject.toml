@@ -8,18 +8,18 @@ where = ["src"]
 [project]
 name = "commod"
 dynamic = ["version"]
-requires-python = ">=3.12,<3.14"
+requires-python = "==3.13"
 dependencies = [
     "flet==0.27.*",
-    "aiofiles==24.1.0",
-    "aiopath==0.7.7",
-    "httpx==0.28.1",
-    "lxml==5.3.0",
-    "markdownify==0.12.1",
-    "pathvalidate==3.2.3",
-    "py7zr==0.22.0",
-    "pydantic==2.10.6",
-    "PyYAML==6.0.2"
+    "aiofiles==24.1.*",
+    "aiopath==0.7.1", # temporarily pinned to prevent random compilation errors in nuitka
+    "httpx==0.28.*",
+    "lxml==5.4.*",
+    "markdownify==0.12.1", # pinned to prevent stricter header formatting messed up by lack of \n\n after header
+    "pathvalidate==3.2.*",
+    "py7zr==0.22.*",
+    "pydantic==2.11.*",
+    "PyYAML==6.0.*"
 ]
 
 [project.scripts]
@@ -31,9 +31,9 @@ version = {attr = "commod.__version__"}
 
 [project.optional-dependencies]
 dev = [
-    "nuitka>=2.3",
-    "ruff>=0.1.8",
-    "types-lxml>=24.12.13"
+    "nuitka>=2.7",
+    "ruff>=0.11",
+    "types-lxml>=2025.3.30"
 ]
 
 [tool.ruff]
@@ -41,11 +41,11 @@ line-length = 110
 extend-exclude = ["venv", "C:\\Users\\**\\*.py"]
 select = ["ALL"]
 cache-dir = "/tmp/ruff-cache/"
-ignore = ["D1", "TCH002", "TCH003", "ANN101", "ANN102", "ANN003", "COM812", "TD", "FIX", "DTZ005",
+ignore = ["D1", "ANN003", "ANN204", "COM812", "TD", "FIX", "DTZ005", # "TC002", "TC003"
           "EM101", "EM102", "TRY003", "TRY301", "G004", # logging and exceptions improvements
           "C901", "PLR0912", "PLR0915", "PLR0913", # complexity suggestions
           "ERA001", # dead code
-          "PTH", # migration to pathlib from os (mostly)
+          "PTH", # TODO: migration to pathlib from os (mostly)
           "FBT", # booleans as args
           "T201", "S605", "S607", # print, os.system("cls")
           "S324", # cryptographic warning
@@ -54,17 +54,17 @@ ignore = ["D1", "TCH002", "TCH003", "ANN101", "ANN102", "ANN003", "COM812", "TD"
           "PT" # we don't use pytest
           ]
 # D1 disabled for philosophical reason, hard docstrings requirement is debatable
-# ANN101, ANN102 are disabled as type checkers can infer this automatically
 # ANN003 disabled for kwarg type annotations, flet's UserControls don't easily allow that
-# TCH *2, *3 disabled to decrease complexity of imports
+# ANN204 (return annotation for __init__) disabled as Pyright doesn't care
+# TC002, 003 disabled to decrease complexity of imports
 # COM812 is giving false positives on multiline string concatenation
 # TD and FIX disabled in a single developer context, as all responsibility is on him
 # DTZ005 is useless in context when TZ is local and datetime used for short timing
 # T201, S605\6 - 'print' and os.system("cls") are extensively used in cli version of the app
-# TRY400 - our usage of logging.error is not requiring to impicitly provide traceback 
+# TRY400 - our usage of logging.error doesn't require impicitly provided traceback 
 
 # PTH - not a pathlib evangelist and most of these are not hard truths, maybe consider later on
-# ERA001 - remove ignore and fix on next version after 2.1
+# ERA001 - remove ignore and fix on next version after 3.0
 # EM101, EM102 - reenable for a future refactor, too many instances to fix right now
 # TRY003, TRY301, G004 - reenable for a future refactor, too many instances to fix right now
 # C901", PLR0912, PRL0915, PLR0913 - complexity suggestions to tone down branching and complexity of functions, maybe later

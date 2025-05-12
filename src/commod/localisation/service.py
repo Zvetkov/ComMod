@@ -56,47 +56,7 @@ class SupportedLanguages(StrEnum):
 
 # Fallback for new lines that are added in development,
 # before they can be translated to all supported langs
-local_dict: dict[str, str] = {
-    "info": "Информация",
-    "modding_tools": "Моддинг",
-    "merge_mod_creation": "Создание merge-мода",
-    "open_in_editor": "Открыть в редакторе",
-    "diffed_files_are_equal": "Сравниваемые файлы эквивалентны",
-    "command_generation_error": "Ошибка генерации команд",
-    "saving_commands_error": "Ошибка сохранения команд",
-    "unable_to_apply_commands": "Не удалось применить команды к файлу",
-    "cant_load_files_for_diffing": "Не удалось загрузить файлы для сравнения",
-    "unsupported_file_or_encoding": "Неподдерживаемый тип файлов, или файлы в неподдерживаемой кодировке",
-    "need_two_paths_for_comparison": "Нужно указать два пути для сравнения",
-    "enter_path_to_source": "Укажите путь к исходному файлу для сравнения",
-    "source_path_doesnt_exist": "Исходный файл не существует",
-    "enter_path_to_moddified": "Укажите путь к модифицированному файлу для сравнения",
-    "modded_path_doesnt_exist": "Модифицированный файл не существует",
-    "incorrect_commands_for_source": "Эти команды невозможно применить к исходному файлу: {cmd_path}",
-    "enter_path_to_output": "Укажите путь к финальному файлу для сохранения команд",
-    "preload_existing_commands": "Подгрузите существующие команды для поиска только новых изменений",
-    "select_all": "Выбрать все",
-    "deselect_all": "Отменить выбор",
-    "invert_selection": "Инвертировать выбор",
-    "save_selected": "Сохранить выбранные",
-    "save_all": "Сохранить все",
-    "no_selected": "Нет выбранных команд",
-    "calculate_diff": "Рассчитать разницу",
-    "num_commands_saved": "Сохранено: {num_cmds} команд(а)",
-    "parsed_commands": "Новых команд",
-    "nodes_processed": "Обработано нодов",
-    "preloaded_commands": "Подгруженных команд",
-    "command_list": "Список команд",
-    "command_preview": "Просмотр команды",
-    "source_node": "Исходный нод",
-    "moddified_node": "Модифицированный нод",
-    "using_fallback_differ": "Неизвестная схема xml файлов, результат будет проблемным",
-    "overwrite_file_are_you_sure": "Данный файл уже существует, вы уверены что хотите перезаписать его?",
-    "choose_file": "Выберите файл",
-    "choose_files": "Выберите файлы",
-    "go_to_dem_forum": "Перейти на DEM форум"
-
-}
+local_dict: dict[str, str] = {}
 
 def get_strings_dict() -> dict[str, dict[str, str]]:
     eng = read_yaml(get_internal_file_path("localisation/strings_eng.yaml"))

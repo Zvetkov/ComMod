@@ -1,5 +1,7 @@
+import contextlib
 from pathlib import Path
 from typing import Literal
+
 import flet as ft
 from flet import Column, Icon, Row, Text
 
@@ -13,7 +15,7 @@ class TitleButton(ft.IconButton):
         self.icon = icon
         self.icon_size = icon_size
 
-        color_dict = {ft.ControlState.DEFAULT: ft.Colors.ON_SURFACE}
+        color_dict: dict[ft.ControlState, str] = {ft.ControlState.DEFAULT: ft.Colors.ON_SURFACE}
         if hover_color is not None:
             color_dict[ft.ControlState.HOVERED] = hover_color
         self.style = ft.ButtonStyle(
@@ -135,16 +137,32 @@ class BrowseFileButton(ft.Row):
             self.btn.on_click = self.save_file_for_field
 
     def save_file_for_field(self, e: ft.ControlEvent) -> None:
+        file_name = "_commands.xml"
+        if self.text_field.value and self.text_field.value.endswith(".xml"):
+            with contextlib.suppress(Exception):
+                file_name = Path(self.text_field.value).name
+        if self.text_field.value and Path(self.text_field.value).parent.exists():
+            init_dir = Path(self.text_field.value).parent
+        else:
+            init_dir = self.initial_dir
+
         self.get_file_dialog.save_file(
             dialog_title=tr("choose_file"),
-            file_name="commands.xml", # read from field if changed there
-            initial_directory=self.initial_dir,
+            file_name=file_name,
+            initial_directory=str(init_dir),
             allowed_extensions=self.allowed_extensions
         )
 
     def pick_file_for_field(self, e: ft.ControlEvent) -> None:
         if self.text_field.value:
-            parent = Path(self.text_field.value).parent
+            if self.allow_multiple:
+                try:
+                    parent_path = self.text_field.value.split(", ")[0]
+                    parent = Path(parent_path) if Path(parent_path).is_dir() else Path(parent_path).parent
+                except IndexError:
+                    parent = Path("")
+            else:
+                parent = Path(self.text_field.value).parent
             if str(parent) != "." and parent.is_dir():
                 self.initial_dir = str(parent)
 
@@ -155,7 +173,7 @@ class BrowseFileButton(ft.Row):
             allow_multiple=self.allow_multiple)
 
     def save_file_result(self, e: ft.FilePickerResultEvent) -> None:
-        if self.get_file_dialog.result:
+        if self.get_file_dialog.result and self.get_file_dialog.result.path:
             self.text_field.value = self.get_file_dialog.result.path
             self.text_field.update()
 
@@ -164,3 +182,50 @@ class BrowseFileButton(ft.Row):
             ", ".join([file.path for file in e.files]) if e.files else self.text_field.value
         )
         self.text_field.update()
+
+class MarkdownWithCode(ft.Markdown):
+    def __init__(self, value: str, use_colored_headers: bool = True,
+                 **kwargs) -> None:
+        kwargs.setdefault("auto_follow_links", True)
+        kwargs.setdefault("code_theme", ft.MarkdownCodeTheme.ATOM_ONE_DARK)
+        kwargs.setdefault(
+            "code_style_sheet",
+            ft.MarkdownStyleSheet(
+                code_text_style=ft.TextStyle(
+                        font_family="Fira Code", size=13),
+            )
+        )
+        kwargs.setdefault(
+            "md_style_sheet",
+            ft.MarkdownStyleSheet(
+                horizontal_rule_decoration=ft.BoxDecoration(
+                    shape=ft.BoxShape.RECTANGLE,
+                    border=ft.Border(
+                        top=ft.BorderSide(2, color=ft.Colors.ORANGE_200),
+                        # bottom=ft.BorderSide(10, color=ft.Colors.ORANGE_400),
+                        # right=ft.BorderSide(5, color=ft.Colors.ORANGE_400),
+                        # left=ft.BorderSide(5, color=ft.Colors.ORANGE_400)
+                    ),
+                ),
+                blockquote_decoration=ft.BoxDecoration(
+                    shape=ft.BoxShape.RECTANGLE,
+                    border_radius=5,
+                    border=ft.Border(top=ft.BorderSide(2, color=ft.Colors.SECONDARY_CONTAINER),
+                                     bottom=ft.BorderSide(2, color=ft.Colors.SECONDARY_CONTAINER),
+                                     left=ft.BorderSide(2, color=ft.Colors.SECONDARY_CONTAINER),
+                                     right=ft.BorderSide(2, color=ft.Colors.SECONDARY_CONTAINER)),
+                ),
+                blockquote_text_style=ft.TextStyle(color=ft.Colors.ON_SECONDARY_CONTAINER),
+                h1_text_style=ft.TextStyle(color=ft.Colors.ORANGE_500,
+                                           weight=ft.FontWeight.W_700) if use_colored_headers else None,
+                h2_text_style=ft.TextStyle(color=ft.Colors.ORANGE_500,
+                                           weight=ft.FontWeight.W_700) if use_colored_headers else None,
+                h3_text_style=ft.TextStyle(color=ft.Colors.ORANGE_500,
+                                           weight=ft.FontWeight.W_700) if use_colored_headers else None,
+                h4_text_style=ft.TextStyle(color=ft.Colors.ORANGE_500,
+                                           weight=ft.FontWeight.W_700) if use_colored_headers else None,
+            )
+        )
+        kwargs.setdefault("expand", True)
+        kwargs.setdefault("extension_set", ft.MarkdownExtensionSet.GITHUB_WEB)
+        super().__init__(value, **kwargs)
