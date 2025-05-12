@@ -1,0 +1,697 @@
+[
+{
+    "root_tag": "DynamicScene",
+    "unique_signatures": [
+        {
+            "tag": "EntryPath",
+            "children_tags": [
+                "Point",
+                "CameraPoint"
+            ]
+        },
+        {
+            "children_tags": [
+                "Point",
+                "CameraPoint"
+            ]
+        },
+        {
+            "tag": "Polygon",
+            "children_tags": [
+                "Point"
+            ]
+        },
+        {
+            "tag": "DropOut",
+            "children_tags": [
+                "Point"
+            ]
+        },
+        {
+            "tag": "Object",
+            "children": [
+                {
+                    "tag": "Post",
+                    "unique_keys": [
+                        "ServerObjName",
+                        "LpName"
+                    ]
+                }
+            ]
+        },
+        {
+            "tag": "Object",
+            "children": [
+                {
+                    "tag": "Post",
+                    "unique_keys": [
+                        "NodesNameHierarchy",
+                        "LpName"
+                    ]
+                }
+            ]
+        },
+        {
+            "unique_keys": ["Name"]
+        },
+        {
+            "tag": "TargetNamesForDestroy"
+        },
+        {
+            "tag": "params"
+        },
+        {
+            "tag": "Files"
+        },
+        {
+            "tag": "BASKET"
+        },
+        {
+            "tag": "CABIN"
+        },
+        {
+            "tag": "CHASSIS"
+        }
+    ],
+    "non_unique_signatures": [
+        {
+            "tag": "Item",
+            "parent_tag": "CabinsAndBaskets",
+            "significant_keys": ["Prototype"],
+            "ignored_keys": ["PosX", "PosY", "Flags"],
+            "insignificant_keys": []
+        },
+        {
+            "tag": "Item",
+            "parent_tag": "Vehicles",
+            "significant_keys": ["Prototype"],
+            "ignored_keys": ["PosX", "PosY", "Pos", "Flags"],
+            "insignificant_keys": []
+        },
+        {
+            "tag": "Item",
+            "parent_tag": "GunsAndGadgets",
+            "significant_keys": ["Prototype"],
+            "ignored_keys": ["Flags"],
+            "insignificant_keys": ["PosX", "PosY"]
+        }
+    ],
+    "float_list_to_round": [
+        "PostTiePos",
+        "Pos",
+        "Rot"
+    ]
+},
+{
+    "root_tag": "Weather",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        },
+        {
+            "tag": "WeatherCommonSets"
+        },
+        {
+            "tag": "Sky"
+        },
+        {
+            "tag": "Fog"
+        },
+        {
+            "tag": "Ambient"
+        },
+        {
+            "tag": "Diffuse"
+        },
+        {
+            "tag": "Sun"
+        },
+        {
+            "tag": "Plant"
+        },
+        {
+            "tag": "Specular"
+        },
+        {
+            "tag": "PostEffect"
+        },
+        {
+            "tag": "ShadowVisibility"
+        },
+        {
+            "tag": "ShadowTransparency"
+        },
+        {
+            "tag": "cloudsSpeed"
+        },
+        {
+            "tag": "WindInfo"
+        }
+    ]
+},
+{
+    "root_tag": "AnimatedModels",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id"]
+        },
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "Belongs",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id"]
+        }
+    ]
+},
+{
+    "root_tag": "DialogsResource",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "LevelInfoResource",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "ObjectNames",
+    "unique_signatures": [
+        {
+            "unique_keys": ["Name"]
+        }
+    ]
+},
+{
+    "root_tag": "Effects",
+    "unique_signatures": [
+        {
+            "tag": "Model",
+            "unique_keys": ["Name"],
+            "children_tags": ["Unit"]
+        },
+        {
+            "unique_keys": ["Name"]
+        }
+    ]
+},
+{
+    "root_tag": "Affixes",
+    "unique_signatures": [
+        {
+            "unique_keys": ["Name"]
+        }
+    ]
+},
+{
+    "root_tag": "Definitions",
+    "unique_signatures": [
+        {
+            "unique_keys": ["Name"]
+        }
+    ]
+},
+{
+    "root_tag": "quests",
+    "unique_signatures": [
+        {
+            "unique_keys": ["Name"]
+        }
+    ]
+},
+{
+    "root_tag": "relationship",
+    "unique_signatures": [
+        {
+            "unique_keys": ["forwhom", "tolerance"]
+        }
+    ]
+},
+{
+    "root_tag": "ResourceTypes",
+    "unique_signatures": [
+        {
+            "unique_keys": ["Name"]
+        }
+    ]
+},
+{
+    "root_tag": "VehiclePartTypes",
+    "unique_signatures": [
+        {
+            "unique_keys": ["PartName"]
+        }
+    ]
+},
+{
+    "root_tag": "Properties",
+    "unique_signatures": [
+        {
+            "tag": "Belongs"
+        },
+        {
+            "tag": "IzvratRepository"
+        },
+        {
+            "tag": "GroundRepository"
+        },
+        {
+            "tag": "Mult"
+        },
+        {
+            "tag": "BurstParameters"
+        },
+        {
+            "tag": "DynamicQuest"
+        },
+        {
+            "tag": "CommonPaths"
+        },
+        {
+            "tag": "Physics"
+        },
+        {
+            "tag": "Npc"
+        },
+        {
+            "tag": "BreakableObjectSplinters"
+        },
+        {
+            "tag": "Vehicles"
+        },
+        {
+            "tag": "BreakableObjectSplinters"
+        },
+        {
+            "tag": "SmartCursor"
+        },
+        {
+            "tag": "CameraController"
+        },
+        {
+            "tag": "Caravans"
+        },
+        {
+            "tag": "Repair"
+        },
+        {
+            "tag": "ObstacleAvoidance"
+        },
+        {
+            "tag": "DeathProperties"
+        },
+        {
+            "tag": "Articles"
+        },
+        {
+            "tag": "InfectionZones"
+        },
+        {
+            "tag": "InterfaceStuff"
+        },
+        {
+            "tag": "PlayerPassmap"
+        },
+        {
+            "tag": "Weapon"
+        },
+        {
+            "tag": "DifficultyLevels"
+        },
+        {
+            "tag": "Level",
+            "unique_keys": ["Name"]
+        },
+        {
+            "tag": "Price"
+        }
+    ]
+},
+{
+    "root_tag": "Prototypes",
+    "unique_signatures": [
+        {
+            "tag": "AttackActions",
+            "unique_keys": ["Name"],
+            "children_tags": ["Attack"]
+        },
+        {
+            "tag": "Polyline",
+            "unique_keys": ["Name"],
+            "children_tags": ["Point"]
+        },
+        {
+            "tag": "Prototype",
+            "children_tags": ["ObjInfos"]
+        },
+        
+        {
+            "tag": "Wheels",
+            "children_tags": ["Wheel"]
+        },
+        {
+            "unique_keys": ["Name"]
+        },
+        {
+            "tag": "Parts"
+        },
+        {
+            "tag": "GroupsHealth"
+        },
+        {
+            "tag": "Vehicles"
+        },
+        {
+            "tag": "Formation"
+        },
+        {
+            "tag": "RepositoryDescription"
+        },
+        {
+            "tag": "Object",
+            "unique_keys": ["PrototypeName"]
+        },
+        {
+            "tag": "MainPartDescription",
+            "unique_keys": ["id"]
+        },
+        {
+            "tag": "PartDescription",
+            "unique_keys": ["id"]
+        },
+        {
+            "tag": "Part",
+            "unique_keys": ["id"]
+        },
+        {
+            "tag": "Article",
+            "unique_keys": ["Prototype"]
+        },
+        {
+            "tag": "ResourceCoeff",
+            "unique_keys": ["Resource"]
+        }
+    ],
+    "non_unique_signatures": [
+        {
+            "tag": "Description",
+            "parent_tag": "Prototype",
+            "significant_keys": [
+                "VehiclesPrototypes",
+                "WaresPrototypes",
+                "GunAffixGeneratorPrototype",
+                "PartOfSchwartz"
+            ]
+        }
+    ]
+},
+{
+    "root_tag": "QuestInfoResource",
+    "unique_signatures": [
+        {
+            "unique_keys": ["questName"]
+        },
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "resource",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id"]
+        },
+        {
+            "tag": "schema",
+            "unique_keys": ["name"]
+        },
+        {
+            "tag": "SoundInfo",
+            "unique_keys": ["Name"]
+        }
+    ]
+},
+{
+    "root_tag": "ModelNames",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id", "locForm"]
+        },
+        {   
+            "unique_keys": ["id"]
+        }
+    ]
+},
+{
+    "root_tag": "Themes",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "Servers",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id"]
+        }
+    ]
+},
+{
+    "root_tag": "icons",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id"]
+        }
+    ]
+},
+{
+    "root_tag": "GuiResourceInfo",
+    "unique_signatures": [
+        {
+            "unique_keys": ["file"]
+        }
+    ]
+},
+{
+    "root_tag": "World",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ],
+    "float_list_to_round": ["org", "rot"]
+},
+{
+    "root_tag": "Paths",
+    "unique_signatures": [
+        {
+            "tag": "Path",
+            "unique_keys": ["Name"],
+            "children_tags": ["Point"]
+        },
+        {
+            "unique_keys": ["Name"]
+        }
+    ]
+},
+{
+    "root_tag": "triggers",
+    "unique_signatures": [
+        {
+            "tag": "trigger",
+            "unique_keys": ["Name"],
+            "children_tags": ["event", "script"]
+        }
+    ]
+},
+{
+    "root_tag": "Prefabs",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "Textures",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "MusicBlocks",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "Music",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id"]
+        }
+    ]
+},
+{
+    "root_tag": "SoundGroups",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id"]
+        }
+    ]
+},
+{
+    "root_tag": "Roads",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "sounds",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id"]
+        }
+    ]
+},
+{
+    "root_tag": "Video",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "RadioSamples",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id"]
+        }
+    ]
+},
+{
+    "root_tag": "RadioSounds",
+    "unique_signatures": [
+        {
+            "tag": "Group",
+            "unique_keys": ["name"]
+        },
+        {
+            "unique_keys": ["id"]
+        }
+    ]
+},
+{
+    "root_tag": "TileSetName",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "tileprops",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "tileprops",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "Credits",
+    "unique_signatures": [
+        {
+            "unique_keys": ["id"]
+        }
+    ]
+},
+{
+    "root_tag": "Ini",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "Node",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        }
+    ]
+},
+{
+    "root_tag": "Splashes",
+    "unique_signatures": [
+        {
+            "unique_keys": ["Value"],
+            "_comment": "Needs to support ListModify commands"
+        }
+    ]
+},
+{
+    "root_tag": "Cliffs",
+    "unique_signatures": [
+        {
+            "unique_keys": ["name"]
+        },
+        {
+            "unique_keys": ["model"]
+        }
+    ]
+},
+{
+    "root_tag": "PrefabFiles",
+    "unique_signatures": [
+        {
+            "unique_keys": ["file"]
+        }
+    ]
+},
+{
+    "root_tag": "PrefabFiles",
+    "unique_signatures": [
+        {
+            "unique_keys": ["file"]
+        }
+    ]
+},
+{
+    "root_tag": "Boxes",
+    "unique_signatures": [
+        {
+            "unique_keys": ["min", "max", "origin", "rotation"],
+            "float_list_to_round": ["min", "max", "origin", "rotation"]
+        }
+    ]
+}
+]

@@ -1,13 +1,16 @@
-# flake8: noqa
-from dataclasses import dataclass
-from enum import StrEnum
-from os import system
+# ruff: noqa: E501
+
 import platform
+from dataclasses import dataclass
+from enum import Enum, StrEnum
+from os import system
+from typing import Literal
 
+from commod import __version__
 
-OWN_VERSION = "2.2"
+OWN_VERSION = __version__
 
-DATE = "(Jun 09 2024)"
+DATE = "(May 12 2025)"
 # version of binary fixes
 # corresponds with the latest major.minor ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"
@@ -16,10 +19,12 @@ VERSION = "1.14"
 # but version string will include ComPatch/Rem build id at the end of the string
 COMPATCH_VER = f"ExMachina - Community Patch fixes v{VERSION} {DATE}"
 COMPATCH_MIN = f"ExMachina - Minimal ComPatch build 1.02 {DATE}"
-COMREM_VER = f"ExMachina - Community Remaster fixes v{VERSION} {DATE}"
-
+COMRMSTR_VER = f"ExMachina - Community Remaster fixes v{VERSION} {DATE}"
+COMPT113_MIN = f"ExMachina: Meridian 113 / HTA: RoC - MiniPatch - build v1.01 {DATE}"
+ARCADE_PATCH = "EM:Arcade MiniPatch 1.0"
 
 DEM_DISCORD = "https://discord.gg/jZHxYdF"
+DEM_FORUM_MODS = "https://forum.deuswiki.com/c/mods/9"
 DEM_DISCORD_MODS_DOWNLOAD_SCREEN = "https://discord.gg/deus-ex-machina-522817939616038912"
 COMPATCH_GITHUB = "https://github.com/DeusExMachinaTeam/EM-CommunityPatch"
 WIKI_COMREM = "https://deuswiki.com/w/Community_Remaster"
@@ -35,8 +40,7 @@ COMMOD_USES = (
     "[pathvalidate](https://github.com/thombashi/pathvalidate/blob/master/LICENSE), "
     "[python-markdownify](https://github.com/matthewwithanm/python-markdownify/blob/develop/LICENSE), "
     "[aiofiles](https://github.com/Tinche/aiofiles/blob/main/LICENSE), "
-    "[aiopath](https://github.com/alexdelorenzo/aiopath/blob/main/LICENSE), "
-    "[aioshutil](https://github.com/kumaraditya303/aioshutil/blob/master/LICENSE.md)")
+    "[aiopath](https://github.com/alexdelorenzo/aiopath/blob/main/LICENSE)")
 
 VERSION_BYTES_100_STAR = 0x005A69C2
 VERSION_BYTES_102_NOCD = 0x005906A3
@@ -45,10 +49,10 @@ VERSION_BYTES_103_NOCD = 0x005917D2
 VERSION_BYTES_103_STAR = 0x000103CD
 VERSION_BYTES_DEM_LNCH = 0x0000DEAD
 
-VERSION_BYTES_M113_101 = 0x007BED2B
-VERSION_BYTES_ARCD_100 = 0x0072F9FC
+VERSION_BYTES_M113_101 = 0x007BED00
+VERSION_BYTES_ARCD_100 = 0x0072F9E8
 
-ENCODING = 'windows-1251'
+ENCODING = "windows-1251"
 
 TARGET_RES_X = 1920.0
 TARGET_RES_Y = 1080.0
@@ -62,32 +66,46 @@ ENLARGE_UI_COEF = TARGET_RES_Y / ORIG_RES_Y
 
 TARGEM_POSITIVE = ("yes", "yeah", "yep", "true")
 TARGEM_NEGATIVE = ("no", "nope", "none", "false")
+TARGEM_BOOLS = TARGEM_NEGATIVE + TARGEM_POSITIVE
+# for static type checkers variable unpacking won't work
+TARGEM_BOOLS_LITERAL = Literal["yes", "yeah", "yep", "true", "no", "nope", "none", "false"]
 
-PREFERED_RESOLUTIONS = {1920: [960, 1280, 1366, 1600, 1920],
-                        2560: [960, 1280, 1600, 1920, 2560],
-                        3840: [1280, 1366, 1920, 2560, 3840]}
+PREFERED_RESOLUTIONS = {
+    1920: [960, 1280, 1366, 1600, 1920],
+    2560: [960, 1280, 1600, 1920, 2560],
+    3840: [1280, 1366, 1920, 2560, 3840]}
 
 DEFAULT_RESOLUTIONS = PREFERED_RESOLUTIONS[1920]
 
-KNOWN_RESOLUTIONS = {426: 240,
-                     640: 360,
-                     854: 480,
-                     960: 540,
-                     1024: 576,
-                     1280: 720,
-                     1366: 768,
-                     1600: 900,
-                     1920: 1080,
-                     2560: 1440,
-                     3200: 1800,
-                     3840: 2160,
-                     5120: 2880,
-                     7680: 4320}
+KNOWN_RESOLUTIONS = {
+    426: 240,
+    640: 360,
+    854: 480,
+    960: 540,
+    1024: 576,
+    1280: 720,
+    1366: 768,
+    1600: 900,
+    1920: 1080,
+    2560: 1440,
+    3200: 1800,
+    3840: 2160,
+    5120: 2880,
+    7680: 4320}
+
+LIST_KNOWN_RESOLUTIONS_SD = [
+    (800, 600),
+    (1024, 768),
+    (1152, 864),
+    (1280, 960),
+    (1280, 1024),
+    (1600, 1200)
+]
 
 DEFAULT_SCALE_FACTOR = 1.0
 DEFAULT_LINUX_SCALE_FACTOR = 2.0
 
-def get_system_os_scale():
+def get_system_os_scale() -> float:
     if "Windows" in platform.system():
         try:
             from ctypes import windll
@@ -102,10 +120,16 @@ OS_SCALE_FACTOR = get_system_os_scale()
 @dataclass
 class BinaryPatch:
     offset: int
-    enable_value: str
-    disable_value: str
+    enable_value: str | int | float
+    disable_value: str | int | float
     comment: str = ""
     value_is_offset: bool = False
+
+    def __post_init__(self) -> None:
+        if type(self.enable_value) is not type(self.disable_value):
+            raise TypeError(
+                f"enable_value and disable_value must be the same type, "
+                f"got {type(self.enable_value)} and {type(self.disable_value)}")
 
 projection_matrix_patches = [
     BinaryPatch(
@@ -248,6 +272,33 @@ no_money_in_player_schwarz_patches = [
     )
 ]
 
+m113_relationship_list_patches = [
+    BinaryPatch(
+        offset=0x128139, enable_value="540EC400", disable_value="480EC400",
+        comment=("Decreases margin around rows in faction reputation list")
+    ),
+    BinaryPatch(
+        offset=0x1281C9, enable_value="540EC400", disable_value="480EC400",
+        comment=("Same as above")
+    ),
+    BinaryPatch(
+        offset=0x128210, enable_value="540EC400", disable_value="480EC400",
+        comment=("Same as above")
+    ),
+    BinaryPatch(
+        offset=0x128241, enable_value="540EC400", disable_value="480EC400",
+        comment=("Same as above")
+    ),
+    BinaryPatch(
+        offset=0x1282C1, enable_value="540EC400", disable_value="480EC400",
+        comment=("Same as above")
+    ),
+    BinaryPatch(
+        offset=0x128885, enable_value="0F", disable_value="07",
+        comment=("Changes max number of rows in the list from 7 to 15")
+    )
+]
+
 # were precalculated and hardcoded as we don't support changing the fov dynamically
 # ASPECT_RATIO = TARGET_RES_X / TARGET_RES_Y
 
@@ -292,11 +343,25 @@ no_money_in_player_schwarz_patches = [
 # 0x5E5B0C # target capturing texCapturingSizeX
 # 0x5E5BDC # target capturing texCaptureSzBig
 
-minimal_mm_inserts = {
+minimal_mm_inserts_em1 = {
     # 4GB patch
     0x00015E: "2E",
     # stack size - 4 Mb
     0x1A8: "00004000"
+    }
+
+minimal_mm_inserts_m113 = {
+    # 4GB patch
+    0x000186: "2E",
+    # stack size - 4 Mb
+    0x1D0: "00004000"
+    }
+
+minimal_mm_inserts_arcade = {
+    # 4GB patch
+    0x00018E: "2E",
+    # stack size - 4 Mb
+    0x1D8: "00004000"
     }
 
 additional_mm_inserts = {
@@ -628,41 +693,78 @@ def get_title() -> str:
 def set_title() -> None:
     system("title " + get_title())
 
-
-def get_text_offsets(version: str) -> dict:
-    if version == "patch":
-        version_text = COMPATCH_VER
-    elif version == "remaster":
-        version_text = COMREM_VER
-    elif version == "minimal":
-        version_text = COMPATCH_MIN
-    else:
-        raise NameError(f"Unsupported version '{version}'!")
-
-    offsets_text = {
-                    # version line in log and main menu
-                    0x590680: [version_text, 70],
-                    # version line in short log
-                    0x5A85C8: [version_text, 70],
-                    # log category: Loaded models info (AnimModels server log)
-                    0x5A96D8: [version_text, 70],
-                    # log category: Generic export description (SaveExportDescToFile)
-                    0x5BA3C8: [version_text, 70],
-                    # console version line
-                    0x5BDCE8: [version_text, 70],
-                    0x598DCC: ["169", 3]}
-    return offsets_text
-
-
 class SupportedGames(StrEnum):
     EXMACHINA = "exmachina"
     M113 = "m113"
     ARCADE = "arcade"
 
+    # @classmethod
+    # def _missing_(cls, value: str):
+    #     value = value.lower()
+    #     for member in cls:
+    #         if member == value:
+    #             return member
+    #     return None
+
+class GameFilter(Enum):
+    ALL = 0
+    EXMACHINA = 1
+    M113 = 2
+    ARCADE = 3
+
     @classmethod
-    def _missing_(cls, value: str):
-        value = value.lower()
-        for member in cls:
-            if member == value:
-                return member
-        return None
+    def list_values(cls) -> list[int]:
+        return [c.value for c in cls]
+
+
+def get_text_offsets(version: str, installment: SupportedGames) -> dict:
+    version_text = ""
+    match [installment, version]:
+        case [SupportedGames.EXMACHINA, "patch"]:
+            version_text = COMPATCH_VER
+        case [SupportedGames.EXMACHINA, "remaster"]:
+            version_text = COMRMSTR_VER
+        case [SupportedGames.EXMACHINA, "minimal"]:
+            version_text = COMPATCH_MIN
+        case [SupportedGames.M113, "minimal"]:
+            version_text = COMPT113_MIN
+        case [SupportedGames.ARCADE, "minimal"]:
+            version_text = ARCADE_PATCH
+
+    if not version_text:
+        raise NameError(f"Unsupported version '{version}'!")
+
+    match installment:
+        case SupportedGames.EXMACHINA:
+            offsets_text = {
+                # version line in log and main menu
+                0x590680: [version_text, 70],
+                # version line in short log
+                0x5A85C8: [version_text, 70],
+                # log category: Loaded models info (AnimModels server log)
+                0x5A96D8: [version_text, 70],
+                # log category: Generic export description (SaveExportDescToFile)
+                0x5BA3C8: [version_text, 70],
+                # console version line
+                0x5BDCE8: [version_text, 70],
+                # use \textures\oldfilm\fr169.dds texture for bg
+                0x598DCC: ["169", 3]}
+        case SupportedGames.M113:
+            offsets_text = {
+                0x7BED00: [version_text, 84],
+                0x7C4DB0: [version_text, 84],
+                0x7CA240: [version_text, 84],
+                0x7CB5B0: [version_text, 84],
+                0x7CFA28: [version_text, 84],
+                0x7F8F30: [version_text, 84],
+                0x7F9220: [version_text, 84],
+                0x7F95F0: [version_text, 84],
+                0x7FBDF0: [version_text, 84]
+            }
+        case SupportedGames.ARCADE:
+            offsets_text = {
+                0x72F9E8: [version_text, 23]
+            }
+
+    return offsets_text
+

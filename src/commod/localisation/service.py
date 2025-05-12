@@ -56,8 +56,7 @@ class SupportedLanguages(StrEnum):
 
 # Fallback for new lines that are added in development,
 # before they can be translated to all supported langs
-local_dict: dict[str, str] = {
-}
+local_dict: dict[str, str] = {}
 
 def get_strings_dict() -> dict[str, dict[str, str]]:
     eng = read_yaml(get_internal_file_path("localisation/strings_eng.yaml"))
@@ -102,7 +101,7 @@ def tr(str_name: str, **kwargs: str) -> str:
 
     # development fallback
     if local_dict.get(str_name):
-        return local_dict[str_name]
+        return local_dict[str_name].format(**kwargs) if kwargs else local_dict[str_name]
 
     logger.warning(f"Localized string '{str_name}' not found!")
     return f"Unlocalised string '{str_name}'"
@@ -130,7 +129,7 @@ def is_known_lang(lang: str) -> bool:
     return lang in KnownLangFlags.list_names()
 
 def get_known_mod_display_name(
-        service_name: str, library_mods_info: dict[dict[str, str]] | None = None) -> str | None:
+        service_name: str, library_mods_info: dict[str, dict[str, str]] | None = None) -> str | None:
     current_lang = get_current_lang()
     lang_dict = library_mods_info[service_name]
     if library_mods_info and lang_dict:

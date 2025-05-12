@@ -4,6 +4,7 @@ import operator
 import os
 import struct
 import typing
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
@@ -20,7 +21,9 @@ from pydantic import (
     model_validator,
 )
 
+import commod.tools.xml_helpers
 from commod.game import data, hd_ui
+from commod.helpers import parse_ops
 from commod.helpers.file_ops import (
     RESOLUTION_OPTION_LIST_SIZE,
     get_config,
@@ -30,27 +33,122 @@ from commod.helpers.file_ops import (
     write_xml_to_file,
 )
 from commod.helpers.parse_ops import (
-    get_child_from_xml_node,
+    find_element,
     parse_simple_relative_path,
     remove_substrings,
     xml_to_objfy,
 )
 from commod.localisation.service import get_known_mod_display_name, tr
+from commod.tools import xml_merge
 
+
+class MergeDirective(BaseModel, arbitrary_types_allowed = True):
+    root_dir: Path
+    raw_commands_file: str = Field(validation_alias="commands", repr=False)
+    raw_targets: str | list[str] = Field(validation_alias="targets", repr=False)
+    merge_author: str
+
+    _command_list: list[commod.tools.xml_helpers.Command] = []
+
+    @field_validator("raw_targets", mode="before")
+    @classmethod
+    def convert_to_list(
+            cls, value: str | list) -> list[str]:
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, list):
+            return value
+        raise ValueError("Unexpected value type in 'targets' field")
+
+    @field_validator("raw_targets", mode="after")
+    @classmethod
+    def parse_relative_paths(cls, value: list[str]) -> list[str]:
+        return [parse_simple_relative_path(path) for path in value]
+
+    @field_validator("raw_commands_file", mode="after")
+    @classmethod
+    def parse_relative_path(cls, value: str) -> str:
+        return parse_simple_relative_path(value)
+
+    @computed_field(repr=True)
+    @cached_property
+    def targets(self) -> list[Path]:
+        return [Path(target) for target in self.raw_targets]
+
+    @computed_field(repr=True)
+    @cached_property
+    def commands_file(self) -> Path:
+        return self.root_dir / self.raw_commands_file
+
+    @computed_field(repr=False)
+    @property
+    def commands(self) -> list[commod.tools.xml_helpers.Command]:
+        try:
+            cmd_tree = parse_ops.xml_to_objfy(self.commands_file)
+            self._command_list = xml_merge.parse_command_tree(
+                cmd_tree, merge_author=self.merge_author)
+        except Exception as ex:
+            raise ValueError(f"Unable to parse commands from '{self.commands_file!r}':\n\n{ex}") from ex
+
+        return self._command_list
+
+    @model_validator(mode="after")
+    def load_commands(self) -> "MergeDirective":
+        counter = Counter(self.targets)
+        duplicates = [str(item) for item, count in counter.items() if count > 1]
+        if duplicates:
+            raise AssertionError(
+                f"Duplicated targets {duplicates} specified for command '{self.raw_commands_file!r}'!")
+
+        if not self.commands_file.name.startswith("_"):
+            raise ValueError("All command file names must start with underscore('_'): "
+                             f"{self.raw_commands_file!r}")
+
+        if not self.commands_file.exists():
+            raise ValueError(f"Specified 'commands' path doesn't exist: '{self.commands_file!r}'")
+        for target in self.targets:
+            if (self.root_dir / target).exists():
+                raise ValueError(
+                    f"Merge command file specifies target '{target}' "
+                    "but copy file overwriting that target also exists in mod files!\n"
+                    f"(Instruction file located at: {self.root_dir})\n")
+        return self
 
 class PatcherOptions(BaseModel):
+    # gameplay
     gravity: Annotated[float, Field(ge=-100, le=-1)] | None = None
-    skins_in_shop: Annotated[int, Field(ge=8, le=32)] | None = None
-    sell_price_coeff: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
-    blast_damage_friendly_fire: bool | None = None
-    game_font: str | None = None
     slow_brake: bool | None = None
-    hq_reflections: bool | None = None
-    draw_distance_limit: bool | None = None
-    vanilla_fov: bool | None = None
+    blast_damage_friendly_fire: bool | None = None
     default_difficulty_is_lowest: bool | None = None
+
+    # economy
+    sell_price_coeff: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     no_money_in_player_schwarz: bool | None = None
     calc_peace_price_from_schwarz: bool | None = None
+
+    # visual
+    skins_in_shop: Annotated[int, Field(ge=8, le=32)] | None = None
+    hq_reflections: bool | None = None
+    game_font: str | None = None
+
+    # visual - inverse flags
+    vanilla_fov: bool | None = None
+    draw_distance_limit: bool | None = None
+
+    # m113 specific
+    m113_longer_list_of_factions: bool | None = None
+
+    def is_compatible_with_installment(self, installment: data.SupportedGames) -> bool:
+        match installment:
+            case data.SupportedGames.EXMACHINA:
+                return all(val is None for key, val in self.model_dump().items()
+                           if key.startswith(("m113", "camFov", "g_fixed")))
+            case data.SupportedGames.M113:
+                return all(val is None for key, val in self.model_dump().items()
+                           if not key.startswith("m113"))
+            case data.SupportedGames.ARCADE:
+                return all(val is None for val in self.model_dump().values())
+
 
 def apply_binary_patch(f: typing.BinaryIO,
                        binary_patches: list[data.BinaryPatch],
@@ -88,6 +186,20 @@ class ConfigOptions(BaseModel):
     mus_Volume:     Annotated[int, Field(ge=0, le=50)] | None = None
     snd_2dVolume:   Annotated[int, Field(ge=0, le=50)] | None = None
     snd_3dVolume:   Annotated[int, Field(ge=0, le=50)] | None = None
+
+    fov:    Annotated[float, Field(ge=0, le=180)] | None = None
+
+    # m113 and arcade specific, some are not available in both and will be ignored by game
+    g_fixedCameraMode:          data.TARGEM_BOOLS_LITERAL | None = None
+    g_fixedCameraAngle:         Annotated[int, Field(ge=0, le=90)] | None = None
+    g_fixedCameraRotationCoeff: Annotated[int, Field(ge=0, le=90)] | None = None
+    g_fixedCameraHorOffset:     Annotated[int, Field(ge=-90, le=90)] | None = None
+    g_fixedCameraVerOffset:     Annotated[int, Field(ge=-90, le=90)] | None = None
+    g_fixedCameraSpeedCoeff:    Annotated[float, Field(ge=0, le=90)] | None = None
+    camFovMaxDelta:             Annotated[float, Field(ge=0, le=90)] | None = None
+    camFovSpeedFactor:          Annotated[float, Field(ge=0, le=90)] | None = None
+    camFovSpeedHiTreshold:      Annotated[float, Field(ge=0, le=90)] | None = None
+    camFovSpeedLoTreshold:      Annotated[float, Field(ge=0, le=90)] | None = None
 
 
 class Version(BaseModel):
@@ -165,11 +277,8 @@ class Version(BaseModel):
             version += f"-{self.identifier}"
         return version
 
-    def _is_valid_operand(self, other: object) -> bool:
-        return isinstance(other, Version)
-
     def __eq__(self, other: object) -> bool:
-        if not self._is_valid_operand(other):
+        if not isinstance(other, Version):
             return NotImplemented
 
         if self.is_numeric and other.is_numeric:
@@ -182,7 +291,7 @@ class Version(BaseModel):
                 (other.major.lower(), other.minor.lower(), other.patch.lower(), self.identifier.lower()))
 
     def __lt__(self, other: object) -> bool:
-        if not self._is_valid_operand(other):
+        if not isinstance(other, Version):
             return NotImplemented
 
         if self.is_numeric and other.is_numeric:
@@ -195,7 +304,7 @@ class Version(BaseModel):
                 (other.major.lower(), other.minor.lower(), other.patch.lower()))
 
     def __le__(self, other: object) -> bool:
-        if not self._is_valid_operand(other):
+        if not isinstance(other, Version):
             return NotImplemented
 
         if self.is_numeric and other.is_numeric:
@@ -208,7 +317,7 @@ class Version(BaseModel):
                 (other.major.lower(), other.minor.lower(), other.patch.lower()))
 
     def __gt__(self, other: object) -> bool:
-        if not self._is_valid_operand(other):
+        if not isinstance(other, Version):
             return NotImplemented
 
         if self.is_numeric and other.is_numeric:
@@ -221,7 +330,7 @@ class Version(BaseModel):
                 (other.major.lower(), other.minor.lower(), other.patch.lower()))
 
     def __ge__(self, other: object) -> bool:
-        if not self._is_valid_operand(other):
+        if not isinstance(other, Version):
             return NotImplemented
 
         if self.is_numeric and other.is_numeric:
@@ -319,8 +428,9 @@ class CompareOperator(enum.IntEnum):
 
 
 class ModCompatConstrain(BaseModel):
-    name: list[Annotated[str, StringConstraints(max_length=64)]]
-    versions: list[str] | list[VersionRequirement] | None = Field(default=[], repr=False)
+    name: list[Annotated[str, StringConstraints(max_length=64)]] \
+          | Annotated[str, StringConstraints(max_length=64)]
+    versions: list[VersionRequirement] | None = Field(default=[], repr=False)
     optional_content: list[str] | None = Field(default=[], repr=False)
 
     @field_validator("name", mode="before")
@@ -333,7 +443,9 @@ class ModCompatConstrain(BaseModel):
     @field_validator("versions", mode="before")
     @classmethod
     def convert_to_version_list(cls, value: str | list[str]) -> list[str]:
-        if value and not isinstance(value, list):
+        if not value:
+            return []
+        if not isinstance(value, list):
             return [value]
         return value
 
@@ -394,8 +506,8 @@ class Prerequisite(ModCompatConstrain):
 
     def compute_current_status(self, existing_content: dict,
                        existing_content_descriptions: dict,
-                       library_mods_info: dict[dict[str, str]] | None,
-                       is_compatch_env: bool) -> tuple[bool, str]:
+                       library_mods_info: dict[str, dict[str, str]] | None,
+                       is_compatch_env: bool) -> tuple[bool, list[str]]:
         """Return bool check success result and an error message string."""
         error_msg = []
         required_mod_name = None
@@ -462,7 +574,7 @@ class Prerequisite(ModCompatConstrain):
         optional_content = self.optional_content
         if optional_content and optional_content is not None:
             optional_content_label = (f', {tr("including_options").lower()}: '
-                                      f'{", ".join(self.optional_content)}')
+                                      f'{", ".join(optional_content)}')
             if name_validated and version_validated:
                 for option in optional_content:
                     if existing_content[required_mod_name].get(option) in [None, "skip"]:
@@ -492,7 +604,7 @@ class Prerequisite(ModCompatConstrain):
                              f"{name_label}{version_label}{optional_content_label}")
             installed_description = existing_content_descriptions.get(required_mod_name)
             if installed_description is not None:
-                installed_description = installed_description.strip(" \n")  # noqa: B005
+                installed_description = installed_description.strip(" \n")
                 error_msg_entry = (f'\n{tr("version_available").capitalize()}:\n'
                                    f'{installed_description}')
                 if error_msg_entry not in error_msg:
@@ -522,7 +634,7 @@ class Incompatibility(ModCompatConstrain):
 
     def compute_current_status(self, existing_content: dict,
                        existing_content_descriptions: dict,
-                       library_mods_info: dict[dict[str, str]] | None) -> tuple[bool, list]:
+                       library_mods_info: dict[str, dict[str, str]] | None) -> tuple[bool, list]:
         error_msg = []
         name_incompat = False
         version_incomp = False
@@ -585,7 +697,7 @@ class Incompatibility(ModCompatConstrain):
             if optional_content and optional_content is not None:
 
                 optional_content_label = (f', {tr("with_options").lower()}: '
-                                          f'{or_word.join(self.optional_content)}')
+                                          f'{or_word.join(optional_content)}')
 
                 for option in optional_content:
                     if existing_content[incomp_mod_name].get(option) not in [None, "skip"]:
@@ -603,7 +715,7 @@ class Incompatibility(ModCompatConstrain):
                                  f'{name_label}{version_label}{optional_content_label}')
                 installed_description = existing_content_descriptions.get(incomp_mod_name)
                 if installed_description is not None:
-                    installed_description = installed_description.strip(" \n")  # noqa: B005
+                    installed_description = installed_description.strip(" \n")
                     error_msg.append(f'\n{tr("version_available").capitalize()}:\n'
                                      f'{installed_description}')
                 else:
@@ -613,7 +725,7 @@ class Incompatibility(ModCompatConstrain):
             return incompatible_with_game_copy, error_msg
 
         self._name_label = name_label
-        return False, ""
+        return False, []
 
 
 class InstallSettings(BaseModel):
@@ -622,14 +734,53 @@ class InstallSettings(BaseModel):
     description: Annotated[str, StringConstraints(max_length=1024)] = Field(repr=False)
 
     # file structure
-    data_dirs: list[str] = []
+    data_dirs: list[str] | list[Path] = []
+    merge_instructions: list[str] | list[Path] = []
+    _merge_directives: list[MergeDirective] = []
+    # lua_execute: list[str] | list[Path] = []
+
+    @property
+    def merge_directives(self) -> list[MergeDirective]:
+        return self._merge_directives
+
+    @merge_directives.setter
+    def merge_directives(self, new_directives: list[MergeDirective]) -> None:
+    #     for directive in new_directives:
+    #         if not directive.commands_file.name.startswith("_"):
+    #             raise AssertionError(
+    #                 "All command instruction file name must start with underscore ('_') symbol:\n"
+    #                 f"{directive.commands_file}")
+    #         corresponding_file = directive.commands_file.parent / directive.commands_file.name.lstrip("_")
+    #         if corresponding_file.exists():
+    #             raise AssertionError(
+    #                 f"Can't have merge commands duplicating files that are simply copied: \n"
+    #                 f"{directive.commands_file}\n"
+    #                 "AND\n"
+    #                 f"{corresponding_file}!")
+        self._merge_directives = new_directives
+
+    # @computed_field(repr=False)
+    # @cached_property
+    # def merge_directives(self) -> list[MergeDirective]:
+    #     directives = []
+    #     for path in self.merge_instructions:
+    #         merge_instructions = self.mod_files_root / path
+    #         if not merge_instructions.exists():
+    #             raise ValueError(f"Specified merge instruction file doesn't exist:\n\n{merge_instructions}")
+    #         instruction_list = read_yaml(merge_instructions)
+    #         directives.extend([MergeDirective(
+    #             **instr, merge_author=f"{self.id_str}[base:{merge_instructions.stem}]",
+    #             root_dir=self.mod_files_root)
+    #             for instr in instruction_list])
+
+    #     return directives
 
     @field_validator("name", "display_name", "description", mode="after")
     @classmethod
     def remove_lead_trail_newline_n_space(cls, value: str) -> str:
         return value.strip(" \n")
 
-    @field_validator("data_dirs", mode="after")
+    @field_validator("data_dirs", "merge_instructions", mode="after")
     @classmethod
     def parse_relative_paths(cls, value: list[str]) -> list[str]:
         return [parse_simple_relative_path(path) for path in value]
@@ -654,7 +805,29 @@ class OptionalContent(BaseModel):
     patcher_options: PatcherOptions | None = None
 
     # file structure
-    data_dirs: list[str] = []
+    data_dirs: list[str] | list[Path] = []
+    merge_instructions: list[str] | list[Path] = []
+    _merge_directives: list[MergeDirective] = []
+
+    @property
+    def merge_directives(self) -> list[MergeDirective]:
+        return self._merge_directives
+
+    @merge_directives.setter
+    def merge_directives(self, new_directives: list[MergeDirective]) -> None:
+        # for directive in new_directives:
+        #     if not directive.commands_file.name.startswith("_"):
+        #         raise AssertionError(
+        #             "All command instruction file name must start with underscore ('_') symbol:\n"
+        #             f"{directive.commands_file}")
+        #     corresponding_file = directive.commands_file.parent / directive.commands_file.name.lstrip("_")
+        #     if corresponding_file.exists():
+        #         raise AssertionError(
+        #             f"Can't have merge commands duplicating files that are simply copied: \n"
+        #             f"{directive.commands_file}\n"
+        #             "AND\n"
+        #             f"{corresponding_file}!")
+        self._merge_directives = new_directives
 
     @field_validator("name", "display_name", "description", mode="after")
     @classmethod
@@ -675,7 +848,7 @@ class OptionalContent(BaseModel):
                 self.default_option = None # None is default and signals that option needs to be installed
         return self
 
-    @field_validator("data_dirs", mode="after")
+    @field_validator("data_dirs", "merge_instructions", mode="after")
     @classmethod
     def parse_relative_paths(cls, value: list[str]) -> list[str]:
         return [parse_simple_relative_path(path) for path in value]
@@ -703,7 +876,6 @@ class OptionalContent(BaseModel):
     @property
     def content_names(self) -> list[str]:
         return [self.name, *[f"{self.name}/{sett.name}" for sett in self.install_settings]]
-
 
     def model_post_init(self, _unused_context: Any) -> None:  # noqa: ANN401
         if not self.data_dirs:
@@ -744,12 +916,19 @@ class Screenshot(BaseModel):
     def failed_validation(self, new_value: bool) -> None:
         self._failed_validation = new_value
 
-def patch_memory(target_exe: str) -> list[str]:
+def patch_memory(target_exe: str, installment: data.SupportedGames) -> list[str]:
     """Apply two memory related binary exe fixes."""
     with open(target_exe, "rb+") as f:
-        patch_offsets(f, data.minimal_mm_inserts, raw_strings=True)
+        match installment:
+            case data.SupportedGames.EXMACHINA:
+                minimall_mm_inserts = data.minimal_mm_inserts_em1
+            case data.SupportedGames.M113:
+                minimall_mm_inserts = data.minimal_mm_inserts_m113
+            case data.SupportedGames.ARCADE:
+                minimall_mm_inserts = data.minimal_mm_inserts_arcade
+        patch_offsets(f, minimall_mm_inserts, raw_strings=True)
 
-        offsets_text = data.get_text_offsets("minimal")
+        offsets_text = data.get_text_offsets("minimal", installment)
         for offset in offsets_text:
             text_fin = offsets_text[offset][0]
             text_str = bytes(text_fin, "utf-8")
@@ -757,12 +936,15 @@ def patch_memory(target_exe: str) -> list[str]:
             f.seek(offset)
             f.write(struct.pack(f"{allowed_len}s", text_str))
 
-    return ["mm_inserts_patched"]
+    return ["minimal_mm_inserts_patched"]
 
 
 def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | None = None,
                         under_windows: bool = True) -> None:
     """Apply binary exe fixes which support configuration."""
+    if not exe_options:
+        return
+
     with open(target_exe, "rb+") as f:
         # dict of values that mod configured to be patched
         configurable_values: dict[str, Any] = {}
@@ -778,14 +960,15 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
                 configurable_values["skins_in_shop_2"] = (exe_options_config.skins_in_shop,)
 
             if exe_options_config.blast_damage_friendly_fire is not None:
-                configurable_values["blast_damage_friendly_fire"] = exe_options_config.blast_damage_friendly_fire
+                configurable_values["blast_damage_friendly_fire"] = \
+                    exe_options_config.blast_damage_friendly_fire
 
             if exe_options_config.game_font is not None:
                 font_alias = exe_options_config.game_font
 
             if exe_options_config.draw_distance_limit is not None:
                 apply_binary_patch(f, data.draw_distance_patches,
-                                   enable_flag=exe_options_config.draw_distance_limit)
+                                   enable_flag=not exe_options_config.draw_distance_limit)
 
             if exe_options_config.default_difficulty_is_lowest is not None:
                 apply_binary_patch(f, data.default_difficulty_lowest_patches,
@@ -799,13 +982,17 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
                 apply_binary_patch(f, data.no_money_in_player_schwarz_patches,
                                    enable_flag=exe_options_config.no_money_in_player_schwarz)
 
+            if exe_options_config.m113_longer_list_of_factions is not None:
+                apply_binary_patch(f, data.m113_relationship_list_patches,
+                                   enable_flag=exe_options_config.m113_longer_list_of_factions)
+
             if exe_options_config.hq_reflections is not None:
                 apply_binary_patch(f, data.hq_reflections_patches,
                                    enable_flag=exe_options_config.hq_reflections)
 
             if exe_options_config.vanilla_fov is not None:
                 apply_binary_patch(f, data.projection_matrix_patches,
-                                   enable_flag=exe_options_config.vanilla_fov)
+                                   enable_flag=not exe_options_config.vanilla_fov)
 
             if exe_options_config.slow_brake is not None:
                 apply_binary_patch(f, data.slow_brake_patches,
@@ -823,7 +1010,11 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
         configured_offsets: dict[int, Any] = {}
 
         for offset_key, value in configurable_values.items():
-            configured_offsets[data.configurable_offsets.get(offset_key)] = value
+            offset_address = data.configurable_offsets.get(offset_key)
+            if offset_address:
+                configured_offsets[offset_address] = value
+            else:
+                logger.error(f"Unexpected {offset_key=} provided!")
 
         if font_alias:
             fonts_scaled = hd_ui.scale_fonts(
@@ -836,12 +1027,12 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
         patch_offsets(f, configured_offsets)
 
 
-def correct_damage_coeffs(root_dir: str, gravity: float) -> None:
+def correct_damage_coeffs(root_dir: str | Path, gravity: float) -> None:
     config = get_config(root_dir)
     if config.attrib.get("ai_clash_coeff") is not None:
         ai_clash_coeff = 0.001 / (gravity / -9.8)
         config.attrib["ai_clash_coeff"] = f"{ai_clash_coeff:.4f}"
-        write_xml_to_file(config, os.path.join(root_dir, "data", "config.cfg"))
+        write_xml_to_file(config, Path(root_dir, "data", "config.cfg"))
 
 
 def patch_remaster_icon(f: typing.BinaryIO) -> None:
@@ -928,9 +1119,9 @@ def patch_remaster_icon(f: typing.BinaryIO) -> None:
             f.write((size_of_image+data.rva_offset).to_bytes(4, byteorder="little"))
 
 
-def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
-                   monitor_res: tuple, exe_options: list[PatcherOptions] | None = None,
-                   under_windows: bool = True) -> list[str]:
+def apply_compatches_to_exe(target_exe: str, version_choice: str, build_id: str,
+                            monitor_res: tuple, exe_options: list[PatcherOptions] | None = None,
+                            under_windows: bool = True) -> list[str]:
     """Apply binary exe fixes, makes related changes to config and global properties.
 
     Returns list with a localised description of applied changes
@@ -956,7 +1147,7 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
                            enable_flag=True)
         changes_description.append("camera_patched")
 
-        patch_offsets(f, data.minimal_mm_inserts, raw_strings=True)
+        patch_offsets(f, data.minimal_mm_inserts_em1, raw_strings=True)
         patch_offsets(f, data.additional_mm_inserts, raw_strings=True)
         changes_description.append("mm_inserts_patched")
 
@@ -974,9 +1165,10 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
             patch_remaster_icon(f)
 
             configured_font = ""
-            for exe_options_config in exe_options:
-                if exe_options_config.game_font is not None:
-                    configured_font = exe_options_config.game_font
+            if exe_options:
+                for exe_options_config in exe_options:
+                    if exe_options_config.game_font is not None:
+                        configured_font = exe_options_config.game_font
 
             font_alias = configured_font
             fonts_scaled = hd_ui.scale_fonts(game_root_path, data.OS_SCALE_FACTOR, font_alias, under_windows)
@@ -1011,7 +1203,7 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
                 f.write(struct.pack("i", data.KNOWN_RESOLUTIONS[width_list[i]]))
             logger.info("ui fixes patched")
 
-        offsets_text = data.get_text_offsets(version_choice)
+        offsets_text = data.get_text_offsets(version_choice, data.SupportedGames.EXMACHINA)
         for offset in offsets_text:
             text_fin = offsets_text[offset][0]
             if "ExMachina - " in offsets_text[offset][0]:
@@ -1022,9 +1214,10 @@ def patch_game_exe(target_exe: str, version_choice: str, build_id: str,
             f.write(struct.pack(f"{allowed_len}s", text_str))
 
         configured_gravity = data.DEFAULT_COMREM_GRAVITY
-        for exe_options_config in exe_options:
-            if exe_options_config.gravity:
-                configured_gravity = exe_options_config.gravity
+        if exe_options:
+            for exe_options_config in exe_options:
+                if exe_options_config.gravity:
+                    configured_gravity = exe_options_config.gravity
 
         correct_damage_coeffs(game_root_path, configured_gravity)
         # increase_phys_step might not have an intended effect, need to verify
@@ -1056,16 +1249,19 @@ def rename_effects_bps(game_root_path: str) -> None:
 
 def get_glob_props_path(root_dir: str) -> str:
     config = get_config(root_dir)
+    glob_props_path = ""
     if config.attrib.get("pathToGlobProps") is not None:
         glob_props_path = config.attrib.get("pathToGlobProps")
 
+    if not glob_props_path:
+        raise ValueError("Unable to parse 'pathToGlobProps' from config")
     return glob_props_path.lower()
 
 
 def increase_phys_step(root_dir: str, enable: bool = True) -> None:
     glob_props_full_path = os.path.join(root_dir, get_glob_props_path(root_dir))
     glob_props = xml_to_objfy(glob_props_full_path)
-    physics = get_child_from_xml_node(glob_props, "Physics")
+    physics = find_element(glob_props, "Physics")
     if physics is not None:
         if enable:
             physics.attrib["PhysicStepTime"] = "0.0166"

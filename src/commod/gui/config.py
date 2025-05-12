@@ -1,11 +1,13 @@
 import os
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import flet as ft
 
 import commod.localisation.service as localisation
-from commod.game.environment import GameCopy, GameInstallment, InstallationContext
+from commod.game.data import GameFilter
+from commod.game.environment import GameCopy, InstallationContext
 from commod.helpers.file_ops import dump_yaml, read_yaml
 
 
@@ -14,6 +16,7 @@ class AppSections(Enum):
     LOCAL_MODS = 1
     DOWNLOAD_MODS = 2
     SETTINGS = 3
+    MODDING_TOOLS = 4
 
     @classmethod
     def list_values(cls) -> list[int]:
@@ -35,6 +38,8 @@ class Config:
         self.loaded_games: dict[str, GameCopy] = {}
 
         self.current_distro: str = ""
+        self.last_differ_source: str = ""
+        self.last_differ_modded: str = ""
         # pretty much useless right now as only single distro is supported at the same time
         self.known_distros: set[str] = set()
 
@@ -42,9 +47,10 @@ class Config:
         self.override_incompat: bool = False
 
         self.current_section: int = AppSections.SETTINGS.value
-        self.current_game_filter: int = GameInstallment.ALL.value
+        self.current_game_filter: int = GameFilter.ALL.value
         self.game_with_console: bool = False
         self.linux_run_cmd = "flatpak run net.lutris.Lutris lutris:rungame/HTA"
+        self.code_editor = "code"
 
         self.page: ft.Page = page
 
@@ -58,13 +64,16 @@ class Config:
             "current_section": self.current_section,
             "current_game_filter": self.current_game_filter,
             "game_with_console": self.game_with_console,
-            "linux_run_cmd": self.linux_run_cmd,
-            "window": {"width": self.page.window_width,
-                       "height": self.page.window_height,
-                       "pos_x":  self.page.window_left,
-                       "pos_y": self.page.window_top},
+            "window": {"width": self.page.window.width,
+                       "height": self.page.window.height,
+                       "pos_x":  self.page.window.left,
+                       "pos_y": self.page.window.top},
             "theme": self.page.theme_mode.value,
-            "lang": self.lang
+            "lang": self.lang,
+            "linux_run_cmd": self.linux_run_cmd,
+            "code_editor": self.code_editor,
+            "last_differ_source": self.last_differ_source,
+            "last_differ_modded": self.last_differ_modded,
         }
 
     @property
@@ -116,6 +125,14 @@ class Config:
             if isinstance(current_distro, str) and os.path.isdir(current_distro):
                 self.current_distro = current_distro
 
+            last_differ_source = config.get("last_differ_source")
+            if isinstance(last_differ_source, str) and os.path.isdir(last_differ_source):
+                self.last_differ_source = last_differ_source
+
+            last_differ_modded = config.get("last_differ_modded")
+            if isinstance(last_differ_modded, str) and os.path.isdir(last_differ_modded):
+                self.last_differ_modded = last_differ_modded
+
             self.known_distros = {self.current_distro}
 
             modder_mode = config.get("modder_mode")
@@ -128,10 +145,12 @@ class Config:
 
             current_section = config.get("current_section")
             if current_section in AppSections.list_values():
+                if self.modder_mode is False and current_section == AppSections.MODDING_TOOLS.value:
+                    current_section = AppSections.LAUNCH.value
                 self.current_section = current_section
 
             current_game_filter = config.get("current_game_filter")
-            if current_game_filter in GameInstallment.list_values():
+            if current_game_filter in GameFilter.list_values():
                 self.current_game_filter = current_game_filter
 
             game_with_console = config.get("game_with_console")
@@ -141,6 +160,10 @@ class Config:
             linux_run_cmd = config.get("linux_run_cmd")
             if isinstance(linux_run_cmd, str):
                 self.linux_run_cmd = linux_run_cmd
+
+            code_editor = config.get("code_editor")
+            if isinstance(code_editor, str):
+                self.code_editor = code_editor
 
             window_config = config.get("window")
             # ignoring broken partial configs for window
@@ -169,6 +192,14 @@ class Config:
         if os.path.isdir(distro_path):
             self.known_distros.add(distro_path)
             self.current_distro = distro_path
+
+    def set_last_differ_source(self, dir_path: str | Path) -> None:
+        if Path(dir_path).is_dir():
+            self.last_differ_source = str(dir_path)
+
+    def set_last_differ_modded(self, dir_path: str | Path) -> None:
+        if Path(dir_path).is_dir():
+            self.last_differ_modded = str(dir_path)
 
     def save_config(self, abs_dir_path: str | None = None) -> None:
         if abs_dir_path is not None and os.path.isdir(abs_dir_path):

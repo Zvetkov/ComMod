@@ -8,19 +8,20 @@ import platform
 import pprint
 import subprocess
 import sys
+import time
 import zipfile
 from asyncio import gather
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import yaml
 from aiopath import AsyncPath
 from flet import Text
 
+from lxml import objectify
 # import aiofiles
 from py7zr import py7zr
 from pydantic import DirectoryPath, ValidationError
@@ -28,6 +29,7 @@ from pydantic import DirectoryPath, ValidationError
 from commod.game.data import (
     DATE,
     KNOWN_RESOLUTIONS,
+    LIST_KNOWN_RESOLUTIONS_SD,
     OS_SCALE_FACTOR,
     OWN_VERSION,
     TARGEM_NEGATIVE,
@@ -40,6 +42,7 @@ from commod.game.data import (
     VERSION_BYTES_ARCD_100,
     VERSION_BYTES_DEM_LNCH,
     VERSION_BYTES_M113_101,
+    SupportedGames,
 )
 from commod.game.mod import Mod
 from commod.game.mod_auxiliary import RESERVED_CONTENT_NAMES, ConfigOptions, Version
@@ -60,6 +63,7 @@ from commod.helpers.errors import (
 from commod.helpers.file_ops import get_config, load_yaml, read_yaml, running_in_venv, write_xml_to_file_async
 from commod.localisation.service import SupportedLanguages, tr
 
+logger = logging.getLogger("dem")
 
 class GameStatus(Enum):
     COMPATIBLE = ""
@@ -81,14 +85,6 @@ class DistroStatus(Enum):
     NOT_DIRECTORY = "not_directory"
     GENERAL_ERROR = "error"
 
-# TODO: maybe implement a hashable description of installed Mod
-@dataclass(frozen=True)
-class ModDescription:
-    base: Literal["yes", "no"]
-    build: str
-    display_name: str
-    installment: str
-
 LOG_FILES_TO_KEEP = 30
 
 class InstallationContext:
@@ -103,7 +99,7 @@ class InstallationContext:
         self.dev_mode = dev_mode
         self.distribution_dir: str = ""
         self.validated_mods: dict[str, Mod] = {}
-        self.hashed_mod_manifests: dict[Path, str] = {}
+        self.hashed_mod_manifests: dict[str, str] = {} # dict[str(Path), md5 hash]
         self.archived_mods: dict[str, Mod] = {}
         self.archived_mods_cache: dict[str, Mod] = {}
         self.archived_mod_manifests_cache: dict[str, tuple[Any, Path]] = {}
@@ -117,7 +113,7 @@ class InstallationContext:
             try:
                 self.add_distribution_dir(distribution_dir)
             except OSError:
-                logging.error(f"Couldn't add '{distribution_dir = }'")
+                logger.error(f"Couldn't add '{distribution_dir = }'")
 
         self.current_session = self.Session()
 
@@ -126,27 +122,27 @@ class InstallationContext:
         """Return dict of known display info (names) for mods in session."""
         if not self.validated_mods:
             return None
-        mod_info_list = ((mod.name, mod.language, mod.display_name) for mod in self.validated_mods.values())
         mod_info_dict = defaultdict(dict)
-        for mod_info in mod_info_list:
-            mod_info_dict[mod_info[0]][mod_info[1]] = mod_info[2]
+        for mod in self.validated_mods.values():
+            for variant in mod.variants_loaded.values():
+                mod_info_dict[variant.name][variant.language] = variant.display_name
+
         return mod_info_dict
 
     def new_session(self) -> None:
+        loaded_steam_game_paths = self.current_session.steam_game_paths
         self.current_session = self.Session()
+        self.current_session.steam_game_paths = loaded_steam_game_paths
 
     @staticmethod
     def validate_distribution_dir(distribution_dir: str) -> bool:
         """Validate distribution dir - storage location for mods."""
-        if not distribution_dir or not os.path.isdir(distribution_dir):
-            return False
-
-        return True
+        return bool(distribution_dir) and os.path.isdir(distribution_dir)
 
     @staticmethod
     def get_commod_config() -> dict | None:
-        config_path = os.path.join(InstallationContext.get_local_config_path(), "commod.yaml")
-        if os.path.exists(config_path):
+        config_path = Path(InstallationContext.get_local_config_path(), "commod.yaml")
+        if config_path.exists():
             # Invalid yaml config will be returned as None, no need to handle as special case
             return read_yaml(config_path)
         return None
@@ -171,6 +167,7 @@ class InstallationContext:
         self.logger.info(f"Running on {self.os} {self.os_version} OS family")
 
     def get_monitor_resolution(self) -> tuple[int, int]:
+        res_x, res_y = None, None
         if "Windows" in platform.system():
             success = False
             retry_count = 10
@@ -205,6 +202,12 @@ class InstallationContext:
             if int(res_y) > int(res_x):
                 res_x, res_y = res_y, res_x
 
+        if not (res_x and res_y) or not (str(res_x).isnumeric() and str(res_y).isnumeric()):
+            res_x = 1920
+            res_y = 1080
+            self.logger.warning("xrandr check failed, can't determine resolution "
+                                "using FullHD as a fallback")
+
         monitor_res = int(res_x), int(res_y)
         self.logger.info(f"Reported resolution (X:Y): {res_x}:{res_y}")
 
@@ -230,7 +233,8 @@ class InstallationContext:
                 config_path = Path(sys.argv[0]).resolve().parent
         else:
             # for Linux storing local portable config around binary is undesirable, will use XDG Base Dir Spec
-            config_root = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.environ.get("HOME"), ".config")
+            config_root = (os.environ.get("XDG_CONFIG_HOME")
+                           or os.path.join(os.environ.get("HOME", "/"), ".config"))
             if config_root == "/.config": # valid for "nobody"
                 config_path = Path(sys.argv[0]).resolve().parent
             else:
@@ -242,8 +246,11 @@ class InstallationContext:
         all_config_paths = []
         # TODO: deprecate all code related to legacy comrem file structure
         legacy_comrem = os.path.join(self.distribution_dir, "remaster", "manifest.yaml")
+        root_mod = os.path.join(self.distribution_dir, "manifest.yaml")
         if os.path.exists(legacy_comrem):
             all_config_paths.append(legacy_comrem)
+        elif os.path.exists(root_mod):
+            all_config_paths.append(root_mod)
 
         self.current_session.mod_loading_errors.clear()
         mod_loading_errors = self.current_session.mod_loading_errors
@@ -259,10 +266,11 @@ class InstallationContext:
             raise NoModsFoundError
 
         # TODO: maybe use ThreadPool to speedup
-        start = datetime.now()
+        start = time.perf_counter()
         for mod_config_path in all_config_paths:
             with open(mod_config_path, "rb") as f:
                 digest = hashlib.file_digest(f, "md5").hexdigest()
+            await asyncio.sleep(0)
 
             # TODO: check AnyIO approach, as this is not faster than sync implementation
             # https://anyio.readthedocs.io/en/stable/fileio.html
@@ -287,7 +295,7 @@ class InstallationContext:
                 self.logger.warning(f"Couldn't read mod manifest or it's empty: {mod_config_path}")
                 mod_loading_errors.append(f"\n{tr('empty_mod_manifest')}: "
                                           f"{Path(mod_config_path).parent.name} - "
-                                          f"{Path(mod_config_path).name}")
+                                          f"{Path(mod_config_path).name} (main)")
                 if mod_config_path in self.validated_mods:
                     self.validated_mods.pop(mod_config_path, None)
                 continue
@@ -304,7 +312,7 @@ class InstallationContext:
                           f"{tr('folder').capitalize()}: "
                           f"/{Path(mod_config_path).parent.parent.name}"
                           f"/{Path(mod_config_path).parent.name} ->"
-                          f"{Path(mod_config_path).name}: \n\n"
+                          f"{Path(mod_config_path).name} (main): \n\n"
                           f"**{tr('error')}:**\n\n{ex}")
             except Exception as ex:
                 self.logger.exception("General error:")
@@ -312,21 +320,21 @@ class InstallationContext:
                       f"{tr('folder').capitalize()}: "
                       f"/{Path(mod_config_path).parent.parent.name}"
                       f"/{Path(mod_config_path).parent.name} ->"
-                      f"{Path(mod_config_path).name}: \n\n"
+                      f"{Path(mod_config_path).name} (main): \n\n"
                       f"**{tr('error')}:**\n\n{ex}")
             finally:
                 if not validated and (mod_config_path in self.validated_mods):
                     self.validated_mods.pop(mod_config_path, None)
 
-        end = datetime.now()
-        self.logger.debug(f"{(end - start).microseconds / 1000000} seconds took mods loading")
+        end = time.perf_counter()
+        self.logger.debug(f"{round(end - start, 3)} seconds took mods loading")
 
         outdated_mods = set(self.validated_mods.keys()) - set(all_config_paths)
         if outdated_mods:
-            for mod in outdated_mods:
-                self.logger.debug(f"Removed missing {mod} from rotation")
-                self.validated_mods.pop(mod, None)
-                self.hashed_mod_manifests.pop(mod, None)
+            for mod_path in outdated_mods:
+                self.logger.debug(f"Removed missing {mod_path} from rotation")
+                self.validated_mods.pop(mod_path, None)
+                self.hashed_mod_manifests.pop(mod_path, None)
 
         if archived_mods:
             for path, manifest in archived_mods.items():
@@ -342,7 +350,7 @@ class InstallationContext:
         if mod_loading_errors:
             self.logger.error("-- Errors occurred when loading mods! --")
 
-    def get_dir_manifests(self, directory: str, nesting_levels: int = 3, top_level: bool = True) -> str:
+    def get_dir_manifests(self, directory: str, nesting_levels: int = 3, top_level: bool = True) -> list[str]:
         found_manifests = []
         levels_left = nesting_levels - 1
         for entry in os.scandir(directory):
@@ -387,7 +395,7 @@ class InstallationContext:
 
         return [result for result in search_results if result is not None]
 
-    async def get_existing_mods_async(self, mods_dir: str) -> list[str]:
+    async def get_existing_mods_async(self, mods_dir: str) -> tuple[list[str], dict]:
         # TODO: review this commented out code
         # self.logger.debug("Inside get_existing_mods async")
         # mod_list = await self.get_dir_manifest_async(mods_dir)
@@ -495,16 +503,16 @@ class InstallationContext:
                 if manifests:
                     manifests_read_dict = archive.read(targets=[manifests[0].filename])
                     if manifests_read_dict.values():
-                        manifest_b = list(manifests_read_dict.values())[0]  # noqa: RUF015
-                    if manifest_b:
-                        manifest_root_dir = Path(manifests[0].filename).parent
-                        manifest = load_yaml(manifest_b)
-                        if manifest is None:
-                            raise yaml.YAMLError("Invalid yaml found in archive")
+                        manifest_b = next(iter(manifests_read_dict.values()))
+                        if manifest_b:
+                            manifest_root_dir = Path(manifests[0].filename).parent
+                            manifest = load_yaml(manifest_b)
+                            if manifest is None:
+                                raise yaml.YAMLError("Invalid yaml found in archive")
 
-                        self.archived_mod_manifests_cache[archive_path] = (
-                            manifest, manifest_root_dir, file_list)
-                        return manifest, manifest_root_dir, file_list, None
+                            self.archived_mod_manifests_cache[archive_path] = (
+                                manifest, manifest_root_dir, file_list)
+                            return manifest, manifest_root_dir, file_list, None
 
                 return None, None, None, ValueError("Manifest not found in archive or broken")
         except Exception as ex:
@@ -550,6 +558,7 @@ class InstallationContext:
             return mod, None
 
     def setup_loggers(self, stream_only: bool = False) -> None:
+        # TODO: rework loggers, we don't really need to store them in our InstallationContext or otherwise
         self.logger = logging.getLogger("dem")
         self.logger.propagate = False
         if self.logger.handlers and len(self.logger.handlers) > 1:
@@ -562,6 +571,8 @@ class InstallationContext:
             stream_formatter = logging.Formatter("%(asctime)s: %(levelname)-7s - %(module)-11s"
                                                  " - line %(lineno)-4d: %(message)s")
 
+            # self.dev_mode = True # TODO: REMOVE!
+
             if self.dev_mode or (stream_only and "NUITKA_ONEFILE_PARENT" not in os.environ):
                 stream_handler = logging.StreamHandler()
                 stream_handler.setLevel(logging.DEBUG)
@@ -570,11 +581,10 @@ class InstallationContext:
 
             file_handler_level = logging.DEBUG
 
-            if not stream_only:
+            if not stream_only and self.log_path:
                 file_handler = logging.FileHandler(
-                                    os.path.join(self.log_path,
-                                                 f'debug_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.log'),
-                                    encoding="utf-8")
+                    os.path.join(self.log_path, f'debug_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.log'),
+                    encoding="utf-8")
                 file_handler.setLevel(file_handler_level)
                 file_handler.setFormatter(formatter)
                 self.logger.addHandler(file_handler)
@@ -591,9 +601,9 @@ class InstallationContext:
                     log_files = list(Path(log_path).glob("debug_*.log"))
                     if len(log_files) >= LOG_FILES_TO_KEEP:
                         limit_logs_remove_at_once = 10
-                        remove_num = len(log_files) - LOG_FILES_TO_KEEP
-                        if remove_num > limit_logs_remove_at_once:
-                            remove_num = limit_logs_remove_at_once
+                        remove_num = min(
+                            len(log_files) - LOG_FILES_TO_KEEP,
+                            limit_logs_remove_at_once)
                         for _ in range(remove_num + 1):
                             try:
                                 oldest_file = min(log_files, key=lambda f: f.stat().st_ctime)
@@ -615,7 +625,7 @@ class InstallationContext:
             self.mod_loading_errors: list[str] = []
             self.steam_parsing_error: str | None = None
 
-            self.content_in_processing: dict[str, str] = {}
+            self.content_in_processing: dict[str, dict[str, str]] = {}
             self.steam_game_paths: list[str] = []
             self.tracked_mods_hashes: dict[str, str] = {}
             self.mods: dict[str, Mod] = {}
@@ -625,8 +635,9 @@ class InstallationContext:
         def tracked_mods(self) -> set[str]:
             return {mod.id_str for mod in self.mods.values()}
 
-        def load_steam_game_paths(self) -> tuple[str, str]:
+        def load_steam_game_paths(self) -> bool:  # noqa: PLR0911
             """Try to find the game(s) in default Steam folder, return path and error message."""
+            self.steam_parsing_error = None
             steam_install_reg_path = r"SOFTWARE\WOW6432Node\Valve\Steam"
             validated_dirs = []
             try:
@@ -673,51 +684,44 @@ class InstallationContext:
                                     game_folders.append(games_path)
 
                 if not library_folders:
-                    self.steam_parsing_error = "NoLibraryFolders"
+                    self.steam_parsing_error = "SteamDetection: No library folders found"
                     return False
 
                 if not game_folders:
-                    self.steam_parsing_error = "NoGameFolders"
+                    self.steam_parsing_error = "SteamDetection: No game folders found"
                     return False
 
                 for folder in game_folders:
                     # checking that game install exist for this library
                     # and that data folder and exe exists as well
-                    expected_game_path = folder / "Hard Truck Apocalypse"
-                    if expected_game_path.is_dir():
-                        validated, _ = GameCopy.validate_game_dir(expected_game_path)
-                        if validated:
-                            validated_dirs.append(str(expected_game_path))
-
-                    for entry in folder.glob("*"):
-                        if entry.is_dir() and entry != expected_game_path:
-                            validated, _ = GameCopy.validate_game_dir(str(entry))
+                    expected_game_paths = [
+                        folder / "Hard Truck Apocalypse",
+                        folder / "HARD TRUCK APOCALYPSE RISE OF CLANS",
+                        folder / "HARD TRUCK APOCALYPSE ARCADE"
+                        ]
+                    for expected_game_path in expected_game_paths:
+                        if expected_game_path.is_dir():
+                            validated, _ = GameCopy.validate_game_dir(expected_game_path)
                             if validated:
-                                validated_dirs.append(str(entry))
+                                validated_dirs.append(str(expected_game_path))
+
+                        for entry in folder.glob("*"):
+                            if entry.is_dir() and entry != expected_game_path:
+                                validated, _ = GameCopy.validate_game_dir(str(entry))
+                                if validated:
+                                    validated_dirs.append(str(entry))
             except (ImportError, NameError):
-                self.steam_parsing_error = "WinRegUnavailable/OSNotSupportedForSteamAutodetect"
+                self.steam_parsing_error = "SteamDetection: WinRegUnavailable/OSNotSupportedForSteamAutodetect"
                 return False
             except FileNotFoundError:
-                self.steam_parsing_error = "FileNotFound/RegistryNotFound"
+                self.steam_parsing_error = "SteamDetection: FileNotFound/RegistryNotFound"
                 return False
             except Exception as ex:  # noqa: BLE001
-                self.steam_parsing_error = f"General error when parsing Steam paths: {ex}"
+                self.steam_parsing_error = f"SteamDetection: General error when parsing Steam paths: {ex}"
                 return False
 
-            self.steam_game_paths = validated_dirs
+            self.steam_game_paths = sorted(set(validated_dirs))
             return True
-
-
-class GameInstallment(Enum):
-    ALL = 0
-    EXMACHINA = 1
-    M113 = 2
-    ARCADE = 3
-    UNKNOWN = 4
-
-    @classmethod
-    def list_values(cls) -> list[int]:
-        return [c.value for c in cls]
 
 
 class GameCopy:
@@ -725,7 +729,7 @@ class GameCopy:
 
     def __init__(self) -> None:
         self.logger = logging.getLogger("dem")
-        self.installed_content = {}
+        self.installed_content: dict[str, Any] = {}
         self.installed_descriptions = {}
         self.patched_version = False
         self.leftovers = False
@@ -735,7 +739,7 @@ class GameCopy:
         self.fullscreen_opts_disabled = False
         self.game_root_path = ""
         self.exe_version = "unknown"
-        self.installment = None
+        self.installment: SupportedGames | None = None
         self.installment_id = 4
         self.cached_warning = ""
 
@@ -745,7 +749,7 @@ class GameCopy:
             return tr(self.exe_version)
         if not self.exe_version:
             return " ... "
-        return self.exe_version.replace("Remaster", "Rem")
+        return self.exe_version.replace("Remaster", "Rem").replace("Meridian 113", "M113")
 
     @staticmethod
     def validate_game_dir(game_root_path: str) -> tuple[bool, str]:
@@ -756,36 +760,56 @@ class GameCopy:
         exe_path = GameCopy.get_exe_name(game_root_path)
 
         if exe_path is None:
-            return False, os.path.join(game_root_path, "hta.exe")
+            return False, str(Path(game_root_path, "hta.exe"))
 
-        paths_to_check = [os.path.join(game_root_path, "dxrender9.dll"),
-                          os.path.join(game_root_path, "data"),
-                          os.path.join(game_root_path, "data", "effects"),
-                          os.path.join(game_root_path, "data", "gamedata"),
-                          os.path.join(game_root_path, "data", "if"),
-                          os.path.join(game_root_path, "data", "maps"),
-                          os.path.join(game_root_path, "data", "models"),
-                          os.path.join(game_root_path, "data", "music"),
-                          os.path.join(game_root_path, "data", "scripts"),
-                          os.path.join(game_root_path, "data", "shaders"),
-                          os.path.join(game_root_path, "data", "sounds"),
-                          os.path.join(game_root_path, "data", "textures"),
-                          os.path.join(game_root_path, "data", "weather.xml"),
-                          os.path.join(game_root_path, "data", "config.cfg")]
+        if "emarcade.exe" in exe_path:
+            bins_to_check = ["fmod.dll"]
+            data_dirs_to_check = [
+                "cursors", "fx", "gamedata", "if", "if_dv", "maps",
+                "models", "music", "scripts", "shaders", "sounds", "textures"
+            ]
+            data_files_to_check = ["weather.xml", "config.cfg"]
+        elif "Meridian113.exe" in exe_path:
+            bins_to_check = ["fmod.dll"]
+            data_dirs_to_check = [
+                "cursors", "fx", "gamedata", "if", "maps", "models",
+                "music", "scripts", "shaders", "sounds", "textures", "tiles"
+            ]
+            data_files_to_check = ["config.cfg", "posteffects.xml", "weather.xml"]
+        else:
+            bins_to_check = ["dxrender9.dll"]
+            data_dirs_to_check = [
+                "cursors", "effects", "gamedata", "if", "maps", "models",
+                "music", "scripts", "shaders", "sounds", "textures", "tiles"
+            ]
+            data_files_to_check = ["config.cfg", "posteffects.xml", "weather.xml"]
 
-        for path in paths_to_check:
-            if not os.path.exists(path):
-                return False, path
+        for bin_path in bins_to_check:
+            check_path = Path(game_root_path, bin_path)
+            if not check_path.exists():
+                return False, str(check_path)
+        for data_file in data_files_to_check:
+            check_path = Path(game_root_path, "data", data_file)
+            if not check_path.exists():
+                return False, str(check_path)
+        for data_dir in data_dirs_to_check:
+            check_path = Path(game_root_path, "data", data_dir)
+            if not check_path.is_dir():
+                return False, str(check_path)
         return True, ""
 
     @staticmethod
-    def validate_install_manifest(install_config: dict) -> bool:
-        for config_name in install_config:
-            base = install_config[config_name].get("base")
-            version = install_config[config_name].get("version")
-            if base is None or version is None:
-                return False
-        return True
+    def validate_install_manifest(install_config: dict[str, dict[str, Any]]) -> bool:
+        try:
+            for config_val in install_config.values():
+                base = config_val.get("base")
+                version = config_val.get("version")
+                if base is None or version is None:
+                    return False
+        except AttributeError:
+            return False
+        else:
+            return True
 
     def check_is_running(self) -> bool:
         if not Path(self.target_exe).exists():
@@ -806,7 +830,8 @@ class GameCopy:
                 self.hi_dpi_aware = self.get_is_hidpi_aware()
                 self.logger.debug(f"HiDPI awareness status: {self.hi_dpi_aware}")
                 self.fullscreen_opts_disabled = self.get_is_fullscreen_opts_disabled()
-                self.logger.debug(f"Fullscreen optimisations disabled status: {self.fullscreen_opts_disabled}")
+                self.logger.debug(
+                    f"Fullscreen optimisations disabled status: {self.fullscreen_opts_disabled}")
 
     def process_game_install(self, target_dir: str) -> None:
         """Parse game install to know the version and current state of it."""
@@ -845,14 +870,14 @@ class GameCopy:
         if self.exe_version == "unknown":
             self.installment = None
             self.installment_id = 4
-        elif "M113" in self.exe_version:
-            self.installment = "m113"
+        elif "113/RoC" in self.exe_version:
+            self.installment = SupportedGames.M113
             self.installment_id = 2
         elif "Arcade" in self.exe_version:
-            self.installment = "arcade"
+            self.installment = SupportedGames.ARCADE
             self.installment_id = 3
         else:
-            self.installment = "exmachina"
+            self.installment = SupportedGames.EXMACHINA
             self.installment_id = 1
 
         if not self.is_commod_compatible_exe(self.exe_version):
@@ -863,8 +888,10 @@ class GameCopy:
         self.data_path = os.path.join(self.game_root_path, "data")
         self.installed_manifest_path = os.path.join(self.data_path, "mod_manifest.yaml")
 
-        patched_version = (self.exe_version.startswith("ComRemaster")
-                           or self.exe_version.startswith("ComPatch"))
+        patched_version = (
+            self.exe_version.startswith("ComRemaster")
+            or self.exe_version.startswith("ComPatch")
+            or self.exe_version.startswith("MiniPatch"))
 
         self.refresh_game_launch_params()
 
@@ -882,7 +909,7 @@ class GameCopy:
                     if manifest.get("language") is None:
                         manifest["language"] = "not_specified"
                     if manifest.get("installment") is None:
-                        manifest["installment"] = GameInstallment.EXMACHINA.value
+                        manifest["installment"] = SupportedGames.EXMACHINA.value
                 self.installed_content = install_manifest
                 self.patched_version = True
                 return
@@ -901,19 +928,19 @@ class GameCopy:
 
         self.logger.debug("Finished process_game_install")
 
-    def is_modded(self) -> bool:
-        # TODO: deprecate this or add logic not dependent on ComRem/Patch existance
-        if not self.installed_content:
-            return False
+    # def is_modded(self) -> bool:
+    #     # TODO: deprecate this or add logic not dependent on ComRem/Patch existance
+    #     if not self.installed_content:
+    #         return False
 
-        if "community_remaster" in self.installed_content and len(self.installed_content) > 2:
-            return True
-        if "community_patch" in self.installed_content and len(self.installed_content) > 1:
-            return True
+    #     if "community_remaster" in self.installed_content and len(self.installed_content) > 2:
+    #         return True
+    #     if "community_patch" in self.installed_content and len(self.installed_content) > 1:
+    #         return True
 
-        return False
+    #     return False
 
-    def load_installed_descriptions(self, known_mods: list[Mod] | None = None) -> list[str]:
+    def load_installed_descriptions(self, known_mods: dict[str, Mod] | None = None) -> None:
         """Construct dict of pretty description strings for list of installed content.
 
         Does so based on existing short mod manifest of the game and optional list of full mod objects.
@@ -979,44 +1006,89 @@ class GameCopy:
         await write_xml_to_file_async(
             config, os.path.join(self.game_root_path, "data", "config.cfg"))
 
-    async def switch_windowed(self, monitor_res: tuple[int, int],
-                              enable: bool = True) -> None:
+    async def switch_fullscreen(
+            self, monitor_res: tuple[int, int], enable: bool = True) -> None:
         config = get_config(self.game_root_path)
         current_value = config.attrib.get("r_fullScreen")
         if current_value is not None:
             if enable:
-                if current_value in TARGEM_POSITIVE:
+                success = self.correct_fullscreen_config(config, monitor_res)
+                if not success:
                     return
-                config.attrib["r_fullScreen"] = "true"
-                # TODO: maybe also check for existance of "r_width", "r_height" in case of broken config
-                cur_width = int(config.attrib["r_width"])
-                cur_height = int(config.attrib["r_height"])
-                known_height = KNOWN_RESOLUTIONS.get(cur_width)
-                if (known_height is not None and cur_height != known_height):
-                    self.logger.debug("Fixed broken fullscreen res in config")
-                    config.attrib["r_height"] = str(known_height)
-                    self.fullscreen_game = True
-                elif known_height is None:
-                    new_res = [(w, h) for w, h in KNOWN_RESOLUTIONS.items() if h == monitor_res[1]]
-                    if new_res:
-                        config.attrib["r_width"] = str(new_res[0][0])
-                        config.attrib["r_height"] = str(new_res[0][1])          
-                        self.fullscreen_game = True
-                    else:
-                        self.logger.debug(
-                            "Was unable to find appropriate fullscreen game res: "
-                            f"current window res: ({config.attrib['r_height']}, {config.attrib['r_width']}), "
-                            f"monitor res: ({monitor_res})")
-                        return
             else:
                 if current_value in TARGEM_NEGATIVE:
                     return
                 config.attrib["r_fullScreen"] = "false"
+                if self.installment in (SupportedGames.M113, SupportedGames.ARCADE):
+                    new_res = [(w, h) for w, h in LIST_KNOWN_RESOLUTIONS_SD if h <= monitor_res[1]]
+                    if new_res:
+                        config.attrib["r_width"] = str(new_res[-1][0])
+                        config.attrib["r_height"] = str(new_res[-1][1])
+                        config.attrib["r_desiredWidth"] = str(new_res[-1][0])
+                        config.attrib["r_desiredHeight"] = str(new_res[-1][1])
+
                 self.fullscreen_game = False
             await write_xml_to_file_async(config,
                                      os.path.join(self.game_root_path, "data", "config.cfg"))
 
-    def get_is_fullscreen(self) -> bool:
+    async def correct_fullscreen_sd(
+            self, monitor_res: tuple[int, int]) -> None:
+        config = get_config(self.game_root_path)
+        current_value = config.attrib.get("r_fullScreen")
+        if current_value is not None:
+            if current_value in TARGEM_NEGATIVE:
+                return
+
+            success = self.correct_fullscreen_config(config, monitor_res)
+
+            if success:
+                await write_xml_to_file_async(
+                    config, os.path.join(self.game_root_path, "data", "config.cfg"))
+
+    def correct_fullscreen_config(self, config: objectify.ObjectifiedElement,
+                                  monitor_res: tuple[int, int]) -> bool:
+        config.attrib["r_fullScreen"] = "true"
+        # TODO: maybe also check for existance of "r_width", "r_height" in case of broken config
+        cur_width = int(config.attrib["r_width"])
+        cur_height = int(config.attrib["r_height"])
+        if self.installment == SupportedGames.EXMACHINA:
+            known_height = KNOWN_RESOLUTIONS.get(cur_width)
+        else:
+            known_height = None
+
+        if (known_height is not None and cur_height != known_height):
+            self.logger.debug("Fixed broken fullscreen res in config")
+            config.attrib["r_height"] = str(known_height)
+            if self.installment in (SupportedGames.M113, SupportedGames.ARCADE):
+                config.attrib["r_desiredHeight"] = str(known_height)
+            self.fullscreen_game = True
+            return True
+        if known_height is None:
+            new_res = [(w, h) for w, h in KNOWN_RESOLUTIONS.items() if h == monitor_res[1]]
+            if new_res:
+                config.attrib["r_width"] = str(new_res[0][0])
+                config.attrib["r_height"] = str(new_res[0][1])
+                if self.installment in (SupportedGames.M113, SupportedGames.ARCADE):
+                    config.attrib["r_desiredWidth"] = str(new_res[0][0])
+                    config.attrib["r_desiredHeight"] = str(new_res[0][1])
+                if self.installment == SupportedGames.ARCADE:
+                    # \/ settings copied from apaTch, wide fullscreen is broken otherwise
+                    config.attrib["camFovMaxDelta"] = "0"
+                    config.attrib["camFovSpeedFactor"] = "0"
+                    config.attrib["g_fixedCameraAngle"] = "9"
+                    config.attrib["g_fixedCameraRotationCoeff"] = "12"
+                    config.attrib["fov"] = "90"
+                self.fullscreen_game = True
+                return True
+
+            self.logger.debug(
+                "Was unable to find appropriate fullscreen game res: "
+                f"current window res: ({config.attrib['r_height']}, {config.attrib['r_width']}), "
+                f"monitor res: ({monitor_res})")
+            return False
+        return False
+
+    def get_is_fullscreen(self) -> bool | None:
         config = get_config(self.game_root_path)
         current_value = config.attrib.get("r_fullScreen")
         if current_value in TARGEM_POSITIVE:
@@ -1027,22 +1099,24 @@ class GameCopy:
         return None
 
     # TODO: maybe split to two functions without bool flag
-    def switch_hi_dpi_aware(self, enable: bool = True) -> None:
+    def switch_hi_dpi_aware(self, enable: bool = True) -> bool:  # noqa: PLR0911
         self.logger.debug("Setting hidpi awareness")
         compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
         try:
             import winreg
-            hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
-            compat_settings_reg_value_hkcu = winreg.OpenKey(
-                hkcu, compat_settings_reg_path, 0, winreg.KEY_WRITE)
         except (ImportError, NameError):
             self.logger.debug("Unable to use WinReg, might be running under another OS")
             return False
+        try:
+            hkcu = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
+            compat_settings_reg_value_hkcu = winreg.OpenKey(
+                hkcu, compat_settings_reg_path, 0, winreg.KEY_WRITE)
         except PermissionError:
             self.logger.debug("Unable to open registry - no access")
             return False
         except OSError:
             self.logger.debug("OS error, key probably doesn't exist", exc_info=True)
+            return False
 
         if enable:
             try:
@@ -1086,6 +1160,11 @@ class GameCopy:
             compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
             try:
                 import winreg
+            except (ImportError, NameError):
+                self.logger.debug("Unable to use WinReg, might be running under another OS")
+                return False
+
+            try:
                 hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
                 compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
                 value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
@@ -1093,9 +1172,6 @@ class GameCopy:
                     self.logger.debug("Found key in HKLM")
                     return True
                 value = None
-            except (ImportError, NameError):
-                self.logger.debug("Unable to use WinReg, might be running under another OS")
-                return False
             except FileNotFoundError:
                 value = None
                 self.logger.debug("Key not found in HKLM")
@@ -1126,10 +1202,9 @@ class GameCopy:
                 return False
         except Exception:
             self.logger.exception("General error when trying to get hidpi status")
-            return False
+        return False
 
-    # TODO: split to two functions without bool flag
-    def switch_fullscreen_opts(self, disable: bool = True) -> bool:
+    def switch_fullscreen_opts(self, disable: bool = True) -> bool:  # noqa: PLR0911
         compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
         try:
             import winreg
@@ -1186,6 +1261,11 @@ class GameCopy:
             compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
             try:
                 import winreg
+            except (ImportError, NameError):
+                self.logger.debug("Unable to use WinReg, might be running under another OS")
+                return False
+
+            try:
                 hklm = winreg.ConnectRegistry(None, winreg.HKEY_LOCAL_MACHINE)
                 compat_settings_reg_value = winreg.OpenKey(hklm, compat_settings_reg_path, 0, winreg.KEY_READ)
                 value = winreg.QueryValueEx(compat_settings_reg_value, self.target_exe)
@@ -1193,9 +1273,6 @@ class GameCopy:
                     self.logger.debug("Found key in HKLM")
                     return True
                 value = None
-            except (ImportError, NameError):
-                self.logger.debug("Unable to use WinReg, might be running under another OS")
-                return False
             except FileNotFoundError:
                 value = None
                 self.logger.debug("Key not found in HKLM")
@@ -1226,14 +1303,18 @@ class GameCopy:
                 return False
         except Exception:
             self.logger.exception("General error when gettings fullscreen optimisations status")
-            return False
+        return False
 
     @staticmethod
     def is_commod_compatible_exe(version: str) -> bool:
-        return ("Clean" in version) or ("ComRemaster" in version) or ("ComPatch" in version)
+        return any(["Clean" in version,
+                   "ComRemaster" in version,
+                   "ComPatch" in version,
+                   "RoC" in version,
+                   "Arcade" in version])
 
     @staticmethod
-    def get_exe_name(target_dir: str) -> str:
+    def get_exe_name(target_dir: str) -> str | None:
         possible_exe_paths = ["hta.exe",
                               "game.exe",
                               "start.exe",
@@ -1247,7 +1328,7 @@ class GameCopy:
         return None
 
     @staticmethod
-    def get_exe_version(target_exe: str) -> str:
+    def get_exe_version(target_exe: str) -> str | None:  # noqa: PLR0911
         try:
             with open(target_exe, "rb+") as f:
                 f.seek(VERSION_BYTES_102_NOCD)
@@ -1293,14 +1374,18 @@ class GameCopy:
                     return "DRM-free 1.03"
 
                 f.seek(VERSION_BYTES_M113_101)
-                version_identifier_m113 = f.read(4)
-                if version_identifier_m113 == b"1.01":
-                    return "Meridian 113/RoC 1.01 (unsupported)"
-                
+                version_identifier_m113 = f.read(61)
+                if version_identifier_m113[31:] == b"RoC - MiniPatch - build v1.01 ":
+                    return "MiniPatch M113/RoC 1.01"
+                if version_identifier_m113[50:] == b"build v1.01":
+                    return "Meridian 113/RoC 1.01"
+
                 f.seek(VERSION_BYTES_ARCD_100)
-                version_identifier_arcade = f.read(3)
-                if version_identifier_arcade == b"1.0":
-                    return "Arcade 1.0 (unsupported)"
+                version_identifier_arcade = f.read(23)
+                if version_identifier_arcade[10:] == b"MiniPatch 1.0":
+                    return "MiniPatch Arcade 1.0"
+                if version_identifier_arcade[11:] == b"Arcade  v1.0":
+                    return "Arcade 1.0"
 
                 f.seek(VERSION_BYTES_100_STAR)
                 version_identifier_100_star = f.read(15)
@@ -1334,6 +1419,9 @@ class GameCopy:
         game_is_running = False
         try:
             self.process_game_install(game_path)
+        except WrongGameDirectoryPathError:
+            can_be_added = False
+            warning = f"{tr('not_a_valid_path')}: {game_path}"
         except ExeIsRunningError:
             can_be_added = False
             warning = f"{tr('game_is_running_cant_select')}"
