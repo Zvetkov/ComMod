@@ -363,6 +363,10 @@ class Mod(BaseModel):
             raise ValueError("Patcher version requirement mismatch, mod and it's translations "
                              "should specify same requirements: "
                              f"{self.patcher_version_requirement=} != {mod_tr.patcher_version_requirement=}")
+        if mod_tr.strict_requirements != self.strict_requirements:
+            raise ValueError("Translation strict_requirements value is not the same as for the base mod: "
+                             f"{mod_tr.strict_requirements=} != {self.strict_requirements=}")
+
         if sorted(mod_tr.tags) != sorted(self.tags):
             raise ValueError("Tags mismatch between mod and translation: "
                              f"{mod_tr.tags=} != {self.tags=}")
@@ -508,9 +512,19 @@ class Mod(BaseModel):
     @computed_field(repr=False)
     @cached_property
     def merge_directives(self) -> list[MergeDirective]:
+        archive_files: list[str] = []
+        if self.archive_file_list:
+            archive_files = [file.filename.rstrip("/") for file in self.archive_file_list]
+
         directives = []
         for path in self.raw_merge_instructions:
             merge_instructions = self.mod_files_root / path
+            if archive_files:
+                if str(merge_instructions).replace("\\", "/") not in archive_files:
+                    raise ValueError(
+                        f"Specified merge instruction file doesn't exist in archive:"
+                        f"\n\n{merge_instructions}")
+                return []
             if not merge_instructions.exists():
                 raise ValueError(f"Specified merge instruction file doesn't exist:\n\n{merge_instructions}")
             instruction_list = read_yaml(merge_instructions)
@@ -666,6 +680,12 @@ class Mod(BaseModel):
                 for custom_setting in item.install_settings:
                     for path in custom_setting.merge_instructions:
                         merge_instructions = self.mod_files_root / path
+                        if archive_files:
+                            if str(merge_instructions).replace("\\", "/") not in archive_files:
+                                raise ValueError(
+                                    f"Specified merge instruction file doesn't exist in archive:"
+                                    f"\n\n{merge_instructions}")
+                            continue
                         if not merge_instructions.exists():
                             raise ValueError("Specified merge instruction file doesn't exist:\n\n"
                                              f"{merge_instructions}")
@@ -682,6 +702,12 @@ class Mod(BaseModel):
             else:
                 for path in item.merge_instructions:
                     merge_instructions = self.mod_files_root / path
+                    if archive_files:
+                        if str(merge_instructions).replace("\\", "/") not in archive_files:
+                            raise ValueError(
+                                f"Specified merge instruction file doesn't exist in archive:"
+                                f"\n\n{merge_instructions}")
+                        continue
                     if not merge_instructions.exists():
                         raise ValueError("Specified merge instruction file doesn't exist:\n\n"
                                          f"{merge_instructions}")

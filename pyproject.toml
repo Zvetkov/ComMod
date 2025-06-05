@@ -8,7 +8,7 @@ where = ["src"]
 [project]
 name = "commod"
 dynamic = ["version"]
-requires-python = "==3.13"
+requires-python = ">=3.12"
 dependencies = [
     "flet==0.27.*",
     "aiofiles==24.1.*",
@@ -21,6 +21,7 @@ dependencies = [
     "pydantic==2.11.*",
     "PyYAML==6.0.*"
 ]
+description = "Deus Ex Machina Community Mod Manager"
 
 [project.scripts]
 commod = "commod.__main__:main_gui"
@@ -35,6 +36,19 @@ dev = [
     "ruff>=0.11",
     "types-lxml>=2025.3.30"
 ]
+
+[tool.flet]
+product = "ComMod"
+company = "DEM"
+copyright = "Deus Ex Machina Community Mod Manager"
+
+[tool.flet.compile]
+app = true
+packages = true
+
+[tool.flet.app]
+path = "src"
+module = "commod_launcher"
 
 [tool.ruff]
 line-length = 110

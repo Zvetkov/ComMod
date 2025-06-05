@@ -272,26 +272,25 @@ ISL удаляет триггер **trFirstRolik** в triggers.xml. Зачем? 
 Соответственно, если базовая часть мода меняет машину игрока в динамиксцене, через редактирование dynamicscene, в опции включающей поддержку ISL надо будет вернуть на место машину в динамиксцене, а поменять её уже через редактирование соответствущего триггера:
 
 ```xml
-<triggers>
-    <trigger
-        _Action="AddOrReplace"
-        _SelectorKeys="Name"
-        Name="trOpeningEnd"
-        active="0">
-        <event flypath="Opening_End" eventid="GE_START_CINEMATIC_FLY" ObjName="Player1"/>
+<trigger
+    _Action="AddOrReplace"
+    _SelectorKeys="Name"
+    Name="trOpeningEnd"
+    active="0">
+    <event flypath="Opening_End" eventid="GE_START_CINEMATIC_FLY" ObjName="Player1"/>
 
-        <script>
-            AddPlayerNewVehicle("ChevC10Player")
-            local vehPlayer = GetPlayerVehicle()
-            if vehPlayer then
-                vehPlayer:SetGamePositionOnGround( CVector(3355.000, 368.500, 3308.000))
-                vehPlayer:SetRotation(Quaternion(-0.007, 1.000, -0.010, 0.021))
-                vehPlayer:SetSkin(0)
-                vehPlayer:UnlimitMaxSpeed()
-                vehPlayer:SetBelong(1100)
-            end
+    <script>
+        AddPlayerNewVehicle("ChevC10Player")
+        local vehPlayer = GetPlayerVehicle()
+        if vehPlayer then
+            vehPlayer:SetGamePositionOnGround( CVector(3355.000, 368.500, 3308.000))
+            vehPlayer:SetRotation(Quaternion(-0.007, 1.000, -0.010, 0.021))
+            vehPlayer:SetSkin(0)
+            vehPlayer:UnlimitMaxSpeed()
+            vehPlayer:SetBelong(1100)
+        end
 
-            trigger:Deactivate()    
-        </script>
-    </trigger>
+        trigger:Deactivate()    
+    </script>
+</trigger>
 ```

@@ -65,6 +65,13 @@ from commod.localisation.service import SupportedLanguages, tr
 
 logger = logging.getLogger("dem")
 
+POSSIBLE_EXE_PATHS = ["hta.exe",
+                      "game.exe",
+                      "start.exe",
+                      "ExMachina.exe",
+                      "Meridian113.exe",
+                      "emarcade.exe"]
+
 class GameStatus(Enum):
     COMPATIBLE = ""
     NOT_EXISTS = "not_a_valid_path"
@@ -1315,13 +1322,8 @@ class GameCopy:
 
     @staticmethod
     def get_exe_name(target_dir: str) -> str | None:
-        possible_exe_paths = ["hta.exe",
-                              "game.exe",
-                              "start.exe",
-                              "ExMachina.exe",
-                              "Meridian113.exe",
-                              "emarcade.exe"]
-        for exe_name in possible_exe_paths:
+
+        for exe_name in POSSIBLE_EXE_PATHS:
             full_path = os.path.join(target_dir, exe_name)
             if os.path.exists(full_path):
                 return os.path.normpath(full_path)
