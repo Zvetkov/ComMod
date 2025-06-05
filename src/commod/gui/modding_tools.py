@@ -267,13 +267,10 @@ class MergeTool(ft.Column):
 
     async def save_selected(self, e: ft.ControlEvent | None = None) -> None:
         self.app.close_alert()
-        if self.source_tree is None:
+        if not self.output_path_field.value or self.source_tree is None:
             return
 
         try:
-            if not self.output_path_field.value:
-                return
-
             out_path = Path(self.output_path_field.value)
             if not out_path.parent.is_dir():
                 await self.app.show_alert(tr("saving_commands_error"),
@@ -287,6 +284,7 @@ class MergeTool(ft.Column):
             return
 
         if not self.commands:
+            self.show_bottom_sheet(tr("no_selected"))
             return
 
         cmds = [cmd_card.command for cmd_card in self.commands_view.controls
@@ -318,13 +316,10 @@ class MergeTool(ft.Column):
 
     async def save_all(self, e: ft.ControlEvent | None = None) -> None:
         self.app.close_alert()
-        if self.source_tree is None:
+        if not self.output_path_field.value or self.source_tree is None:
             return
 
         try:
-            if not self.output_path_field.value:
-                return
-
             out_path = Path(self.output_path_field.value)
             if not out_path.parent.is_dir():
                 await self.app.show_alert(tr("saving_commands_error"),
@@ -591,8 +586,9 @@ class MergeTool(ft.Column):
             self.modded_path = Path(self.modded_path_field.value)
         except UnicodeDecodeError:
             await self.app.show_alert(tr("cant_load_files_for_diffing"),
-                                      f'{tr("unsupported_file_or_encoding")}: '
-                                      f'{Path(self.source_path_field.value).name}',
+                                      f'{tr("unsupported_file_or_encoding")}:\n> '
+                                      f'{Path(self.source_path_field.value).name} or '
+                                      f'{Path(self.modded_path_field.value).name}',
                                       allow_copy=True)
             logger.exception("Can't load files for diffing, decoding failed")
             self.cleanup()

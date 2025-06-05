@@ -1,0 +1,10 @@
+flet==0.27.*
+aiofiles==24.1.*
+aiopath==0.7.1
+httpx==0.28.*
+lxml==5.4.*
+markdownify==0.12.1
+pathvalidate==3.2.*
+py7zr==0.22.*
+pydantic==2.11.*
+PyYAML==6.0.*

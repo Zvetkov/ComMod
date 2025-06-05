@@ -440,7 +440,9 @@ command_path_doesnt_exist: Command file doesn't exist
 source_path_doesnt_exist: Source file doesn't exist
 modded_path_doesnt_exist: Modded file doesn't exist
 enter_path_to_moddified: Specify path to the modified file for comparison
-incorrect_commands_for_source: 'These commands can not be applied to the source file: {cmd_path}'
+incorrect_commands_for_source: 'These commands can not be applied to the source file:
+
+  `{cmd_path}`'
 enter_path_to_output: Specify path to the output file for commands to be saved to
 preload_existing_commands: Load existing commands to only find new changes
 select_all: Select all

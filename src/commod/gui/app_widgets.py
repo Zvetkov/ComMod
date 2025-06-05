@@ -44,7 +44,13 @@ from commod.game.data import (
     GameFilter,
     SupportedGames,
 )
-from commod.game.environment import DistroStatus, GameCopy, GameStatus, InstallationContext
+from commod.game.environment import (
+    POSSIBLE_EXE_PATHS,
+    DistroStatus,
+    GameCopy,
+    GameStatus,
+    InstallationContext,
+)
 from commod.game.mod import Mod
 from commod.game.mod_auxiliary import (
     OptionalContent,
@@ -241,6 +247,7 @@ class App:
         # TODO: potentially shaky logic, that might fail if we have multiple modals at the same time...?
         if self.dialog:
             self.page.close(self.dialog)
+            self.dialog = None
         if e is not None:
             with contextlib.suppress(ValueError):
                 self.page.overlay.remove(e.control)
@@ -3644,7 +3651,7 @@ class ModInstallWizard(ft.Container):
             self.screen_preview_text.current.update()
 
         async def discard_screenshot_preview(self, e: ft.ControlEvent) -> None:
-            self.app.page.on_keyboard_event.unsubscribe(self.handle_keyboard_shortcuts)
+            self.app.page.on_keyboard_event = None # .unsubscribe(self.handle_keyboard_shortcuts)
 
             self.screenshot_preview.current.visible = False
             self.screenshot_preview.current.update()
@@ -3707,10 +3714,10 @@ class ModInstallWizard(ft.Container):
                                  style=ft.TextStyle(
                                      shadow=ft.BoxShadow(3, 3))
                                  ),
-                            alignment=ft.alignment.center,
+                            alignment=ft.alignment.bottom_center,
                             margin=ft.margin.only(top=5)
                         ),
-                    ], alignment=ft.alignment.center),
+                    ], alignment=ft.alignment.bottom_center),
                     on_tap=self.expand_screenshot_preview,
                     on_secondary_tap=self.switch_compare_screen),
                 Text("Placeholder description", ref=self.screenshot_text,
@@ -5615,7 +5622,7 @@ class HomeScreen(ft.Container):
     # TODO: maybe simplify to only return bool
     async def check_for_game(self) -> bool | None:
         if self.app.current_game_process is None:
-            proc = get_proc_by_names(("hta.exe", "ExMachina.exe"))
+            proc = get_proc_by_names(POSSIBLE_EXE_PATHS)
             return proc is not None
 
         # TODO: what is this for?
@@ -5727,10 +5734,16 @@ class HomeScreen(ft.Container):
             # will kill subprocess on exiting ComMod when running from Python debugger (e.g. in VSCode)
             # will not when run from console or compiled with nuitka - desired in this case
             if self.app.context.under_windows:
+
+                if self.app.game.installment in [SupportedGames.EXMACHINA, SupportedGames.M113]:
+                    console_cmd = "-console"
+                else:
+                    console_cmd = "-con"
+
                 self.app.current_game_process = \
                     await asyncio.create_subprocess_exec(
                         self.app.game.target_exe,
-                        "-console" if self.app.config.game_with_console else "",
+                        console_cmd if self.app.config.game_with_console else "",
                         cwd=self.app.game.game_root_path,
                         # this is ugly, but allows subprocess to live after commod has exited
                         # without pipe even creationflags didn't achieve creation of independent process here
