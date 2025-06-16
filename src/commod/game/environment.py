@@ -1021,6 +1021,7 @@ class GameCopy:
             if enable:
                 success = self.correct_fullscreen_config(config, monitor_res)
                 if not success:
+                    logger.debug(f"correct_fullscreen_config failed when trying to switch r_fullScreen to '{enable}'")
                     return
             else:
                 if current_value in TARGEM_NEGATIVE:
@@ -1047,10 +1048,12 @@ class GameCopy:
                 return
 
             success = self.correct_fullscreen_config(config, monitor_res)
+            if not success:
+                logger.debug("correct_fullscreen_config failed")
+                return
 
-            if success:
-                await write_xml_to_file_async(
-                    config, os.path.join(self.game_root_path, "data", "config.cfg"))
+            await write_xml_to_file_async(
+                config, os.path.join(self.game_root_path, "data", "config.cfg"))
 
     def correct_fullscreen_config(self, config: objectify.ObjectifiedElement,
                                   monitor_res: tuple[int, int]) -> bool:
@@ -1093,7 +1096,7 @@ class GameCopy:
                 f"current window res: ({config.attrib['r_height']}, {config.attrib['r_width']}), "
                 f"monitor res: ({monitor_res})")
             return False
-        return False
+        return True
 
     def get_is_fullscreen(self) -> bool | None:
         config = get_config(self.game_root_path)
