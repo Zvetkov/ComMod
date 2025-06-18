@@ -30,6 +30,8 @@ class ExpandableContainer(ft.Container):
                  border_thickness: int = 2,
                  vertical_margin: int = 15,
                  horizontal_margin: int = 20,
+                 label_size: int | None = None,
+                 header_spacing: int = 13,
                  color: str = ft.Colors.SECONDARY_CONTAINER,
                  **kwargs) -> None:
         kwargs.setdefault("content", content)
@@ -47,11 +49,13 @@ class ExpandableContainer(ft.Container):
         self.min_height = min_height
         self.label_expanded = label_expanded
         self.label_collapsed = label_collapsed
+        self.label_size = label_size
         self.expanded = expanded
         self.icon = ft.Icons.KEYBOARD_ARROW_RIGHT_OUTLINED
         self.toggle_icon = ft.Ref[Icon]()
         self.label_text = ft.Ref[Text]()
         self.rotation_angle = 0.5 * 3.1416
+        self.header_spacing = header_spacing
 
         self.on_click =         self.toggle
         self.height =           None if self.expanded else min_height
@@ -69,11 +73,12 @@ class ExpandableContainer(ft.Container):
                          animate_rotation=ft.animation.Animation(duration=200)),
                     Text(self.label_expanded if self.expanded else self.label_collapsed,
                          color=self.color,
+                         size=self.label_size,
                          ref=self.label_text)
                     ]), margin=ft.margin.symmetric(horizontal=5)),
                 ft.Container(self.user_content, margin=ft.margin.only(
                     left=self.horizontal_margin, right=self.horizontal_margin, bottom=self.vertical_margin))
-            ], spacing=13)
+            ], spacing=self.header_spacing)
 
 
     def minimize(self) -> None:

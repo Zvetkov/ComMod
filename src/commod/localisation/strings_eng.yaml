@@ -484,3 +484,6 @@ source_node_last_modifier: '
 source_node_created_with_no_merge: '
 
   Source node was created without patching, some mode added it as part of the full file or it existed in the base game'
+any: "Any"
+tags: "Tags"
+filters: "Filters"

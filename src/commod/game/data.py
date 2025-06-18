@@ -10,7 +10,7 @@ from commod import __version__
 
 OWN_VERSION = __version__
 
-DATE = "(May 28 2025)"
+DATE = "(Jun 18 2025)"
 # version of binary fixes
 # corresponds with the latest major.minor ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"

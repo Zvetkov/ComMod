@@ -9,7 +9,7 @@ python -m nuitka --onefile \
   --include-data-dir=./src/commod/assets=commod/assets \
   --include-data-dir=./src/commod/localisation=commod/localisation \
   --include-data-dir="./venv_313_linux/lib/python3.13/site-packages/flet_desktop/app/=flet_desktop/app/" \
-  --file-version=3.0.4 \
+  --file-version=3.0.5 \
   --file-description="Deus Ex Machina Community Mod Manager" \
   ./src/commod_launcher.py
 
