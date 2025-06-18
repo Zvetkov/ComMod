@@ -5722,10 +5722,9 @@ class HomeScreen(ft.Container):
 
         return None
 
-    async def switch_to_windowed(self, e: ft.ControlEvent) -> None:
+    async def toggle_windowed(self, e: ft.ControlEvent) -> None:
         # temporarily disabling game launch
-        self.launch_game_btn.current.disabled = True
-        await self.disable_launch_params()
+        await self.disable_launch_params(include_launch_btn=True)
 
         self.checkbox_windowed_game.current.checked = not self.checkbox_windowed_game.current.checked
         if self.app.game.game_root_path:
@@ -5733,14 +5732,12 @@ class HomeScreen(ft.Container):
                 monitor_res=self.app.context.monitor_res,
                 enable=not self.checkbox_windowed_game.current.checked)
 
-        self.launch_game_btn.current.disabled = False
         self.update()
         await self.enable_launch_params()
 
     async def switch_to_hidpi_aware(self, e: ft.ControlEvent) -> None:
         # temporarily disabling game launch
-        self.launch_game_btn.current.disabled = True
-        await self.disable_launch_params()
+        await self.disable_launch_params(include_launch_btn=True)
 
         self.checkbox_hi_dpi_aware.current.checked = not self.checkbox_hi_dpi_aware.current.checked
         if self.app.game.game_root_path:
@@ -5749,15 +5746,12 @@ class HomeScreen(ft.Container):
                 self.checkbox_hi_dpi_aware.current.checked = not self.checkbox_hi_dpi_aware.current.checked
                 await self.app.show_alert(tr("no_access_to_registry_cant_set"))
 
-
-        self.launch_game_btn.current.disabled = False
         self.update()
         await self.enable_launch_params()
 
     async def switch_fullscreen_optimizations(self, e: ft.ControlEvent) -> None:
         # temporarily disabling game launch
-        self.launch_game_btn.current.disabled = True
-        await self.disable_launch_params()
+        await self.disable_launch_params(include_launch_btn=True)
 
         self.checkbox_fullsreen_opts.current.checked = not self.checkbox_fullsreen_opts.current.checked
         if self.app.game.game_root_path:
@@ -5768,16 +5762,19 @@ class HomeScreen(ft.Container):
                     not self.checkbox_fullsreen_opts.current.checked
                 await self.app.show_alert(tr("no_access_to_registry_cant_set"))
 
-        self.launch_game_btn.current.disabled = False
         self.update()
         await self.enable_launch_params()
 
     async def enable_launch_params(self) -> None:
         self.launch_params_menu.current.disabled = False
+        self.launch_game_btn.current.disabled = False
         self.game_console_switch.current.disabled = False
         self.update()
 
-    async def disable_launch_params(self) -> None:
+    async def disable_launch_params(self, include_launch_btn: bool = False) -> None:
+        if include_launch_btn:
+            self.launch_game_btn.current.disabled = True
+
         self.launch_params_menu.current.disabled = True
         self.game_console_switch.current.disabled = True
         self.update()
@@ -5903,14 +5900,15 @@ class HomeScreen(ft.Container):
                     break
                 await asyncio.sleep(3)
         except Exception as ex:
+            self.app.logger.debug("Unhandled exception in keep_track_of_game_proc")
             # TODO: fix unhandled exception
             ...
+
 
     async def synchronise_launch_btn_prompt(self, starting: bool = True, started: bool = False) -> None:
         try:
             if started:
                 self.launch_game_btn_text.current.value = tr("stop_game").capitalize()
-                await self.disable_launch_params()
                 await self.disable_launch_params()
             elif starting:
                 self.launch_game_btn_text.current.value = f"{tr('launching').capitalize()}..."
@@ -6200,7 +6198,7 @@ class HomeScreen(ft.Container):
                                                       width=160,
                                                       size=13)]),
                                     checked=not self.app.game.fullscreen_game,
-                                    on_click=self.switch_to_windowed,
+                                    on_click=self.toggle_windowed,
                                     ref=self.checkbox_windowed_game),
                                 ft.PopupMenuItem(
                                     content=Row([Icon(ft.Icons.FOUR_K_ROUNDED),
@@ -6247,7 +6245,7 @@ class HomeScreen(ft.Container):
                                  Text(tr("enable_console").capitalize(),
                                       weight=ft.FontWeight.W_500)
                                  ], spacing=0), margin=ft.margin.only(bottom=10)),
-                        ft.FloatingActionButton(
+                        ft.Button(
                             content=ft.Row([
                                 ft.ProgressRing(visible=False,
                                                 color=ft.Colors.ON_PRIMARY,
@@ -6259,8 +6257,10 @@ class HomeScreen(ft.Container):
                                         color=ft.Colors.ON_PRIMARY)],
                                 alignment=ft.MainAxisAlignment.CENTER, spacing=5
                             ),
-                            shape=ft.RoundedRectangleBorder(radius=5),
-                            bgcolor="#FFA500",
+                            style=ft.ButtonStyle(
+                                bgcolor={ft.ControlState.DEFAULT: "#FFA500",
+                                         ft.ControlState.DISABLED: "#978C77"},
+                                shape=ft.RoundedRectangleBorder(radius=5)),
                             ref=self.launch_game_btn,
                             disabled=self.app.game.exe_version == "unknown"
                                      or not self.app.context.under_windows,
