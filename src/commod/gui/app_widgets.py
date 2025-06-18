@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import itertools
 import logging
 import os
 import pprint
@@ -31,6 +32,7 @@ from flet import (
     TextField,
 )
 
+from commod.game import mod_auxiliary
 import commod.game.mod_auxiliary
 from commod.game.data import (
     COMMOD_USES,
@@ -4252,11 +4254,12 @@ class ModInstallWizard(ft.Container):
                 with_opt_label = tr("with_options").capitalize()
 
             mod_info.append(
-                cw.ExpandableContainer(with_opt_label,
-                                    with_opt_label,
-                                    Column(options_installed),
-                                    expanded=False,
-                                    color=ft.Colors.PRIMARY))
+                cw.ExpandableContainer(
+                    with_opt_label,
+                    with_opt_label,
+                    Column(options_installed),
+                    expanded=False,
+                    color=ft.Colors.PRIMARY))
 
         if not status_ok:
             mod_info.append(Column([
@@ -4991,10 +4994,14 @@ class LocalModsScreen(ft.Column):
         self.add_mods_column = ft.Ref[Column]()
         self.add_mod_card = ft.Ref[ft.Card]()
         self.no_mods_warning = ft.Ref[Text]()
-        self.game_info = ft.Ref[ft.Container]()
+        self.game_info = ft.Ref[ft.Card]()
+        self.mod_filtering = ft.Ref[cw.ExpandableContainer]()
+        self.mod_filtering_current_content: cw.ExpandableContainer | None = None
         self.get_mod_archive_dialog = ft.FilePicker(on_result=self.load_mod_archive_result)
         self.refreshing = False
         self.game_is_running = False
+        self.selected_tags: set[str] = set()
+        self.known_tags: set[mod_auxiliary.Tags] = set()
 
     # TODO: is not working properly when first starting with no distro and then adding it
     # shows no_local_mods_found warning
@@ -5077,10 +5084,10 @@ class LocalModsScreen(ft.Column):
         # still might be good to refactor later
         await self.app.load_distro_async()
 
-        mod_items = self.mods_list_view.current.controls
+        mod_items: list[ModFamily] = self.mods_list_view.current.controls
         self.tracked_loaded_mods = set()
         for mod_obj in mod_items:
-            self.tracked_loaded_mods.add(mod_obj.mod.id_str)
+            self.tracked_loaded_mods.update([mod.id_str for mod in mod_obj.main_versions])
 
         if self.app.config.current_distro:
             self.app.logger.debug(f"Have current distro {self.app.config.current_distro}")
@@ -5122,21 +5129,23 @@ class LocalModsScreen(ft.Column):
 
         for mod_family, mods in mod_families.items():
             if all(mod.id_str in self.tracked_loaded_mods for mod in mods):
+                session_mods.update([mod.id_str for mod in mods])
                 continue
 
             if self.mod_family_items.get(mod_family) is None:
                 self.mod_family_items[mod_family] = ModFamily(self.app, mod_family)
 
-            mod_family_item = self.mod_family_items.get(mod_family)
+            mod_family_item = self.mod_family_items[mod_family]
             for mod in mods:
                 if mod.id_str not in self.tracked_loaded_mods:
                     self.app.logger.debug(f"Adding mod {mod.id_str} to list")
                     mod_family_item.add_main_mod(mod)
-                    session_mods.add(mod.id_str)
+                    # session_mods.add(mod.id_str)
                     # self.tracked_loaded_mods.add(mod.id_str)
                 else:
                     # self.app.logger.debug(f"Mod {mod.id_str} already in list")
                     pass
+                session_mods.add(mod.id_str)
             mods_to_show.append(mod_family_item)
 
         mods_to_show.sort(key=lambda item: item.mod.id_str.lower())
@@ -5156,12 +5165,13 @@ class LocalModsScreen(ft.Column):
 
         outdated_mods = self.tracked_loaded_mods - session_mods
         if outdated_mods:
-            for mod_obj in mod_items:
-                if mod_obj.main_mod.id_str in outdated_mods:
-                    self.app.logger.debug(f"Removing mod {mod_obj.main_mod.id_str} from list")
+            for mod_obj in self.mods_list_view.current.controls:
+                # TODO: doesn't seem right, check
+                if mod_obj.mod.id_str in outdated_mods:
+                    self.app.logger.debug(f"Removing mod {mod_obj.mod.id_str} from list")
                     mod_items.remove(mod_obj)
 
-        archived_mod_items = self.mods_archived_list_view.current.controls
+        archived_mod_items: list[ModArchiveItem] = self.mods_archived_list_view.current.controls
         tracked_archived_mods = {mod_item.mod.id_str for mod_item in archived_mod_items}
         for path, mod_dummy in self.app.context.archived_mods.items():
             if mod_dummy.id_str in self.tracked_loaded_mods:
@@ -5187,6 +5197,23 @@ class LocalModsScreen(ft.Column):
         #     self.app.logger.debug(f"Tracked mods: {self.tracked_loaded_mods}")
         # else:
         #     self.app.logger.debug("No tracked mods")
+
+        min_mods_to_show_filters = 3
+
+        show_filter = (self.mods_list_view.current
+                       and len(self.mods_list_view.current.controls) >= min_mods_to_show_filters)
+
+        self.mod_filtering_current_content = self.get_mod_filtering_panel()
+        self.mod_filtering.current.content = self.mod_filtering_current_content if show_filter else None
+
+        self.mod_filtering.current.update()
+
+        for mod_item in mod_items:
+            if not self.selected_tags:
+                mod_item.visible = True
+            else:
+                mod_item.visible = bool(set(mod_item.mod.tags) & set(self.selected_tags))
+
         self.update()
 
     async def load_mod_archive_result(self, e: ft.FilePickerResultEvent) -> None:
@@ -5208,7 +5235,8 @@ class LocalModsScreen(ft.Column):
 
                 self.app.close_alert()
                 await asyncio.sleep(0.1)
-                added_mods = [mod.key for mod in self.mods_archived_list_view.current.controls]
+                added_mods = [mod.key for mod in self.mods_archived_list_view.current.controls
+                              if isinstance(mod, ModArchiveItem)]
                 exc_info = ""
                 if mod_archived is None:
                     file_path = file.path
@@ -5299,7 +5327,7 @@ class LocalModsScreen(ft.Column):
                             ], expand=8)
                    ], spacing=19),
                    padding=ft.padding.only(left=20, right=35, top=25, bottom=25)
-               ), elevation=5, margin=ft.margin.only(left=80, right=80, bottom=10))
+               ), elevation=5, margin=ft.margin.only(left=80, right=80, bottom=5))
 
         match self.app.game.installment:
             case "exmachina":
@@ -5323,7 +5351,7 @@ class LocalModsScreen(ft.Column):
                 Row([
                     Image(src=str(ico_path) if ico_path is not None else None,
                           fit=ft.ImageFit.CONTAIN, expand=1),
-                    Column([
+                    ft.Container(Column([
                         Row([
                             Text(tr(self.app.game.installment) if self.app.game.installment else "unknown",
                                  weight=ft.FontWeight.BOLD,
@@ -5365,11 +5393,71 @@ class LocalModsScreen(ft.Column):
                         #     Text("\n\n".join(self.app.game.installed_descriptions.values())),
                         #     expanded=False,
                         #     visible=bool(self.app.game.installed_descriptions))
-                        ], expand=12)
+                        ], spacing=0), padding=ft.padding.only(bottom=5), expand=12)
                     ]),
                 padding=ft.padding.symmetric(horizontal=15, vertical=15)
             ), elevation=5, margin=ft.margin.only(left=20, right=20, bottom=5),
             surface_tint_color=ft.Colors.TERTIARY,
+            col={"xs": 12, "xl": 11, "xxl": 10})
+
+    async def tag_selected(self, e: ft.ControlEvent) -> None:
+        tag = e.control.key
+        if tag == "any":
+            select_other = e.control.selected
+            for chip in self.chips:
+                chip.selected = select_other
+        else:
+            for chip in self.chips:
+                if chip.key == "any":
+                    chip.selected = False
+        self.mod_filtering.current.update()
+        self.selected_tags = [chip.key for chip in self.chips if chip.selected]
+        await self.update_list()
+
+    def get_mod_filtering_panel(self) -> cw.ExpandableContainer:
+        used_tags = set(itertools.chain.from_iterable(
+            [family.mod.tags for family in self.mods_list_view.current.controls
+             if isinstance(family, ModFamily)]))
+        if used_tags == self.known_tags and self.mod_filtering_current_content:
+            return self.mod_filtering_current_content
+
+        self.known_tags = used_tags
+        filter_tags = ["any"]
+        filter_tags.extend([tag for tag in mod_auxiliary.Tags if tag in used_tags])
+
+        self.chips = [
+            ft.Chip(
+                label=ft.Text(tr(tag).capitalize(), size=11, weight=ft.FontWeight.W_300),
+                key=tag,
+                selected=tag in self.selected_tags if self.selected_tags else False,
+                show_checkmark=False,
+                visual_density=ft.VisualDensity.COMPACT,
+                selected_color=ft.Colors.PRIMARY_CONTAINER,
+                on_select=self.tag_selected,
+                padding=ft.padding.symmetric(vertical=0, horizontal=2),
+                label_padding=ft.padding.symmetric(vertical=-3, horizontal=2),
+            ) for tag in filter_tags
+            ]
+
+        return cw.ExpandableContainer(
+            label_expanded=tr("filters"),
+            label_collapsed=tr("filters"),
+            color=ft.Colors.SECONDARY,
+            border_thickness=1,
+            content=ft.Container(
+                Row([
+                    Column([
+                        ft.Row([ft.Text(tr("tags").title() + ": ", size=13), *self.chips],
+                               expand=True, wrap=True, spacing=3, run_spacing=3)
+                        ], expand=12)
+                    ]),
+                padding=ft.padding.only(left=7, right=6, bottom=6, top=0),
+            ),
+            vertical_margin=0, horizontal_margin=5,
+            padding=4,
+            min_height=34,
+            label_size=13,
+            header_spacing=5,
             col={"xs": 12, "xl": 11, "xxl": 10})
 
     def build(self) -> None:
@@ -5411,6 +5499,8 @@ class LocalModsScreen(ft.Column):
                     ft.ResponsiveRow([
                         ft.Container(ref=self.game_info,
                                      col={"xs": 12, "xl": 11, "xxl": 10}),
+                        ft.Container(ref=self.mod_filtering,
+                                     col={"xs": 12, "xl": 11, "xxl": 10}),
                         Text(tr("no_local_mods_found").capitalize(),
                              visible=False,
                              ref=self.no_mods_warning,
@@ -5421,6 +5511,7 @@ class LocalModsScreen(ft.Column):
                         ft.ListView([], spacing=10, padding=0,
                                     ref=self.mods_list_view,
                                     semantic_child_count=1,
+                                    build_controls_on_demand=False,
                                     on_scroll_interval=100,
                                     col={"xs": 12, "xl": 11, "xxl": 10}),
                         ft.ListView([], spacing=10, padding=0,
