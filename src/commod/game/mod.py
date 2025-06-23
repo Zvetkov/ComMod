@@ -658,18 +658,19 @@ class Mod(BaseModel):
                                             for file_path in archive_files)):
                                     raise ValueError("Data path for optional content wasn't found in archive",
                                                      path_to_check)
-                            elif not path_to_check.is_dir() and not custom_setting.merge_instructions:
+                            elif not path_to_check.is_dir(): # and not custom_setting.merge_instructions:
                                 raise ValueError("Data path doesn't exists for optional content",
                                                  path_to_check)
                 else:
                     path_to_check = resolved_opt_path / "data"
                     if archive_files:
                         path_to_check = str(resolved_opt_path).replace("\\", "/")
-                        if (path_to_check not in archive_files and
+                        if (item.data_dirs
+                            and (path_to_check not in archive_files) and
                             not any(file_path.startswith(path_to_check) for file_path in archive_files)):
                             raise ValueError("Data path for optional content wasn't found in archive",
                                              path_to_check)
-                    elif not path_to_check.is_dir() and not item.merge_instructions:
+                    elif not path_to_check.is_dir() and item.data_dirs: # and not item.merge_instructions:
                         raise ValueError("Data path doesn't exists for optional content", path_to_check)
             item.data_dirs = resolved_item_paths
 
