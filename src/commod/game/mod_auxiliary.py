@@ -943,7 +943,8 @@ def patch_memory(target_exe: str, installment: data.SupportedGames) -> list[str]
     return ["minimal_mm_inserts_patched"]
 
 
-def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | None = None,
+def patch_configurables(target_exe: str, installment: data.SupportedGames,
+                        exe_options: list[PatcherOptions] | None = None,
                         under_windows: bool = True) -> None:
     """Apply binary exe fixes which support configuration."""
     if not exe_options:
@@ -1010,7 +1011,7 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
                 patch_offsets(f, data.sell_price_offsets)
 
             if exe_options_config.more_wares is not None:
-                match data.SupportedGames: # тут какая то залупа, нужно сверять с экземпляром игры.
+                match installment:
                     case data.SupportedGames.EXMACHINA:
                         apply_binary_patch(f, data.more_wares_patches,
                                        enable_flag=exe_options_config.more_wares)
@@ -1132,7 +1133,8 @@ def patch_remaster_icon(f: typing.BinaryIO) -> None:
 
 
 def apply_compatches_to_exe(target_exe: str, version_choice: str, build_id: str,
-                            monitor_res: tuple, exe_options: list[PatcherOptions] | None = None,
+                            monitor_res: tuple, installment: data.SupportedGames,
+                            exe_options: list[PatcherOptions] | None = None,
                             under_windows: bool = True) -> list[str]:
     """Apply binary exe fixes, makes related changes to config and global properties.
 
@@ -1236,7 +1238,7 @@ def apply_compatches_to_exe(target_exe: str, version_choice: str, build_id: str,
         # increase_phys_step(game_root_path)
         logger.info("damage coeff patched")
 
-    patch_configurables(target_exe, exe_options, under_windows)
+    patch_configurables(target_exe, installment, exe_options, under_windows)
     return changes_description
 
 
