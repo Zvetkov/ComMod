@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, ClassVar, Set
 
 from pydantic import (
     BaseModel,
@@ -115,6 +115,7 @@ class MergeDirective(BaseModel, arbitrary_types_allowed = True):
         return self
 
 class PatcherOptions(BaseModel):
+    M113_OPTIONS: ClassVar[set[str]] = {"more_wares"}
     # gameplay
     gravity: Annotated[float, Field(ge=-100, le=-1)] | None = None
     slow_brake: bool | None = None
@@ -138,6 +139,9 @@ class PatcherOptions(BaseModel):
     # m113 specific
     m113_longer_list_of_factions: bool | None = None
 
+    #warelist
+    more_wares: bool | None = None
+
     def is_compatible_with_installment(self, installment: data.SupportedGames) -> bool:
         match installment:
             case data.SupportedGames.EXMACHINA:
@@ -145,7 +149,7 @@ class PatcherOptions(BaseModel):
                            if key.startswith(("m113", "camFov", "g_fixed")))
             case data.SupportedGames.M113:
                 return all(val is None for key, val in self.model_dump().items()
-                           if not key.startswith("m113"))
+                           if not key.startswith("m113") and key not in self.M113_OPTIONS)
             case data.SupportedGames.ARCADE:
                 return all(val is None for val in self.model_dump().values())
 
@@ -1005,6 +1009,14 @@ def patch_configurables(target_exe: str, exe_options: list[PatcherOptions] | Non
                 # changing pointer
                 patch_offsets(f, data.sell_price_offsets)
 
+            if exe_options_config.more_wares is not None:
+                match data.SupportedGames: # тут какая то залупа, нужно сверять с экземпляром игры.
+                    case data.SupportedGames.EXMACHINA:
+                        apply_binary_patch(f, data.more_wares_patches,
+                                       enable_flag=exe_options_config.more_wares)
+                    case data.SupportedGames.M113:
+                        apply_binary_patch(f, data.m113_more_wares_patches,
+                                       enable_flag=exe_options_config.more_wares)
 
         # mapping of offests to value/values needed for binary patch
         configured_offsets: dict[int, Any] = {}
