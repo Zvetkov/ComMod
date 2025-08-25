@@ -4089,7 +4089,8 @@ class ModInstallWizard(ft.Container):
                                       and opt.patcher_options is not None])
 
             if (not is_comrem_or_patch) and patching_settings:
-                commod.game.mod_auxiliary.patch_configurables(game.target_exe, patching_settings,
+                commod.game.mod_auxiliary.patch_configurables(game.target_exe, mod.installment,
+                                                              patching_settings,
                                                               self.app.context.under_windows)
                 if mod.patcher_options and patching_settings:
                     configured_gravity = None
@@ -4120,6 +4121,7 @@ class ModInstallWizard(ft.Container):
                     "patch" if is_compatch else "remaster",
                     build_id,
                     self.app.context.monitor_res,
+                    mod.installment,
                     patching_settings, # COMPATCHSPECIAL: if is_comrem else None,
                     self.app.context.under_windows)
             elif mod.vanilla_mod and not game.patched_version:
