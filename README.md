@@ -47,7 +47,7 @@ Install dependencies to your venv:
 
 Run entry point from:
 ```sh
-> py ./src/commod.py
+> py ./src/commod_launcher.py
 ```
 
 ## Demonstration
