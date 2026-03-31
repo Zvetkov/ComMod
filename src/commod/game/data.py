@@ -272,6 +272,20 @@ no_money_in_player_schwarz_patches = [
     )
 ]
 
+more_wares_patches = [
+    BinaryPatch(
+        offset=0x07FD8C, enable_value="FF", disable_value="0A",
+        comment=("Expands the list of goods to 255 items")
+    )
+]
+
+m113_more_wares_patches = [
+    BinaryPatch(
+        offset=0x083BCC, enable_value="FF", disable_value="0A",
+        comment=("Expands the list of goods to 255 items")
+    )
+]
+
 m113_relationship_list_patches = [
     BinaryPatch(
         offset=0x128139, enable_value="540EC400", disable_value="480EC400",
