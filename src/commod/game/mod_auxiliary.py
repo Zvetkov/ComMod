@@ -189,6 +189,8 @@ class ConfigOptions(BaseModel):
 
     fov:    Annotated[float, Field(ge=0, le=180)] | None = None
 
+    skidDeltaSpeed: Annotated[float, Field(ge=0, le=50)] | None = None
+
     # m113 and arcade specific, some are not available in both and will be ignored by game
     g_fixedCameraMode:          data.TARGEM_BOOLS_LITERAL | None = None
     g_fixedCameraAngle:         Annotated[int, Field(ge=0, le=90)] | None = None
