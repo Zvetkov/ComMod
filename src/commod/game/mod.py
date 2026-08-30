@@ -66,6 +66,7 @@ from commod.tools import xml_merge
 logger = logging.getLogger("dem")
 COMPATCH_REM = {"community_patch", "community_remaster"}
 
+
 class Mod(BaseModel):
     # base directory where manifest is located
     manifest_root: DirectoryPath | Path
@@ -75,15 +76,18 @@ class Mod(BaseModel):
     description: Annotated[str, StringConstraints(max_length=2048)] = Field(repr=False)
     authors: Annotated[str, StringConstraints(max_length=256)] = Field(repr=False)
     version: Version = Field(repr=False)
-    build: Annotated[str, StringConstraints(min_length=1, max_length=7,
-                                            strip_whitespace=True)] = Field(repr=False)
+    build: Annotated[str, StringConstraints(min_length=1, max_length=7, strip_whitespace=True)] = Field(
+        repr=False
+    )
 
     # primary with defaults
     installment: SupportedGames = SupportedGames.EXMACHINA
-    language: Annotated[str, StringConstraints(min_length=2, max_length=3, to_lower=True)] = \
+    language: Annotated[str, StringConstraints(min_length=2, max_length=3, to_lower=True)] = (
         SupportedLanguages.RU.value
-    patcher_version_requirement: str | list[str] | list[ManagerVersionRequirement] = \
-        Field(default=[">=1.10"], repr=False)
+    )
+    patcher_version_requirement: str | list[str] | list[ManagerVersionRequirement] = Field(
+        default=[">=1.10"], repr=False
+    )
     optional_content: list[OptionalContent] = Field(default=[], repr=False)
 
     # compatibility
@@ -93,7 +97,6 @@ class Mod(BaseModel):
     compatible_patch_versions: bool = Field(default=False, repr=False)
     strict_requirements: bool = Field(default=True, repr=False)
     safe_reinstall_options: bool = Field(default=False, repr=False)
-
 
     # TODO: replace with computed fields, probably cached based on hashable insallation config,
     # ugly solution copied from previous Mod implementation for the time being
@@ -117,12 +120,15 @@ class Mod(BaseModel):
     # end of ugly block
 
     # secondary
-    release_date: Annotated[str, StringConstraints(max_length=32, strip_whitespace=True)] = \
-        Field(default="", repr=False)
-    url: Annotated[str, StringConstraints(max_length=128, strip_whitespace=True)] = \
-        Field(default="", validation_alias="link", repr=False)
-    trailer_url: Annotated[str, StringConstraints(max_length=128, strip_whitespace=True)] = \
-        Field(default="", repr=False)
+    release_date: Annotated[str, StringConstraints(max_length=32, strip_whitespace=True)] = Field(
+        default="", repr=False
+    )
+    url: Annotated[str, StringConstraints(max_length=128, strip_whitespace=True)] = Field(
+        default="", validation_alias="link", repr=False
+    )
+    trailer_url: Annotated[str, StringConstraints(max_length=128, strip_whitespace=True)] = Field(
+        default="", repr=False
+    )
     tags: list[Tags] = Field(default=[Tags.UNCATEGORIZED], repr=False)
     logo: str = Field(default="", repr=False)
     install_banner: str = Field(default="", repr=False)
@@ -151,8 +157,10 @@ class Mod(BaseModel):
     raw_bin_dirs: list[str] = Field(default=[], validation_alias="bin_dirs", repr=False)
     raw_merge_instructions: list[str] = Field(default=[], validation_alias="merge_instructions", repr=False)
     raw_options_base_dir: str = Field(default="", validation_alias="options_base_dir", repr=False)
-    archive_file_list: Any | None = Field(default=None, repr=False) # list[ZipInfo] | py7zr.ArchiveFileList | None
-    # lua_execute: list[str] | list[Path] = []
+    archive_file_list: Any | None = Field(
+        default=None, repr=False
+    )  # list[ZipInfo] | py7zr.ArchiveFileList | None
+    lua_execute: list[str] | list[Path] = []
 
     @field_validator("name", "description", mode="after")
     @classmethod
@@ -167,7 +175,8 @@ class Mod(BaseModel):
     @field_validator("patcher_version_requirement", mode="before")
     @classmethod
     def convert_to_parsed_version(
-            cls, value: str | list | ManagerVersionRequirement) -> list[ManagerVersionRequirement]:
+        cls, value: str | list | ManagerVersionRequirement
+    ) -> list[ManagerVersionRequirement]:
         if isinstance(value, str):
             return [ManagerVersionRequirement(value)]
         if isinstance(value, ManagerVersionRequirement):
@@ -200,7 +209,9 @@ class Mod(BaseModel):
                 + str(self.version).replace(".", "")
                 + self.build
                 + f"[{self.installment.replace('exmachina', 'em')}]"
-                ), (" ", "_", "-"))
+            ),
+            (" ", "_", "-"),
+        )
 
     @computed_field(repr=False)
     @cached_property
@@ -212,7 +223,9 @@ class Mod(BaseModel):
                 + self.build
                 + f"{self.language}"
                 + f"[{self.installment.replace('exmachina', 'em')}]"
-                ), (" ", "_", "-"))
+            ),
+            (" ", "_", "-"),
+        )
 
     @computed_field(repr=False)
     @property
@@ -248,17 +261,21 @@ class Mod(BaseModel):
         return "\n".join(self.prevalidated_err).strip()
 
     @classmethod
-    def is_mod_manager_too_new(cls, commod_version: str,
-                             version_requirements: list[ManagerVersionRequirement]) -> bool:
+    def is_mod_manager_too_new(
+        cls, commod_version: str, version_requirements: list[ManagerVersionRequirement]
+    ) -> bool:
         result = True
         for version_requirement in version_requirements:
             compare_operation = version_requirement.compare_operator
             version_current = Version.parse_from_str(commod_version)
 
             # TODO: check, for some reason previously op check was only valid if comp_op is operator.eq
-            if (version_requirement.version < version_current
-                and compare_operation in (operator.eq, operator.le, operator.lt)):
-               continue
+            if version_requirement.version < version_current and compare_operation in (
+                operator.eq,
+                operator.le,
+                operator.lt,
+            ):
+                continue
             result &= False
         return result
 
@@ -268,8 +285,9 @@ class Mod(BaseModel):
         return Mod.is_mod_manager_too_new(OWN_VERSION, self.patcher_version_requirement)
 
     @classmethod
-    def is_commod_compatible(cls, commod_version: str,
-                             version_requirements: list[ManagerVersionRequirement]) -> bool:
+    def is_commod_compatible(
+        cls, commod_version: str, version_requirements: list[ManagerVersionRequirement]
+    ) -> bool:
         compatible = True
         for version_requirement in version_requirements:
             compare_operation = version_requirement.compare_operator
@@ -285,28 +303,42 @@ class Mod(BaseModel):
 
     @classmethod
     def get_commod_compatible_err(
-         cls, name: str, display_name: str, version_requirement: list[ManagerVersionRequirement],
-         commod_compatible: bool, mod_manager_too_new: bool) -> str:
+        cls,
+        name: str,
+        display_name: str,
+        version_requirement: list[ManagerVersionRequirement],
+        commod_compatible: bool,
+        mod_manager_too_new: bool,
+    ) -> str:
         if not commod_compatible:
             str_vers = [ver.version_string for ver in version_requirement]
-            logger.warning(f"{display_name} manifest asks for another mod manager version. "
-                           f"Required: {str_vers}, "
-                           f"available: {OWN_VERSION}")
+            logger.warning(
+                f"{display_name} manifest asks for another mod manager version. "
+                f"Required: {str_vers}, "
+                f"available: {OWN_VERSION}"
+            )
             and_word = f" {tr('and')} "
 
-            error_msg = (tr("usupported_patcher_version",
-                            content_name=display_name,
-                            required_version=and_word.join(str_vers),
-                            current_version=OWN_VERSION,
-                            github_url=COMPATCH_GITHUB))
+            error_msg = tr(
+                "usupported_patcher_version",
+                content_name=display_name,
+                required_version=and_word.join(str_vers),
+                current_version=OWN_VERSION,
+                github_url=COMPATCH_GITHUB,
+            )
 
             # TODO: better to replace with showing error msg box when trying to load mod that is too new
             if mod_manager_too_new and name == "community_remaster":
                 error_msg += f"\n\n{tr('check_for_a_new_version')}\n\n"
-                error_msg += tr("demteam_links",
-                                discord_url=DEM_DISCORD,
-                                deuswiki_url=WIKI_COMREM,
-                                github_url=COMPATCH_GITHUB) + "\n"
+                error_msg += (
+                    tr(
+                        "demteam_links",
+                        discord_url=DEM_DISCORD,
+                        deuswiki_url=WIKI_COMREM,
+                        github_url=COMPATCH_GITHUB,
+                    )
+                    + "\n"
+                )
             return error_msg
         return ""
 
@@ -314,15 +346,18 @@ class Mod(BaseModel):
     @property
     def commod_compatible_err(self) -> str:
         return Mod.get_commod_compatible_err(
-            self.name, self.display_name, self.patcher_version_requirement,
-            self.commod_compatible, self.mod_manager_too_new)
+            self.name,
+            self.display_name,
+            self.patcher_version_requirement,
+            self.commod_compatible,
+            self.mod_manager_too_new,
+        )
 
     # @computed_field
     # @cached_property
     # def individual_require_status(self) -> list:
     #     # TODO: implement if actually required
     #     raise NotImplementedError
-
 
     # @computed_field
     # @cached_property
@@ -344,80 +379,105 @@ class Mod(BaseModel):
         if self.is_translation:
             raise ValueError("Translations can't have child translations")
         if mod_tr.installment != self.installment:
-            raise ValueError("Game installment mismatch, mod and translation should specify same game: "
-                             f"{mod_tr.installment=} != {self.installment=}")
+            raise ValueError(
+                "Game installment mismatch, mod and translation should specify same game: "
+                f"{mod_tr.installment=} != {self.installment=}"
+            )
         if mod_tr.name != self.name:
-            raise ValueError("Service name mismatch, service names for mod and translation should match: "
-                             f"{mod_tr.name=} != {self.name=}")
+            raise ValueError(
+                "Service name mismatch, service names for mod and translation should match: "
+                f"{mod_tr.name=} != {self.name=}"
+            )
         if mod_tr.version != self.version:
-            raise ValueError("Version mismatch, version for mod and translation should match: "
-                             f"{mod_tr.version=} != {self.version=}")
+            raise ValueError(
+                "Version mismatch, version for mod and translation should match: "
+                f"{mod_tr.version=} != {self.version=}"
+            )
         if mod_tr.build != self.build:
-            raise ValueError("Build mismatch, build for mod and translation should match: "
-                             f"{mod_tr.build=} != {self.build=}")
+            raise ValueError(
+                "Build mismatch, build for mod and translation should match: "
+                f"{mod_tr.build=} != {self.build=}"
+            )
         if mod_tr.language == self.language:
-            raise ValueError("Translation language is the same as the language of base mod: "
-                             f"{mod_tr.language=} == {self.language=}")
-        if ({str(ver.version) for ver in mod_tr.patcher_version_requirement}
-            != {str(ver.version) for ver in self.patcher_version_requirement}):
-            raise ValueError("Patcher version requirement mismatch, mod and it's translations "
-                             "should specify same requirements: "
-                             f"{self.patcher_version_requirement=} != {mod_tr.patcher_version_requirement=}")
+            raise ValueError(
+                "Translation language is the same as the language of base mod: "
+                f"{mod_tr.language=} == {self.language=}"
+            )
+        if {str(ver.version) for ver in mod_tr.patcher_version_requirement} != {
+            str(ver.version) for ver in self.patcher_version_requirement
+        }:
+            raise ValueError(
+                "Patcher version requirement mismatch, mod and it's translations "
+                "should specify same requirements: "
+                f"{self.patcher_version_requirement=} != {mod_tr.patcher_version_requirement=}"
+            )
         if mod_tr.strict_requirements != self.strict_requirements:
-            raise ValueError("Translation strict_requirements value is not the same as for the base mod: "
-                             f"{mod_tr.strict_requirements=} != {self.strict_requirements=}")
+            raise ValueError(
+                "Translation strict_requirements value is not the same as for the base mod: "
+                f"{mod_tr.strict_requirements=} != {self.strict_requirements=}"
+            )
 
         if sorted(mod_tr.tags) != sorted(self.tags):
-            raise ValueError("Tags mismatch between mod and translation: "
-                             f"{mod_tr.tags=} != {self.tags=}")
+            raise ValueError(f"Tags mismatch between mod and translation: {mod_tr.tags=} != {self.tags=}")
         mod_tr.is_translation = True
         self._translations_loaded[mod_tr.language] = mod_tr
 
-    def add_mod_variant(self,  mod_vr: "Mod") -> None:
+    def add_mod_variant(self, mod_vr: "Mod") -> None:
         if self.is_variant:
             raise ValueError("Mod variants can't have child variants")
         if self.is_translation:
             raise ValueError("Translations can't have child variants")
         if mod_vr.version != self.version:
-            raise ValueError("Version mismatch, version for mod and variant should match: "
-                             f"{mod_vr.version=} != {self.version=}")
+            raise ValueError(
+                "Version mismatch, version for mod and variant should match: "
+                f"{mod_vr.version=} != {self.version=}"
+            )
         if mod_vr.build != self.build:
-            raise ValueError("Build mismatch, build for mod and variant should match: "
-                             f"{mod_vr.build=} != {self.build=}")
+            raise ValueError(
+                f"Build mismatch, build for mod and variant should match: {mod_vr.build=} != {self.build=}"
+            )
         if mod_vr.name == self.name or mod_vr.display_name == self.display_name:
             raise ValueError(
                 "Mod variants can't have same name or display name as base mods: "
-                f"{self.name=} == {mod_vr.name=} OR {self.display_name=} == {mod_vr.display_name=}")
+                f"{self.name=} == {mod_vr.name=} OR {self.display_name=} == {mod_vr.display_name=}"
+            )
         if mod_vr.installment != self.installment:
-            raise ValueError("Game installment mismatch, mod and it's variants should specify same game: "
-                             f"{self.installment=} != {mod_vr.installment=}")
-        if ({str(ver.version) for ver in mod_vr.patcher_version_requirement}
-            != {str(ver.version) for ver in self.patcher_version_requirement}):
-            raise ValueError("Patcher version requirement mismatch, mod and it's variants "
-                             "should specify same requirements: "
-                             f"{self.patcher_version_requirement=} != {mod_vr.patcher_version_requirement=}")
+            raise ValueError(
+                "Game installment mismatch, mod and it's variants should specify same game: "
+                f"{self.installment=} != {mod_vr.installment=}"
+            )
+        if {str(ver.version) for ver in mod_vr.patcher_version_requirement} != {
+            str(ver.version) for ver in self.patcher_version_requirement
+        }:
+            raise ValueError(
+                "Patcher version requirement mismatch, mod and it's variants "
+                "should specify same requirements: "
+                f"{self.patcher_version_requirement=} != {mod_vr.patcher_version_requirement=}"
+            )
         if mod_vr.language != self.language:
-            raise ValueError("Mod variant language is different from base mod: "
-                             f"{self.language=} != {mod_vr.language=}")
+            raise ValueError(
+                f"Mod variant language is different from base mod: {self.language=} != {mod_vr.language=}"
+            )
         self._variants_loaded[mod_vr.name] = mod_vr
 
     @computed_field(repr=False)
     @property
     def mod_files_root(self) -> DirectoryPath:
         # legacy compatch/comrem manifest was located inside "remaster" dir, not in mod root
-        if (self.name in ("community_patch", "community_remaster")
+        if (
+            self.name in ("community_patch", "community_remaster")
             and not self.raw_data_dirs
-            and self.manifest_root.stem == "remaster"):
-                return self.manifest_root.parent
+            and self.manifest_root.stem == "remaster"
+        ):
+            return self.manifest_root.parent
         return self.manifest_root
 
     @computed_field(repr=False)
     @property
     def options_base_dir(self) -> str | FilePath:
-        if (self.name == "community_remaster" and not self.raw_options_base_dir):
+        if self.name == "community_remaster" and not self.raw_options_base_dir:
             return "remaster"
         return self.raw_options_base_dir
-
 
     @computed_field(repr=False)
     @property
@@ -522,19 +582,24 @@ class Mod(BaseModel):
             if archive_files:
                 if str(merge_instructions).replace("\\", "/") not in archive_files:
                     raise ValueError(
-                        f"Specified merge instruction file doesn't exist in archive:"
-                        f"\n\n{merge_instructions}")
+                        f"Specified merge instruction file doesn't exist in archive:\n\n{merge_instructions}"
+                    )
                 return []
             if not merge_instructions.exists():
                 raise ValueError(f"Specified merge instruction file doesn't exist:\n\n{merge_instructions}")
             instruction_list = read_yaml(merge_instructions)
             if not instruction_list:
-                raise ValueError("Specified merge instruction file is empty:\n\n"
-                                 f"{merge_instructions}")
-            directives.extend([MergeDirective(
-                **instr, merge_author=f"{self.id_str}[base:{merge_instructions.stem}]",
-                root_dir=self.mod_files_root)
-                for instr in instruction_list])
+                raise ValueError(f"Specified merge instruction file is empty:\n\n{merge_instructions}")
+            directives.extend(
+                [
+                    MergeDirective(
+                        **instr,
+                        merge_author=f"{self.id_str}[base:{merge_instructions.stem}]",
+                        root_dir=self.mod_files_root,
+                    )
+                    for instr in instruction_list
+                ]
+            )
 
         return directives
 
@@ -570,18 +635,20 @@ class Mod(BaseModel):
             if archive_files:
                 if str(screen._screen_path).replace("\\", "/") not in archive_files:
                     # screen doesn't exist in archive, probably can be ignored
-                    logger.warning("Screen doesn't exist but specified in manifest: %s",
-                                   screen._screen_path)
+                    logger.warning("Screen doesn't exist but specified in manifest: %s", screen._screen_path)
             else:
                 if not screen.screen_path.exists():
                     # screen doesn't exist, probably can be ignored
                     screen.failed_validation = True
-                    logger.warning("Screen doesn't exist but specified in manifest, ignoring: %s",
-                                   screen._screen_path)
+                    logger.warning(
+                        "Screen doesn't exist but specified in manifest, ignoring: %s", screen._screen_path
+                    )
                 if screen.compare_path is not None and not screen.compare_path.exists():
                     screen.failed_validation = True
-                    logger.warning("Compare screen doesn't exist but specified in manifest, ignoring: %s",
-                                   screen._compare_path)
+                    logger.warning(
+                        "Compare screen doesn't exist but specified in manifest, ignoring: %s",
+                        screen._compare_path,
+                    )
 
         self.screenshots = [screen for screen in self.screenshots if not screen.failed_validation]
 
@@ -603,15 +670,17 @@ class Mod(BaseModel):
                     if install_sett_obj is None:
                         raise AssertionError("Invalid 'option_name' specified for screen", screen_opt_name)
                     if install_sett_obj.display_name:
-                        display_name = (f"{install_sett_obj.display_name} "
-                                        f"({screen_opt_obj.display_name or screen_opt_obj.name})")
+                        display_name = (
+                            f"{install_sett_obj.display_name} "
+                            f"({screen_opt_obj.display_name or screen_opt_obj.name})"
+                        )
                     else:
-                        display_name = (f"{install_sett_obj.name} "
-                                        f"({screen_opt_obj.display_name or screen_opt_obj.name})")
+                        display_name = (
+                            f"{install_sett_obj.name} ({screen_opt_obj.display_name or screen_opt_obj.name})"
+                        )
                     self._screen_option_names[screen_opt_name] = display_name
                 else:
                     raise AssertionError("Invalid 'option_name' specified for screen", screen_opt_name)
-
 
         if self.no_base_content and self.raw_data_dirs:
             raise AssertionError("no_base_content mods can't specify data_dirs for root mod!")
@@ -619,14 +688,14 @@ class Mod(BaseModel):
         if self.no_base_content and self.raw_merge_instructions:
             raise AssertionError("no_base_content mods can't specify merge_instructions for root mod!")
 
-
         for data_path in self.data_dirs:
             resolved_data_path = self.mod_files_root / data_path
 
             if archive_files:
                 data_arch_path = str(resolved_data_path).replace("\\", "/")
-                if (data_arch_path not in archive_files and
-                    not any(file_path.startswith(data_arch_path) for file_path in archive_files)):
+                if data_arch_path not in archive_files and not any(
+                    file_path.startswith(data_arch_path) for file_path in archive_files
+                ):
                     # second partial match check for archives that don't list root directories
                     raise ValueError("Base data path wasn't found in archive", data_arch_path)
             elif not resolved_data_path.is_dir():
@@ -637,15 +706,17 @@ class Mod(BaseModel):
 
             if archive_files:
                 bin_arch_path = str(resolved_bin_path).replace("\\", "/")
-                if (bin_arch_path not in archive_files and
-                    not any(file_path.startswith(bin_arch_path) for file_path in archive_files)):
+                if bin_arch_path not in archive_files and not any(
+                    file_path.startswith(bin_arch_path) for file_path in archive_files
+                ):
                     raise ValueError("Base bin path wasn't found in archive", bin_arch_path)
             elif not resolved_bin_path.is_dir():
                 raise ValueError("Base bin path doesn't exists", resolved_bin_path)
 
         for item in self.optional_content:
-            resolved_item_paths = [self.mod_files_root / self.options_base_dir / one_dir
-                                   for one_dir in item.data_dirs]
+            resolved_item_paths = [
+                self.mod_files_root / self.options_base_dir / one_dir for one_dir in item.data_dirs
+            ]
             for resolved_opt_path in resolved_item_paths:
                 if item.install_settings:
                     for custom_setting in item.install_settings:
@@ -653,24 +724,30 @@ class Mod(BaseModel):
                             path_to_check = resolved_opt_path / custom_data_dir
                             if archive_files:
                                 path_to_check = str(resolved_opt_path).replace("\\", "/")
-                                if (path_to_check not in archive_files and
-                                    not any(file_path.startswith(path_to_check)
-                                            for file_path in archive_files)):
-                                    raise ValueError("Data path for optional content wasn't found in archive",
-                                                     path_to_check)
-                            elif not path_to_check.is_dir(): # and not custom_setting.merge_instructions:
-                                raise ValueError("Data path doesn't exists for optional content",
-                                                 path_to_check)
+                                if path_to_check not in archive_files and not any(
+                                    file_path.startswith(path_to_check) for file_path in archive_files
+                                ):
+                                    raise ValueError(
+                                        "Data path for optional content wasn't found in archive",
+                                        path_to_check,
+                                    )
+                            elif not path_to_check.is_dir():  # and not custom_setting.merge_instructions:
+                                raise ValueError(
+                                    "Data path doesn't exists for optional content", path_to_check
+                                )
                 else:
                     path_to_check = resolved_opt_path / "data"
                     if archive_files:
                         path_to_check = str(resolved_opt_path).replace("\\", "/")
-                        if (item.data_dirs
-                            and (path_to_check not in archive_files) and
-                            not any(file_path.startswith(path_to_check) for file_path in archive_files)):
-                            raise ValueError("Data path for optional content wasn't found in archive",
-                                             path_to_check)
-                    elif not path_to_check.is_dir() and item.data_dirs: # and not item.merge_instructions:
+                        if (
+                            item.data_dirs
+                            and (path_to_check not in archive_files)
+                            and not any(file_path.startswith(path_to_check) for file_path in archive_files)
+                        ):
+                            raise ValueError(
+                                "Data path for optional content wasn't found in archive", path_to_check
+                            )
+                    elif not path_to_check.is_dir() and item.data_dirs:  # and not item.merge_instructions:
                         raise ValueError("Data path doesn't exists for optional content", path_to_check)
             item.data_dirs = resolved_item_paths
 
@@ -685,20 +762,26 @@ class Mod(BaseModel):
                             if str(merge_instructions).replace("\\", "/") not in archive_files:
                                 raise ValueError(
                                     f"Specified merge instruction file doesn't exist in archive:"
-                                    f"\n\n{merge_instructions}")
+                                    f"\n\n{merge_instructions}"
+                                )
                             continue
                         if not merge_instructions.exists():
-                            raise ValueError("Specified merge instruction file doesn't exist:\n\n"
-                                             f"{merge_instructions}")
+                            raise ValueError(
+                                f"Specified merge instruction file doesn't exist:\n\n{merge_instructions}"
+                            )
                         opt_instruction_list = read_yaml(merge_instructions)
                         if not opt_instruction_list:
-                            raise ValueError("Specified merge instruction file is empty:\n\n"
-                                             f"{merge_instructions}")
-                        directives = [MergeDirective(
-                            **instr,
-                            merge_author=f"{self.id_str}[{item.name}][{custom_setting.name}]",
-                            root_dir=self.mod_files_root)
-                            for instr in opt_instruction_list]
+                            raise ValueError(
+                                f"Specified merge instruction file is empty:\n\n{merge_instructions}"
+                            )
+                        directives = [
+                            MergeDirective(
+                                **instr,
+                                merge_author=f"{self.id_str}[{item.name}][{custom_setting.name}]",
+                                root_dir=self.mod_files_root,
+                            )
+                            for instr in opt_instruction_list
+                        ]
                         custom_setting.merge_directives.extend(directives)
             else:
                 for path in item.merge_instructions:
@@ -707,19 +790,24 @@ class Mod(BaseModel):
                         if str(merge_instructions).replace("\\", "/") not in archive_files:
                             raise ValueError(
                                 f"Specified merge instruction file doesn't exist in archive:"
-                                f"\n\n{merge_instructions}")
+                                f"\n\n{merge_instructions}"
+                            )
                         continue
                     if not merge_instructions.exists():
-                        raise ValueError("Specified merge instruction file doesn't exist:\n\n"
-                                         f"{merge_instructions}")
+                        raise ValueError(
+                            f"Specified merge instruction file doesn't exist:\n\n{merge_instructions}"
+                        )
                     opt_instruction_list = read_yaml(merge_instructions)
                     if not opt_instruction_list:
-                        raise ValueError("Specified merge instruction file is empty:\n\n"
-                                         f"{merge_instructions}")
-                    directives = [MergeDirective(
-                        **instr, merge_author=f"{self.id_str}[{item.name}]",
-                        root_dir=self.mod_files_root)
-                        for instr in opt_instruction_list]
+                        raise ValueError(
+                            f"Specified merge instruction file is empty:\n\n{merge_instructions}"
+                        )
+                    directives = [
+                        MergeDirective(
+                            **instr, merge_author=f"{self.id_str}[{item.name}]", root_dir=self.mod_files_root
+                        )
+                        for instr in opt_instruction_list
+                    ]
                     item.merge_directives.extend(directives)
         return self
 
@@ -742,40 +830,42 @@ class Mod(BaseModel):
 
             if archive_files:
                 if str(variant_manifest_path).replace("\\", "/") not in archive_files:
-                    raise AssertionError(
-                        f"Manifest for variant not present in the archive: {manifest_name}")
+                    raise AssertionError(f"Manifest for variant not present in the archive: {manifest_name}")
                 return self
 
             if not variant_manifest_path.exists():
-                raise ValueError(f"Variant '{variant_alias}' specified but manifest for it is missing! "
-                                 f"(Mod: {self.name})")
+                raise ValueError(
+                    f"Variant '{variant_alias}' specified but manifest for it is missing! (Mod: {self.name})"
+                )
             yaml_config = read_yaml(variant_manifest_path)
             if yaml_config is None:
                 raise ValueError("Mod variant manifest is not a valid yaml file")
 
             yaml_config["build"] = self.build
             yaml_config["version"] = str(self.version)
-            mod_vr = Mod(**yaml_config, is_variant=True, variant_alias=variant_alias,
-                         manifest_root=self.manifest_root)
+            mod_vr = Mod(
+                **yaml_config, is_variant=True, variant_alias=variant_alias, manifest_root=self.manifest_root
+            )
             self.add_mod_variant(mod_vr)
 
-        if (self.name == "community_remaster"
-           and not self.is_translation
-           and not self.variants):
+        if self.name == "community_remaster" and not self.is_translation and not self.variants:
             self.prerequisites = []
-            compatch_fallback = self.model_copy(update={
-                "name": "community_patch",
-                "display_name": "Community Patch",
-                "description": tr_lang("compatch_description", self.language),
-                "optional_content": [],
-                "screenshots": [],
-                "logo": "",
-                "install_banner": "",
-                "patcher_options": PatcherOptions(skins_in_shop=8, gravity=-19.62,
-                                                  blast_damage_friendly_fire=False),
-                "translations": [],
-                "prerequisites": []
-            })
+            compatch_fallback = self.model_copy(
+                update={
+                    "name": "community_patch",
+                    "display_name": "Community Patch",
+                    "description": tr_lang("compatch_description", self.language),
+                    "optional_content": [],
+                    "screenshots": [],
+                    "logo": "",
+                    "install_banner": "",
+                    "patcher_options": PatcherOptions(
+                        skins_in_shop=8, gravity=-19.62, blast_damage_friendly_fire=False
+                    ),
+                    "translations": [],
+                    "prerequisites": [],
+                }
+            )
             compatch_fallback._translations_loaded = {compatch_fallback.language: compatch_fallback}
             compatch_fallback._variants_loaded = {compatch_fallback.name: compatch_fallback}
             compatch_fallback.is_variant = True
@@ -804,21 +894,28 @@ class Mod(BaseModel):
             if archive_files:
                 if str(translation_manifest_path).replace("\\", "/") not in archive_files:
                     raise AssertionError(
-                        f"Manifest for translation not present in the archive: {manifest_name}")
+                        f"Manifest for translation not present in the archive: {manifest_name}"
+                    )
                 return self
 
             if not translation_manifest_path.exists():
                 raise AssertionError(
                     f"Translation '{translation_alias}' specified but manifest for it is missing! "
-                    f"(Mod: {self.name})")
+                    f"(Mod: {self.name})"
+                )
             yaml_config = read_yaml(translation_manifest_path)
             if yaml_config is None:
                 raise AssertionError("Mod translation manifest is not a valid yaml file")
 
             yaml_config["build"] = self.build
             yaml_config["version"] = str(self.version)
-            mod_tr = Mod(**yaml_config, is_translation=True, is_variant=self.is_variant,
-                         variant_alias=self.variant_alias, manifest_root=self.manifest_root)
+            mod_tr = Mod(
+                **yaml_config,
+                is_translation=True,
+                is_variant=self.is_variant,
+                variant_alias=self.variant_alias,
+                manifest_root=self.manifest_root,
+            )
             self.add_mod_translation(mod_tr)
 
         return self
@@ -833,10 +930,12 @@ class Mod(BaseModel):
             for mod in all_known:
                 if not mod.sister_variants:
                     mod._sister_variants = {
-                        sis_mod.name: sis_mod for sis_mod in all_known
+                        sis_mod.name: sis_mod
+                        for sis_mod in all_known
                         if mod.version == sis_mod.version
                         and mod.name != sis_mod.name
-                        and mod.language == sis_mod.language}
+                        and mod.language == sis_mod.language
+                    }
         return self
 
     @model_validator(mode="after")
@@ -846,22 +945,26 @@ class Mod(BaseModel):
 
         if self.name in COMPATCH_REM:
             raise AssertionError(
-                f"{self.name} is reserved for EM1 mods, as it forced implicit binary patching")
+                f"{self.name} is reserved for EM1 mods, as it forced implicit binary patching"
+            )
 
         if self.patcher_options and not self.patcher_options.is_compatible_with_installment(self.installment):
             raise AssertionError(
-                f"Mod specifies patcher_options that are not supported for '{self.installment}' mods")
+                f"Mod specifies patcher_options that are not supported for '{self.installment}' mods"
+            )
         for option in self.optional_content:
-            if option.patcher_options and not option.patcher_options.is_compatible_with_installment(self.installment):
+            if option.patcher_options and not option.patcher_options.is_compatible_with_installment(
+                self.installment
+            ):
                 raise AssertionError(
-                    f"Mod's option specifies patcher_options that are not supported for '{self.installment}' mods")
+                    f"Mod's option specifies patcher_options that are not supported for '{self.installment}' mods"
+                )
 
         if self.config_options is not None:
             if self.config_options.ai_clash_coeff is not None:
                 raise AssertionError("ai_clash_coeff config option is only valid for EM1")
             if self.config_options.ai_enemies_ramming_damage_coeff is not None:
-                raise AssertionError(
-                    "ai_enemies_ramming_damage_coeff config option is only valid for EM1")
+                raise AssertionError("ai_enemies_ramming_damage_coeff config option is only valid for EM1")
             if self.config_options.ai_min_hit_velocity is not None:
                 raise AssertionError("ai_min_hit_velocity config option is only valid for EM1")
 
@@ -884,44 +987,50 @@ class Mod(BaseModel):
         for translation in self._translations_loaded.values():
             translation.installment_compatible = self.installment == game_installment
 
-    def load_session_compatibility(self, installed_content: dict, installed_descriptions: dict,
-                                   library_mods_info: dict[str, dict[str, str]] | None) -> None:
+    def load_session_compatibility(
+        self,
+        installed_content: dict,
+        installed_descriptions: dict,
+        library_mods_info: dict[str, dict[str, str]] | None,
+    ) -> None:
         for translation in self._translations_loaded.values():
+            translation.compatible, translation.compatible_err = translation.check_requirements(
+                installed_content, installed_descriptions, library_mods_info
+            )
 
-            translation.compatible, translation.compatible_err = \
-                translation.check_requirements(
-                    installed_content,
-                    installed_descriptions,
-                    library_mods_info)
+            translation.prevalidated, translation.prevalidated_err = translation.check_incompatibles(
+                installed_content, installed_descriptions, library_mods_info
+            )
 
-            translation.prevalidated, translation.prevalidated_err = \
-                translation.check_incompatibles(
-                    installed_content,
-                    installed_descriptions,
-                    library_mods_info)
+            (
+                translation.is_reinstall,
+                translation.can_be_reinstalled,
+                translation.reinstall_warning,
+                translation.existing_version,
+            ) = translation.check_reinstallability(installed_content)
 
-            (translation.is_reinstall, translation.can_be_reinstalled,
-             translation.reinstall_warning, translation.existing_version) = \
-                translation.check_reinstallability(
-                    installed_content)
-
-            translation.can_install = (translation.commod_compatible
-                                       and translation.installment_compatible
-                                       and translation.compatible
-                                       and translation.prevalidated
-                                       and translation.can_be_reinstalled)
+            translation.can_install = (
+                translation.commod_compatible
+                and translation.installment_compatible
+                and translation.compatible
+                and translation.prevalidated
+                and translation.can_be_reinstalled
+            )
 
     async def find_missing_targets_for_directives(
-            self, temp_data: Path, directive_list: list[MergeDirective]) -> list[Path]:
+        self, temp_data: Path, directive_list: list[MergeDirective]
+    ) -> list[Path]:
         need_to_copy: list[Path] = []
         for directive in directive_list:
-            need_to_copy.extend([target for target in directive.targets
-                                 if not (temp_data / target).exists()])
+            need_to_copy.extend([target for target in directive.targets if not (temp_data / target).exists()])
         return need_to_copy
 
     async def apply_directives(
-            self, target_dir: Path, directives: list[MergeDirective],
-            callback_progbar: Callable[[int, int, str, float], Awaitable[None]]) -> None:
+        self,
+        target_dir: Path,
+        directives: list[MergeDirective],
+        callback_progbar: Callable[[int, int, str, float], Awaitable[None]],
+    ) -> None:
         total_count = sum(len(directive.targets) for directive in directives)
         current_count = 0
         for directive in directives:
@@ -933,29 +1042,41 @@ class Mod(BaseModel):
                 except (ValueError, AssertionError) as ex:
                     raise ModFilePackagingError(f"Incorrect merge command found!\n{ex}!")  # noqa: B904
 
-                try:
-                    logger.debug(f"Updating file with commands: {base_path}")
-                    await asyncio.to_thread(xml_merge.update_file_with_commands, base_path, directive_commands)
-                except commod.tools.xml_helpers.InvalidMergeCommandError as ex:
-                    raise ModInvalidMergeInstallationError(target,
-                                                           ex.error_desc) from ex
-                except Exception as ex:
-                    raise ModInvalidMergeInstallationError(target,
-                                                          str(ex)) from ex
+                logger.debug(f"Updating file with commands: {base_path}")
+                max_attempts = 5
+                for attempt in range(max_attempts):
+                    try:
+                        await asyncio.to_thread(
+                            xml_merge.update_file_with_commands, base_path, directive_commands
+                        )
+                        break
+                    except PermissionError as ex:
+                        if attempt == max_attempts - 1:
+                            raise ModInvalidMergeInstallationError(
+                                target, f"File locked after 5 attempts: {target}"
+                            ) from ex
+                        logger.warning(f"File locked by external process, retry {attempt + 1}/5: {base_path}")
+                        await asyncio.sleep(0.1 * (attempt + 1))
+                    except commod.tools.xml_helpers.InvalidMergeCommandError as ex:
+                        raise ModInvalidMergeInstallationError(target, ex.error_desc) from ex
+                    except Exception as ex:
+                        raise ModInvalidMergeInstallationError(target, str(ex)) from ex
 
-                await callback_progbar(current_count, total_count, str(target), 0)
-                await asyncio.sleep(0.01)
+                    await callback_progbar(current_count, total_count, str(target), 0)
+                    await asyncio.sleep(0.01)
 
-    async def install_async(self, temp_location: str | Path,
-                            game_data_path: str | Path,
-                            install_settings: dict[str, Any],
-                            existing_content: dict[str, Any],
-                            callback_progbar: Callable[[int, int, str, float], Awaitable[None]],
-                            callback_status: Callable[[str], Awaitable[None]]) -> bool:
+    async def install_async(
+        self,
+        temp_location: str | Path,
+        game_data_path: str | Path,
+        install_settings: dict[str, Any],
+        existing_content: dict[str, Any],
+        callback_progbar: Callable[[int, int, str, float], Awaitable[None]],
+        callback_status: Callable[[str], Awaitable[None]],
+    ) -> bool:
         """Use fast async copy, return bool success status of install."""
         start = time.perf_counter()
         try:
-
             temp_location = Path(temp_location)
             temp_data = temp_location / "data"
             game_data_path = Path(game_data_path)
@@ -987,9 +1108,7 @@ class Mod(BaseModel):
 
                 if installation_decision == "yes":
                     for data_dir in wip_setting.data_dirs:
-                        simple_option_path = Path(
-                            data_dir,
-                            "data")
+                        simple_option_path = Path(data_dir, "data")
                         mod_files.append(simple_option_path)
                     merge_directives.extend(wip_setting.merge_directives)
                 elif installation_decision == "skip":
@@ -997,13 +1116,18 @@ class Mod(BaseModel):
                     continue
                 else:
                     custom_install_method = install_settings[install_setting]
-                    install_setting_obj = next(iter([sett for sett in wip_setting.install_settings
-                                           if sett.name == custom_install_method]))
+                    install_setting_obj = next(
+                        iter(
+                            [
+                                sett
+                                for sett in wip_setting.install_settings
+                                if sett.name == custom_install_method
+                            ]
+                        )
+                    )
                     for data_dir in wip_setting.data_dirs:
                         for sett_data_dir in install_setting_obj.data_dirs:
-                            complex_option_path = Path(
-                                data_dir,
-                                sett_data_dir)
+                            complex_option_path = Path(data_dir, sett_data_dir)
                             mod_files.append(complex_option_path)
                             merge_directives.extend(install_setting_obj.merge_directives)
 
@@ -1015,12 +1139,14 @@ class Mod(BaseModel):
                 await callback_status(tr("copying_additional_files_to_temp_dir"))
                 await asyncio.sleep(0.01)
                 directive_base_files = await self.find_missing_targets_for_directives(
-                    temp_data, merge_directives)
+                    temp_data, merge_directives
+                )
                 for relative_path in directive_base_files:
                     if not (game_data_path / relative_path).exists():
                         raise ModMissingFileInstallationError(relative_path)
                 await copy_targets_from_to_async(
-                    directive_base_files, game_data_path, temp_data, callback_progbar)
+                    directive_base_files, game_data_path, temp_data, callback_progbar
+                )
 
                 await callback_status(tr("applying_merge_mod_to_temp_dir"))
                 await asyncio.sleep(0.01)
@@ -1028,8 +1154,7 @@ class Mod(BaseModel):
 
             await callback_status(tr("copying_final_files_from_temp_dir"))
             await asyncio.sleep(0.01)
-            await copy_from_to_async_fast(
-                [temp_location], Path(game_data_path).parent, callback_progbar)
+            await copy_from_to_async_fast([temp_location], Path(game_data_path).parent, callback_progbar)
 
         except (ModMissingFileInstallationError, ModFilePackagingError, ModInvalidMergeInstallationError):
             logger.error("Handled error occurred when installing the mod!")
@@ -1044,14 +1169,19 @@ class Mod(BaseModel):
             await asyncio.to_thread(shutil.rmtree, temp_location)
             logger.debug("Deleted temp dir")
 
-    def check_requirements(self, existing_content: dict, existing_content_descriptions: dict,
-                           library_mods_info: dict[str, dict[str, str]] | None) -> tuple[bool, list[str]]:
+    def check_requirements(
+        self,
+        existing_content: dict,
+        existing_content_descriptions: dict,
+        library_mods_info: dict[str, dict[str, str]] | None,
+    ) -> tuple[bool, list[str]]:
         """Return bool for cumulative check success result and a list of error message string."""
         error_msgs = []
 
         requirements_met = True
-        is_compatch_env = ("community_remaster" not in existing_content and
-                           "community_patch" in existing_content)
+        is_compatch_env = (
+            "community_remaster" not in existing_content and "community_patch" in existing_content
+        )
 
         self.individual_require_status.clear()
         for prereq in self.prerequisites:
@@ -1059,8 +1189,8 @@ class Mod(BaseModel):
                 continue
 
             validated, mod_error = prereq.compute_current_status(
-                existing_content, existing_content_descriptions,
-                library_mods_info, is_compatch_env)
+                existing_content, existing_content_descriptions, library_mods_info, is_compatch_env
+            )
             self.individual_require_status.append((prereq, validated, mod_error))
             if mod_error:
                 error_msgs.extend(mod_error)
@@ -1082,12 +1212,11 @@ class Mod(BaseModel):
             else:
                 validated_vanilla_mod = True
                 mod_error = ""
-            self.individual_require_status.append(
-                (fake_req, validated_vanilla_mod, mod_error))
+            self.individual_require_status.append((fake_req, validated_vanilla_mod, mod_error))
             requirements_met &= validated_vanilla_mod
 
         # if error_msg:
-            # error_msg.append(f'\n{tr("check_for_a_new_version")}')
+        # error_msg.append(f'\n{tr("check_for_a_new_version")}')
 
         return requirements_met, error_msgs
 
@@ -1102,13 +1231,16 @@ class Mod(BaseModel):
         variants_installed = []
 
         if self.sister_variants:
-            variants_installed = [existing_content.get(srv_name) for srv_name in self.sister_variants
-                                  if existing_content.get(srv_name) is not None]
+            variants_installed = [
+                existing_content.get(srv_name)
+                for srv_name in self.sister_variants
+                if existing_content.get(srv_name) is not None
+            ]
             if variants_installed and self.name == "community_remaster":
                 comrem_over_compatch = True
                 previous_install = variants_installed[0]
 
-        if self.name == "community_patch" and variants_installed: # previous_install is None and
+        if self.name == "community_patch" and variants_installed:  # previous_install is None and
             return True, False, tr("cant_install_patch_over_remaster"), variants_installed[0]
 
         if previous_install is None:
@@ -1143,13 +1275,13 @@ class Mod(BaseModel):
                 if mod_name is None:
                     mod_name = name
                 existing_mods_display_names.append(mod_name)
-            warning = (f'{tr("cant_reinstall_over_other_mods")}: '
-                       + ", ".join(existing_mods_display_names) + ".")
+            warning = (
+                f"{tr('cant_reinstall_over_other_mods')}: " + ", ".join(existing_mods_display_names) + "."
+            )
             return True, False, warning, previous_install
 
         existing_version = Version.parse_from_str(previous_install["version"])
         this_version = self.version
-
 
         over_other_version_warning = tr("cant_reinstall_over_other_version")
 
@@ -1212,9 +1344,12 @@ class Mod(BaseModel):
         # self.build < previous_install["build"]
         return True, False, tr("cant_reinstall_over_newer_build"), previous_install
 
-    def check_incompatibles(self, existing_content: dict,
-                            existing_content_descriptions: dict,
-                            library_mods_info: dict[str, dict[str, str]] | None) -> tuple[bool, list]:
+    def check_incompatibles(
+        self,
+        existing_content: dict,
+        existing_content_descriptions: dict,
+        library_mods_info: dict[str, dict[str, str]] | None,
+    ) -> tuple[bool, list]:
         error_msg = []
         compatible = True
 
@@ -1222,17 +1357,16 @@ class Mod(BaseModel):
 
         for incomp in self.incompatible:
             incompatible_with_game_copy, mod_error = incomp.compute_current_status(
-                existing_content, existing_content_descriptions, library_mods_info)
-            self.individual_incomp_status.append((incomp, not incompatible_with_game_copy,
-                                                 mod_error))
+                existing_content, existing_content_descriptions, library_mods_info
+            )
+            self.individual_incomp_status.append((incomp, not incompatible_with_game_copy, mod_error))
             if mod_error:
                 error_msg.extend(mod_error)
-            compatible &= (not incompatible_with_game_copy)
+            compatible &= not incompatible_with_game_copy
 
         # convoluted logic required to support inconsistent configs of legacy ComRem versions
         # which icluded ComPatch in prereqs while not really following that requirement
-        if (compatible and self.strict_requirements
-            and (self.prerequisites or self.name in COMPATCH_REM)):
+        if compatible and self.strict_requirements and (self.prerequisites or self.name in COMPATCH_REM):
             content_to_ignore = {self.name} | COMPATCH_REM
             for prereq in self.prerequisites:
                 content_to_ignore = content_to_ignore | set(prereq.name)
@@ -1245,12 +1379,12 @@ class Mod(BaseModel):
                         mod_name = name
                     existing_mods_display_names.append(mod_name)
                 existing_string = ", ".join(existing_mods_display_names)
-                error_msg.append(f'{tr("cant_install_strict_requirements")}: '
-                                 + existing_string + ".")
+                error_msg.append(f"{tr('cant_install_strict_requirements')}: " + existing_string + ".")
                 compatible = False
                 fake_incomp = Incompatibility(name="other_mods")
                 fake_incomp._name_label = existing_string
 
                 self.individual_incomp_status.append(
-                    (fake_incomp, False, [f'{tr("already_installed")}: {existing_string}']))
+                    (fake_incomp, False, [f"{tr('already_installed')}: {existing_string}"])
+                )
         return compatible, error_msg

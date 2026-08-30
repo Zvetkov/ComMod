@@ -95,3 +95,6 @@ dmypy.json
 
 # Mods folder
 mods/
+
+#packaged binaries
+/commod*.bin

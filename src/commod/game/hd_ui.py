@@ -20,11 +20,11 @@ def scale_fonts(root_dir: str | Path, scale_factor: float, custom_font: str = ""
     if config_path_parts is None:
         logger.debug("Unable to read 'ui_pathToSchema' for config!")
         return False
-    config_path = Path(*config_path_parts.split("\\"))
-    ui_schema_path = Path(root_dir, config_path)
-    ui_schema = parse_ops.xml_to_objfy(str(ui_schema_path).lower())
+    config_path = [part.lower() for part in config_path_parts.split("\\")]
+    ui_schema_path = Path(root_dir, *config_path)
+    ui_schema = parse_ops.xml_to_objfy(str(ui_schema_path))
 
-    font_alias = custom_font if custom_font else "Arial"
+    font_alias = custom_font or "Arial"
 
     listed_system_fonts = []
     fonts_path = Path(Path.home().drive + "/", "Windows", "fonts")

@@ -20,8 +20,8 @@ from typing import Any
 import yaml
 from aiopath import AsyncPath
 from flet import Text
-
 from lxml import objectify
+
 # import aiofiles
 from py7zr import py7zr
 from pydantic import DirectoryPath, ValidationError
@@ -108,7 +108,7 @@ class InstallationContext:
         self.validated_mods: dict[str, Mod] = {}
         self.hashed_mod_manifests: dict[str, str] = {} # dict[str(Path), md5 hash]
         self.archived_mods: dict[str, Mod] = {}
-        self.archived_mods_cache: dict[str, Mod] = {}
+        self.archived_mods_cache: dict[str, Mod | None] = {}
         self.archived_mod_manifests_cache: dict[str, tuple[Any, Path]] = {}
         self.commod_version = OWN_VERSION
         self.os = platform.system()
@@ -200,8 +200,9 @@ class InstallationContext:
             cmd2 = ["grep", "*"]
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
             p2 = subprocess.Popen(cmd2, stdin=p.stdout, stdout=subprocess.PIPE)
-            p.stdout.close()
-            resolution_byte, junk = p2.communicate()
+            if p.stdout:
+                p.stdout.close()
+            resolution_byte, _ = p2.communicate()
             resolution_string = resolution_byte.decode("utf-8")
             resolution = resolution_string.split()[0]
             self.logger.debug(f"Detected resolution: {resolution}")
@@ -368,10 +369,10 @@ class InstallationContext:
                     if not top_level:
                         break
                 elif levels_left != 0:
-                    found_manifests.extend(self.get_dir_manifests(entry, levels_left, top_level=False))
+                    found_manifests.extend(self.get_dir_manifests(str(entry), levels_left, top_level=False))
         return found_manifests
 
-    async def find_manifest_in_dir(self, target_dir: AsyncPath, nesting_levels: int = 3) -> list:
+    async def find_manifest_in_dir(self, target_dir: AsyncPath, nesting_levels: int = 3) -> AsyncPath | None:
         self.logger.debug(f"{datetime.now()} looking for manifest in {target_dir.name}")
         levels_left = nesting_levels - 1
         manifests_path = AsyncPath(target_dir, "manifest.yaml")
@@ -395,7 +396,7 @@ class InstallationContext:
 
         return await self.find_manifest_in_dir(nested_dirs[0])
 
-    async def get_dir_manifest_async(self, target_dir: str) -> str:
+    async def get_dir_manifest_async(self, target_dir: str) -> list[AsyncPath]:
         top_level_dirs = [path async for path in AsyncPath(target_dir).glob("*") if await path.is_dir()]
 
         search_results = await gather(*[self.find_manifest_in_dir(top_dir) for top_dir in top_level_dirs])
@@ -550,7 +551,7 @@ class InstallationContext:
             ignore_cache: bool = False
             ) -> tuple[Mod | None, Exception | None]:
         if not ignore_cache:
-            cached = self.archived_mods_cache.get(archive_path)
+            cached = self.archived_mods_cache.get(str(archive_path))
             if cached is not None:
                 return cached, None
         try:
@@ -558,10 +559,10 @@ class InstallationContext:
                 **manifest, manifest_root=manifest_root_dir,
                 archive_file_list=file_list)
         except (ValueError, AssertionError, ValidationError) as ex:
-            self.archived_mods_cache[archive_path] = None
+            self.archived_mods_cache[str(archive_path)] = None
             return None, ex
         else:
-            self.archived_mods_cache[archive_path] = mod
+            self.archived_mods_cache[str(archive_path)] = mod
             return mod, None
 
     def setup_loggers(self, stream_only: bool = False) -> None:
@@ -1113,7 +1114,7 @@ class GameCopy:
         self.logger.debug("Setting hidpi awareness")
         compat_settings_reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
         try:
-            import winreg
+            import winreg  # noqa: PLC0415
         except (ImportError, NameError):
             self.logger.debug("Unable to use WinReg, might be running under another OS")
             return False

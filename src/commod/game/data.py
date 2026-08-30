@@ -10,7 +10,7 @@ from commod import __version__
 
 OWN_VERSION = __version__
 
-DATE = "(Jun 22 2025)"
+DATE = "(Mar 15 2026)"
 # version of binary fixes
 # corresponds with the latest major.minor ComPatch/Rem release at the time of ComMod compilation
 VERSION = "1.14"
@@ -108,7 +108,7 @@ DEFAULT_LINUX_SCALE_FACTOR = 2.0
 def get_system_os_scale() -> float:
     if "Windows" in platform.system():
         try:
-            from ctypes import windll
+            from ctypes import windll  # noqa: PLC0415
             return windll.shcore.GetScaleFactorForDevice(0) / 100
         except (ImportError, NameError):
             return DEFAULT_SCALE_FACTOR
@@ -431,7 +431,7 @@ binary_inserts = {
 offsets_exe_fixes = {
     # aspect ratio hack for Frustum Culling
     0x3A6128: 1.5707963267948966,  # TARGET_FOV_X_RADS,   # fov_x passed to CClipper::CreateScreenFrustums
-    0x5E497C: 1.5328148297998656,  # COEFF_FOV_X_FROM_Y,  # hacked "aspect_ratio" coeff to calc fov_y
+    0x5E497C: 1.5328148297998656,  # COEFF_FOV_X_FROM_Y,  # hacked "aspect_ratio" coeff to calc fov_y # TODO: check if this is actually still used
 
     # back sliding vehicle throttle lock coeff
     0x1DABEE: "0x009E59EC",
@@ -646,6 +646,8 @@ configurable_offsets = {
     "skins_in_shop_0": 0x181DCA,
     "skins_in_shop_1": 0x181C95,
     "skins_in_shop_2": 0x181E75,
+    "skins_in_shop_3": 0x1E8D1F, # ai::Vehicle::_EvaluateToDead
+    "skins_in_shop_4": 0x2C024A, # ai::ComplexPhysicObj::_CreateSplinterFromSgNode
     "blast_damage_friendly_fire": 0x3DFADC,
     "sell_price_coeff_new": 0x5E300C
     }

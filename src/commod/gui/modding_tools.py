@@ -708,7 +708,7 @@ class CommandPreview(ft.Container):
                     serizalized_cmd,
                     encoding="utf-8",
                     pretty_print=True)
-                ).decode().strip() #.replace("&quot;", "''")
+                ).decode().strip() #.replace("&quot;", "''") # TODO: check *.decode("utf-8", errors="replace") on cases of incorrectly formatted files
 
         self.content = \
                 ft.Column([
@@ -768,7 +768,7 @@ class NodePreview(ft.Container):
                     self.node,
                     encoding="utf-8",
                     pretty_print=True)
-                ).decode().strip() # .replace("&quot;", "''")
+                ).decode().strip() # .replace("&quot;", "''")# TODO: check *.decode("utf-8", errors="replace") on cases of incorrectly formatted files
             self.content = \
                 ft.Stack([
                     ft.Column([

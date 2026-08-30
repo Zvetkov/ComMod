@@ -719,8 +719,10 @@ class Incompatibility(ModCompatConstrain):
                     error_msg.append(f'\n{tr("version_available").capitalize()}:\n'
                                      f'{installed_description}')
                 else:
-                    # TODO: check if this path even possible
-                    raise NotImplementedError
+                    # TODO: this can happen for legacy game installations, where both compatch and comrem are present
+                    # compatch then can be incompatible but no description for it will be available
+                    installed_description = "Legacy"
+                    error_msg.append("Problem with legacy game manifest, both ComPatch and ComRem are present")
             self._name_label = name_label
             return incompatible_with_game_copy, error_msg
 
@@ -737,7 +739,7 @@ class InstallSettings(BaseModel):
     data_dirs: list[str] | list[Path] = []
     merge_instructions: list[str] | list[Path] = []
     _merge_directives: list[MergeDirective] = []
-    # lua_execute: list[str] | list[Path] = []
+    lua_execute: list[str] | list[Path] = []
 
     @property
     def merge_directives(self) -> list[MergeDirective]:
@@ -1247,7 +1249,7 @@ def rename_effects_bps(game_root_path: str) -> None:
                        "nor in renamed form, probably was deleted by user")
 
 
-def get_glob_props_path(root_dir: str) -> str:
+def get_glob_props_path(root_dir: str | Path) -> str:
     config = get_config(root_dir)
     glob_props_path = ""
     if config.attrib.get("pathToGlobProps") is not None:
